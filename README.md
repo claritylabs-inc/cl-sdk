@@ -1,12 +1,8 @@
-# Cell
+[Clarity Labs](https://claritylabs.inc) is an applied AI research lab building the infrastructure for AI to work safely with insurance.
 
-Cell is the intelligence engine behind [Clarity Labs](https://claritylabs.inc). It's a pure TypeScript library that encodes everything Clarity knows about insurance: how to read policies, how to extract structured data from messy PDFs, how to reason about coverage, and how to talk to humans about their insurance.
+AI agents are already executing complex tasks autonomously across industries, but insurance requires context, safeguards, and systems that don't exist yet. Cell fills that gap: a shared intelligence layer that any product or agent can import to understand, reason about, and act on insurance.
 
-Clarity Labs builds AI-native tools for commercial insurance that let businesses manage their coverage through email, SMS, and chat — generating certificates in minutes, flagging renewals, answering coverage questions, and handling due diligence, all without requiring in-house insurance expertise.
-
-Cell is the shared intelligence layer that makes all of this possible. Any product we build imports Cell and gets the full depth of our insurance intelligence out of the box.
-
-## What's in Cell
+## What's Inside
 
 ### Document Extraction Pipeline
 
