@@ -1,0 +1,35 @@
+{
+  "name": "@claritylabs/cell",
+  "version": "0.1.0",
+  "description": "Clarity insurance intelligence engine — prompts, extraction, and data processing",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": ">=0.30.0",
+    "pdf-lib": ">=1.17.0"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "pdf-lib": "^1.17.1",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.0"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
