@@ -1,6 +1,6 @@
 {
   "name": "@claritylabs-inc/cell",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Clarity insurance intelligence engine — prompts, extraction, and data processing",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
