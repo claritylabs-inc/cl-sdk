@@ -69,35 +69,5 @@ export type {
   TextOverlay,
 } from "./extraction/pdf";
 
-// Types — policy
-export {
-  POLICY_TYPE_LABELS,
-  INSURANCE_KEYWORDS,
-  POLICY_SECTION_TYPE_LABELS,
-  POLICY_SECTION_TYPE_COLORS,
-  QUOTE_SECTION_TYPE_LABELS,
-  QUOTE_SECTION_TYPE_COLORS,
-  INSURANCE_SENDER_PATTERNS,
-} from "./types/policy";
-
+// Types
 export type { PolicyDocument, QuoteDocument } from "./types/policy";
-
-// Types — application
-export {
-  isTableField,
-  isDeclarationField,
-  isConditionalField,
-} from "./types/application";
-
-export type {
-  FieldType,
-  SimpleField,
-  TableField,
-  DeclarationField,
-  FormField,
-  QuestionBatch,
-} from "./types/application";
-
-// Types — industry
-export { INDUSTRIES } from "./types/industry";
-export type { Industry, Vertical } from "./types/industry";
