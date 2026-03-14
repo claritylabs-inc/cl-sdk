@@ -1,10 +1,10 @@
 # Cell
 
-Cell is the intelligence engine behind [Clarity Labs](https://claritylabs.inc) — the same way GPT powers ChatGPT, Cell powers [Claire](https://claritylabs.inc) and the products built on top of it.
+Cell is the intelligence engine behind [Clarity Labs](https://claritylabs.inc). It's a pure TypeScript library that encodes everything Clarity knows about insurance: how to read policies, how to extract structured data from messy PDFs, how to reason about coverage, and how to talk to humans about their insurance.
 
-Clarity Labs builds Claire, an AI-native system-of-record for commercial insurance. Claire lets businesses manage their coverage through email, SMS, and chat — generating certificates in minutes, flagging renewals, answering coverage questions, and handling due diligence, all without requiring in-house insurance expertise.
+Clarity Labs builds AI-native tools for commercial insurance that let businesses manage their coverage through email, SMS, and chat — generating certificates in minutes, flagging renewals, answering coverage questions, and handling due diligence, all without requiring in-house insurance expertise.
 
-Cell is the shared intelligence layer that makes all of this possible. It's a pure TypeScript library that encodes everything Clarity knows about insurance: how to read policies, how to extract structured data from messy PDFs, how to reason about coverage, and how to talk to humans about their insurance. Any product Clarity builds — whether it's Claire's email agent, an application processing pipeline, or a new experiment — imports Cell and gets the full depth of our insurance intelligence out of the box.
+Cell is the shared intelligence layer that makes all of this possible. Any product we build imports Cell and gets the full depth of our insurance intelligence out of the box.
 
 ## What's in Cell
 
@@ -36,9 +36,9 @@ End-to-end insurance application handling — from blank PDF to filled form:
 
 ### Agent System
 
-The prompt and context system that powers Claire's conversational abilities:
+The prompt and context system that powers our products' conversational abilities:
 
-- **System prompt builder** — configurable for three communication modes: direct (user in-app), CC'd (user CC'd on customer email), and forwarded (user forwards a customer email for Claire to handle). Includes coverage gap guidelines, COI request routing, quotes-vs-policies distinction, and prompt injection defenses.
+- **System prompt builder** — configurable for three communication modes: direct (user in-app), CC'd (user CC'd on customer email), and forwarded (user forwards a customer email to be handled). Includes coverage gap guidelines, COI request routing, quotes-vs-policies distinction, and prompt injection defenses.
 - **Document context builder** — given a user's query and their full policy/quote portfolio, scores and ranks documents by relevance, selects the most relevant ones, and assembles a context window with coverage summaries, section content, and page references. Handles both policies and quotes with different scoring logic.
 - **Conversation memory** — pulls past conversation threads from the organization to provide continuity across interactions, with character-limited formatting.
 

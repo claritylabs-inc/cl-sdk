@@ -1,5 +1,5 @@
 {
-  "name": "@claritylabs/cell",
+  "name": "@claritylabs-inc/cell",
   "version": "0.1.0",
   "description": "Clarity insurance intelligence engine — prompts, extraction, and data processing",
   "main": "./dist/index.js",
@@ -31,5 +31,7 @@
     "typescript": "^5.8.0"
   },
   "license": "UNLICENSED",
-  "private": true
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }
 }
