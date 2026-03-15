@@ -21,11 +21,18 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@anthropic-ai/sdk": ">=0.30.0",
+    "ai": ">=4.0.0",
     "pdf-lib": ">=1.17.0"
   },
+  "peerDependenciesMeta": {
+    "@ai-sdk/anthropic": {
+      "optional": true
+    }
+  },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.78.0",
+    "@ai-sdk/anthropic": "^3.0.58",
+    "@types/node": "^25.5.0",
+    "ai": "^6.0.116",
     "pdf-lib": "^1.17.1",
     "tsup": "^8.4.0",
     "typescript": "^5.8.0"

@@ -1,4 +1,32 @@
-// Prompts
+// Types - Documents
+export type {
+  Coverage,
+  Subsection,
+  Section,
+  Subjectivity,
+  UnderwritingCondition,
+  PremiumLine,
+  BaseDocument,
+  PolicyDocument,
+  QuoteDocument,
+  InsuranceDocument,
+} from "./types/document";
+
+// Types - Platform
+export type {
+  Platform,
+  CommunicationIntent,
+  PlatformConfig,
+  AgentContext,
+} from "./types/platform";
+
+export { PLATFORM_CONFIGS } from "./types/platform";
+
+// Types - Models
+export type { ModelConfig } from "./types/models";
+export { createUniformModelConfig, createDefaultModelConfig, MODEL_TOKEN_LIMITS } from "./types/models";
+
+// Extraction Prompts
 export {
   EXTRACTION_PROMPT,
   CLASSIFY_DOCUMENT_PROMPT,
@@ -10,6 +38,7 @@ export {
   buildSupplementaryEnrichmentPrompt,
 } from "./prompts/extraction";
 
+// Application Prompts
 export {
   APPLICATION_CLASSIFY_PROMPT,
   buildFieldExtractionPrompt,
@@ -25,6 +54,20 @@ export {
   buildLookupFillPrompt,
 } from "./prompts/application";
 
+// Agent System (new API)
+export {
+  buildAgentSystemPrompt,
+  buildIdentityPrompt,
+  buildSafetyPrompt,
+  buildFormattingPrompt,
+  buildCoverageGapPrompt,
+  buildCoiRoutingPrompt,
+  buildQuotesPoliciesPrompt,
+  buildConversationMemoryGuidance,
+  buildIntentPrompt,
+} from "./prompts/agent/index";
+
+// Agent System (legacy, deprecated)
 export {
   buildSystemPrompt,
   buildPolicyContext,
@@ -32,9 +75,22 @@ export {
   buildConversationMemoryContext,
 } from "./prompts/agent";
 
+// Intent Classification
+export { buildClassifyMessagePrompt } from "./prompts/intent";
+
+// Intent Classification (legacy, deprecated)
 export { CLASSIFY_EMAIL_PROMPT } from "./prompts/classifier";
 
-// Extraction pipeline
+// Tool Definitions
+export type { ToolDefinition } from "./tools/index";
+export {
+  DOCUMENT_LOOKUP_TOOL,
+  COI_GENERATION_TOOL,
+  COVERAGE_COMPARISON_TOOL,
+  AGENT_TOOLS,
+} from "./tools/index";
+
+// Extraction Pipeline
 export {
   SONNET_MODEL,
   HAIKU_MODEL,
@@ -45,8 +101,6 @@ export {
   mergeChunkedSections,
   mergeChunkedQuoteSections,
   getPageChunks,
-  callClaude,
-  callClaudeText,
   enrichSupplementaryFields,
   classifyDocumentType,
   extractFromPdf,
@@ -54,9 +108,9 @@ export {
   extractQuoteFromPdf,
 } from "./extraction/pipeline";
 
-export type { LogFn, PromptBuilder } from "./extraction/pipeline";
+export type { LogFn, PromptBuilder, ExtractOptions, ExtractSectionsOptions, ClassifyOptions } from "./extraction/pipeline";
 
-// PDF filling
+// PDF Operations
 export {
   getAcroFormFields,
   fillAcroForm,
@@ -68,6 +122,3 @@ export type {
   FieldMapping,
   TextOverlay,
 } from "./extraction/pdf";
-
-// Types
-export type { PolicyDocument, QuoteDocument } from "./types/policy";

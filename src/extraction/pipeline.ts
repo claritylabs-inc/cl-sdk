@@ -1,15 +1,46 @@
 /**
- * Shared helpers for policy extraction.
- * Used by extractPolicy, retryExtraction, and reExtractFromFile actions.
+ * Multi-pass extraction pipeline for insurance PDFs.
+ *
+ * Processes documents in up to 4 passes with adaptive fallback:
+ *
+ * - **Pass 0 (Classification)**: Classification model classifies document as policy or quote.
+ * - **Pass 1 (Metadata)**: Metadata model extracts high-level metadata (carrier, dates,
+ *   premium, coverages). Supports `onMetadata?()` callback for early persistence
+ *   so metadata survives pass 2 failures.
+ * - **Pass 2 (Sections)**: Chunked extraction with sections model. Documents are split into
+ *   15-page chunks; on JSON parse failure (usually output truncation), re-splits
+ *   to 10 -> 5 pages, then falls back to sectionsFallback model. `mergeChunkedSections()` combines.
+ * - **Pass 3 (Enrichment)**: Enrichment model enriches supplementary fields (regulatory context,
+ *   contacts) from raw text. Non-fatal on failure.
+ *
+ * Separate entry points exist for policies (`extractFromPdf`) vs quotes
+ * (`extractQuoteFromPdf`). `extractSectionsOnly()` retries pass 2 using
+ * saved metadata from a prior pass 1.
+ *
+ * Provider-agnostic: accepts `ModelConfig` with Vercel AI SDK `LanguageModel` instances.
+ * Defaults to Anthropic models via `createDefaultModelConfig()`.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { generateText, type LanguageModel } from "ai";
+import type { ProviderOptions } from "@ai-sdk/provider-utils";
+import type { ModelConfig } from "../types/models";
+import { createDefaultModelConfig, MODEL_TOKEN_LIMITS } from "../types/models";
 import { METADATA_PROMPT, QUOTE_METADATA_PROMPT, CLASSIFY_DOCUMENT_PROMPT, buildSectionsPrompt, buildQuoteSectionsPrompt, buildSupplementaryEnrichmentPrompt } from "../prompts/extraction";
 
 export const SONNET_MODEL = "claude-sonnet-4-6";
 export const HAIKU_MODEL = "claude-haiku-4-5-20251001";
 
 export type LogFn = (message: string) => Promise<void>;
+
+/** Default provider options for metadata calls (Anthropic thinking). */
+const DEFAULT_METADATA_PROVIDER_OPTIONS = {
+  anthropic: { thinking: { type: "enabled", budgetTokens: 4096 } },
+};
+
+/** Default provider options for fallback calls (Anthropic thinking). */
+const DEFAULT_FALLBACK_PROVIDER_OPTIONS = {
+  anthropic: { thinking: { type: "enabled", budgetTokens: 4096 } },
+};
 
 /** Strip markdown code fences from AI response text. */
 export function stripFences(text: string): string {
@@ -18,7 +49,10 @@ export function stripFences(text: string): string {
 
 /**
  * Recursively convert null values to undefined.
- * Convex rejects null for optional fields — Claude often returns null for missing values.
+ *
+ * Required because Convex rejects `null` for optional fields, but Claude
+ * routinely returns `null` for missing values in JSON output. Applied to
+ * all extraction results before persistence.
  */
 export function sanitizeNulls<T>(obj: T): T {
   if (obj === null || obj === undefined) return undefined as any;
@@ -67,7 +101,13 @@ export function applyExtracted(extracted: any) {
   };
 }
 
-/** Merge document sections from chunked extraction passes. */
+/**
+ * Merge document sections from chunked extraction passes.
+ *
+ * Combines sections from all chunks into a single array and takes the last
+ * non-null value for supplementary fields (regulatoryContext, complaintContact,
+ * costsAndFees, claimsContact) since these typically appear only once.
+ */
 export function mergeChunkedSections(
   metadataResult: any,
   sectionChunks: any[],
@@ -113,92 +153,83 @@ export function getPageChunks(totalPages: number, chunkSize: number = 30): Array
   return chunks;
 }
 
-/** Call Claude API with a PDF document and prompt. */
-export async function callClaude(
-  anthropic: Anthropic,
+/**
+ * Call a model with a PDF document and prompt via Vercel AI SDK.
+ */
+async function callModel(
+  model: LanguageModel,
   pdfBase64: string,
   prompt: string,
-  maxTokens: number = 16384,
-  model: string = SONNET_MODEL,
+  maxTokens: number,
+  providerOptions?: ProviderOptions,
   log?: LogFn,
-) {
-  const modelShort = model.includes("haiku") ? "Haiku" : "Sonnet";
-  await log?.(`Calling Claude ${modelShort} (max ${maxTokens} tokens)...`);
+): Promise<string> {
+  await log?.(`Calling model (max ${maxTokens} tokens)...`);
   const start = Date.now();
 
-  const isSonnet = model.includes("sonnet");
-  const response = await anthropic.messages.create({
+  const { text, usage } = await generateText({
     model,
-    max_tokens: maxTokens,
-    ...(isSonnet ? { thinking: { type: "enabled", budget_tokens: 4096 } } : {}),
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "document",
-            source: {
-              type: "base64",
-              media_type: "application/pdf",
-              data: pdfBase64,
-            },
-          },
-          { type: "text", text: prompt },
-        ],
-      },
-    ],
-  } as any);
-
-  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-  const inputTokens = response.usage?.input_tokens ?? 0;
-  const outputTokens = response.usage?.output_tokens ?? 0;
-  const thinkingTokens = (response.usage as any)?.thinking_tokens;
-  const thinkingInfo = thinkingTokens ? ` / ${thinkingTokens} thinking` : "";
-  await log?.(`${modelShort}: ${inputTokens} in / ${outputTokens} out${thinkingInfo} tokens (${elapsed}s)`);
-
-  // With adaptive thinking, response may include thinking blocks before the text block
-  const textBlock = response.content.find((b: any) => b.type === "text");
-  return textBlock && textBlock.type === "text" ? textBlock.text : "{}";
-}
-
-/** Call Claude API with text-only prompt (no PDF). Used for pass 3 enrichment. */
-export async function callClaudeText(
-  anthropic: Anthropic,
-  prompt: string,
-  maxTokens: number = 4096,
-  model: string = HAIKU_MODEL,
-  log?: LogFn,
-) {
-  const modelShort = model.includes("haiku") ? "Haiku" : "Sonnet";
-  await log?.(`Calling Claude ${modelShort} text-only (max ${maxTokens} tokens)...`);
-  const start = Date.now();
-
-  const response = await anthropic.messages.create({
-    model,
-    max_tokens: maxTokens,
-    messages: [
-      {
-        role: "user",
-        content: prompt,
-      },
-    ],
+    maxOutputTokens: maxTokens,
+    messages: [{
+      role: "user",
+      content: [
+        { type: "file", data: pdfBase64, mediaType: "application/pdf" },
+        { type: "text", text: prompt },
+      ],
+    }],
+    ...(providerOptions ? { providerOptions } : {}),
   });
 
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-  const inputTokens = response.usage?.input_tokens ?? 0;
-  const outputTokens = response.usage?.output_tokens ?? 0;
-  await log?.(`${modelShort} text: ${inputTokens} in / ${outputTokens} out tokens (${elapsed}s)`);
+  const inputTokens = usage?.inputTokens ?? 0;
+  const outputTokens = usage?.outputTokens ?? 0;
+  await log?.(`${inputTokens} in / ${outputTokens} out tokens (${elapsed}s)`);
 
-  return response.content[0].type === "text" ? response.content[0].text : "{}";
+  return text || "{}";
+}
+
+/**
+ * Call a model with text-only prompt (no PDF) via Vercel AI SDK.
+ * Used for pass 3 enrichment.
+ */
+async function callModelText(
+  model: LanguageModel,
+  prompt: string,
+  maxTokens: number,
+  log?: LogFn,
+): Promise<string> {
+  await log?.(`Calling model text-only (max ${maxTokens} tokens)...`);
+  const start = Date.now();
+
+  const { text, usage } = await generateText({
+    model,
+    maxOutputTokens: maxTokens,
+    messages: [{
+      role: "user",
+      content: prompt,
+    }],
+  });
+
+  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+  const inputTokens = usage?.inputTokens ?? 0;
+  const outputTokens = usage?.outputTokens ?? 0;
+  await log?.(`text: ${inputTokens} in / ${outputTokens} out tokens (${elapsed}s)`);
+
+  return text || "{}";
+}
+
+/** Resolve models, lazily creating defaults if not provided. */
+function resolveModels(models?: ModelConfig): ModelConfig {
+  return models ?? createDefaultModelConfig();
 }
 
 /**
  * Pass 3: Enrich supplementary fields with structured data.
- * Text-only Haiku call — non-fatal on failure (returns document unchanged).
+ * Text-only enrichment call — non-fatal on failure (returns document unchanged).
  */
 export async function enrichSupplementaryFields(
-  anthropic: Anthropic,
   document: any,
+  models?: ModelConfig,
   log?: LogFn,
 ): Promise<any> {
   const fields: Record<string, string> = {};
@@ -220,11 +251,12 @@ export async function enrichSupplementaryFields(
     return document;
   }
 
-  await log?.(`Pass 3: Enriching ${Object.keys(fields).length} supplementary field(s) (Haiku text-only)...`);
+  await log?.(`Pass 3: Enriching ${Object.keys(fields).length} supplementary field(s)...`);
 
   try {
+    const resolved = resolveModels(models);
     const prompt = buildSupplementaryEnrichmentPrompt(fields);
-    const raw = await callClaudeText(anthropic, prompt, 4096, HAIKU_MODEL, log);
+    const raw = await callModelText(resolved.enrichment, prompt, MODEL_TOKEN_LIMITS.enrichment, log);
     const parsed = JSON.parse(stripFences(raw));
 
     const enriched = { ...document };
@@ -262,17 +294,24 @@ export async function enrichSupplementaryFields(
   }
 }
 
+export interface ClassifyOptions {
+  log?: LogFn;
+  models?: ModelConfig;
+}
+
 /**
- * Pass 0: Classify document as policy or quote using Haiku.
+ * Pass 0: Classify document as policy or quote.
  */
 export async function classifyDocumentType(
-  anthropic: Anthropic,
   pdfBase64: string,
-  log?: LogFn,
+  options?: ClassifyOptions,
 ): Promise<{ documentType: "policy" | "quote"; confidence: number; signals: string[] }> {
-  await log?.("Pass 0: Classifying document type (Haiku)...");
-  const raw = await callClaude(
-    anthropic, pdfBase64, CLASSIFY_DOCUMENT_PROMPT, 512, HAIKU_MODEL, log,
+  const { log, models } = options ?? {};
+  const resolved = resolveModels(models);
+  await log?.("Pass 0: Classifying document type...");
+  const raw = await callModel(
+    resolved.classification, pdfBase64, CLASSIFY_DOCUMENT_PROMPT,
+    MODEL_TOKEN_LIMITS.classification, undefined, log,
   );
   try {
     const parsed = JSON.parse(stripFences(raw));
@@ -330,7 +369,12 @@ export function applyExtractedQuote(extracted: any) {
   };
 }
 
-/** Merge document sections from chunked quote extraction passes. */
+/**
+ * Merge document sections from chunked quote extraction passes.
+ *
+ * Similar to `mergeChunkedSections` but also accumulates quote-specific
+ * fields: subjectivities and underwriting conditions from all chunks.
+ */
 export function mergeChunkedQuoteSections(
   metadataResult: any,
   sectionChunks: any[],
@@ -365,27 +409,33 @@ export function mergeChunkedQuoteSections(
   };
 }
 
-/** Chunk sizes to try in order — progressively smaller to avoid Haiku's 8192 output token limit. */
+/** Chunk sizes to try in order — progressively smaller to avoid output token limits. */
 const CHUNK_SIZES = [15, 10, 5];
 
 export type PromptBuilder = (pageStart: number, pageEnd: number) => string;
 
 /**
- * Try to extract a single page range with Haiku. On JSON parse failure (likely truncation),
- * re-split into smaller sub-chunks and retry. After exhausting smaller sizes, fall back to Sonnet.
+ * Extract sections from a single page range with recursive retry.
+ *
+ * Strategy: attempt sections model first. On JSON parse failure (typically output
+ * truncation), re-split the range into smaller sub-chunks using the next size
+ * in `CHUNK_SIZES` [15, 10, 5] and retry recursively. After exhausting all
+ * smaller sizes, falls back to sectionsFallback model with higher token limit.
  */
 async function extractChunkWithRetry(
-  anthropic: Anthropic,
+  models: ModelConfig,
   pdfBase64: string,
   start: number,
   end: number,
   sizeIndex: number,
   promptBuilder: PromptBuilder,
+  fallbackProviderOptions?: ProviderOptions,
   log?: LogFn,
 ): Promise<any[]> {
-  await log?.(`Pass 2: Extracting sections pages ${start}–${end} (Haiku)...`);
-  const chunkRaw = await callClaude(
-    anthropic, pdfBase64, promptBuilder(start, end), 8192, HAIKU_MODEL, log,
+  await log?.(`Pass 2: Extracting sections pages ${start}–${end}...`);
+  const chunkRaw = await callModel(
+    models.sections, pdfBase64, promptBuilder(start, end),
+    MODEL_TOKEN_LIMITS.sections, undefined, log,
   );
   try {
     return [JSON.parse(stripFences(chunkRaw))];
@@ -396,14 +446,15 @@ async function extractChunkWithRetry(
       const smallerSize = CHUNK_SIZES[nextSizeIndex];
       const pageSpan = end - start + 1;
       if (pageSpan > smallerSize) {
-        await log?.(`Haiku truncated pages ${start}–${end}, re-splitting into ${smallerSize}-page chunks...`);
+        await log?.(`Truncated pages ${start}–${end}, re-splitting into ${smallerSize}-page chunks...`);
         const subChunks = getPageChunks(pageSpan, smallerSize).map(
           ([s, e]) => [s + start - 1, e + start - 1] as [number, number],
         );
         const results: any[] = [];
         for (const [subStart, subEnd] of subChunks) {
           const subResults = await extractChunkWithRetry(
-            anthropic, pdfBase64, subStart, subEnd, nextSizeIndex, promptBuilder, log,
+            models, pdfBase64, subStart, subEnd, nextSizeIndex,
+            promptBuilder, fallbackProviderOptions, log,
           );
           results.push(...subResults);
         }
@@ -411,59 +462,84 @@ async function extractChunkWithRetry(
       }
     }
 
-    // All smaller sizes exhausted — fall back to Sonnet (16384 token limit)
-    await log?.(`Haiku exhausted for pages ${start}–${end}, falling back to Sonnet...`);
-    const sonnetRaw = await callClaude(
-      anthropic, pdfBase64, promptBuilder(start, end), 16384, SONNET_MODEL, log,
+    // All smaller sizes exhausted — fall back to sectionsFallback model
+    await log?.(`Sections model exhausted for pages ${start}–${end}, falling back...`);
+    const fallbackRaw = await callModel(
+      models.sectionsFallback, pdfBase64, promptBuilder(start, end),
+      MODEL_TOKEN_LIMITS.sectionsFallback, fallbackProviderOptions, log,
     );
     try {
-      return [JSON.parse(stripFences(sonnetRaw))];
+      return [JSON.parse(stripFences(fallbackRaw))];
     } catch (e2: any) {
-      const preview = sonnetRaw.slice(0, 200);
-      await log?.(`Failed to parse sections JSON (Sonnet fallback): ${preview}`);
+      const preview = fallbackRaw.slice(0, 200);
+      await log?.(`Failed to parse sections JSON (fallback): ${preview}`);
       throw new Error(`Sections JSON parse failed: ${e2.message}`);
     }
   }
 }
 
 /**
- * Extract sections from page chunks using Haiku, with adaptive re-splitting and Sonnet fallback.
+ * Extract sections from page chunks with adaptive re-splitting and fallback.
  */
 async function extractSectionChunks(
-  anthropic: Anthropic,
+  models: ModelConfig,
   pdfBase64: string,
   pageCount: number,
   promptBuilder: PromptBuilder = buildSectionsPrompt,
+  fallbackProviderOptions?: ProviderOptions,
   log?: LogFn,
 ): Promise<any[]> {
   const chunks = getPageChunks(pageCount, CHUNK_SIZES[0]);
   const sectionChunks: any[] = [];
 
   for (const [start, end] of chunks) {
-    const results = await extractChunkWithRetry(anthropic, pdfBase64, start, end, 0, promptBuilder, log);
+    const results = await extractChunkWithRetry(
+      models, pdfBase64, start, end, 0, promptBuilder, fallbackProviderOptions, log,
+    );
     sectionChunks.push(...results);
   }
 
   return sectionChunks;
 }
 
+export interface ExtractOptions {
+  log?: LogFn;
+  onMetadata?: (raw: string) => Promise<void>;
+  models?: ModelConfig;
+  /** Provider-specific options for metadata calls (e.g. Anthropic thinking). Defaults to Anthropic thinking enabled. */
+  metadataProviderOptions?: ProviderOptions;
+  /** Provider-specific options for fallback calls. Defaults to Anthropic thinking enabled. */
+  fallbackProviderOptions?: ProviderOptions;
+}
+
 /**
- * Two-pass extraction: Sonnet for metadata + Haiku for sections.
- * All documents use this flow — metadata with Sonnet, sections with Haiku (cheaper).
+ * Full extraction pipeline for policy documents (passes 1-3).
  *
- * @param onMetadata - Optional callback invoked after pass 1 succeeds with the raw metadata JSON string.
- *   Use this to persist metadata early so it survives pass 2 failures.
+ * - **Pass 1**: Metadata model extracts metadata, coverages, and page count.
+ * - **Pass 2**: Sections model extracts sections in chunks (with adaptive retry and fallback).
+ * - **Pass 3**: Enrichment model enriches supplementary fields (non-fatal).
+ *
+ * @param pdfBase64 - Base64-encoded PDF document.
+ * @param options - Extraction options (models, logging, callbacks, provider options).
  */
 export async function extractFromPdf(
-  anthropic: Anthropic,
   pdfBase64: string,
-  log?: LogFn,
-  onMetadata?: (raw: string) => Promise<void>,
+  options?: ExtractOptions,
 ) {
-  // Pass 1: Sonnet for metadata, coverages, page count
-  await log?.("Pass 1: Extracting metadata (Sonnet)...");
-  const metadataRaw = await callClaude(
-    anthropic, pdfBase64, METADATA_PROMPT, 4096, SONNET_MODEL, log,
+  const {
+    log,
+    onMetadata,
+    models,
+    metadataProviderOptions = DEFAULT_METADATA_PROVIDER_OPTIONS,
+    fallbackProviderOptions = DEFAULT_FALLBACK_PROVIDER_OPTIONS,
+  } = options ?? {};
+  const resolved = resolveModels(models);
+
+  // Pass 1: Metadata extraction
+  await log?.("Pass 1: Extracting metadata...");
+  const metadataRaw = await callModel(
+    resolved.metadata, pdfBase64, METADATA_PROMPT,
+    MODEL_TOKEN_LIMITS.metadata, metadataProviderOptions, log,
   );
 
   let metadataResult: any;
@@ -481,19 +557,29 @@ export async function extractFromPdf(
   const pageCount = metadataResult.totalPages || 1;
   await log?.(`Document: ${pageCount} page(s)`);
 
-  // Pass 2: Haiku for sections (chunked, with Sonnet fallback)
-  const sectionChunks = await extractSectionChunks(anthropic, pdfBase64, pageCount, buildSectionsPrompt, log);
+  // Pass 2: Sections (chunked, with fallback)
+  const sectionChunks = await extractSectionChunks(
+    resolved, pdfBase64, pageCount, buildSectionsPrompt, fallbackProviderOptions, log,
+  );
 
   await log?.("Merging extraction results...");
   const merged = mergeChunkedSections(metadataResult, sectionChunks);
 
   // Pass 3: Enrich supplementary fields (non-fatal)
   if (merged.document) {
-    merged.document = await enrichSupplementaryFields(anthropic, merged.document, log);
+    merged.document = await enrichSupplementaryFields(merged.document, resolved, log);
   }
 
   const mergedRaw = JSON.stringify(merged);
   return { rawText: mergedRaw, extracted: merged };
+}
+
+export interface ExtractSectionsOptions {
+  log?: LogFn;
+  promptBuilder?: PromptBuilder;
+  models?: ModelConfig;
+  /** Provider-specific options for fallback calls. */
+  fallbackProviderOptions?: ProviderOptions;
 }
 
 /**
@@ -501,12 +587,18 @@ export async function extractFromPdf(
  * For retrying when metadata succeeded but sections failed.
  */
 export async function extractSectionsOnly(
-  anthropic: Anthropic,
   pdfBase64: string,
   metadataRaw: string,
-  log?: LogFn,
-  promptBuilder: PromptBuilder = buildSectionsPrompt,
+  options?: ExtractSectionsOptions,
 ) {
+  const {
+    log,
+    promptBuilder = buildSectionsPrompt,
+    models,
+    fallbackProviderOptions = DEFAULT_FALLBACK_PROVIDER_OPTIONS,
+  } = options ?? {};
+  const resolved = resolveModels(models);
+
   await log?.("Using saved metadata, skipping pass 1...");
   let metadataResult: any;
   try {
@@ -518,14 +610,16 @@ export async function extractSectionsOnly(
   const pageCount = metadataResult.totalPages || 1;
   await log?.(`Document: ${pageCount} page(s)`);
 
-  const sectionChunks = await extractSectionChunks(anthropic, pdfBase64, pageCount, promptBuilder, log);
+  const sectionChunks = await extractSectionChunks(
+    resolved, pdfBase64, pageCount, promptBuilder, fallbackProviderOptions, log,
+  );
 
   await log?.("Merging extraction results...");
   const merged = mergeChunkedSections(metadataResult, sectionChunks);
 
   // Pass 3: Enrich supplementary fields (non-fatal)
   if (merged.document) {
-    merged.document = await enrichSupplementaryFields(anthropic, merged.document, log);
+    merged.document = await enrichSupplementaryFields(merged.document, resolved, log);
   }
 
   const mergedRaw = JSON.stringify(merged);
@@ -533,20 +627,35 @@ export async function extractSectionsOnly(
 }
 
 /**
- * Two-pass extraction for quote documents.
- * Pass 1: Sonnet for quote-specific metadata.
- * Pass 2: Haiku for quote sections (chunked).
+ * Full extraction pipeline for quote documents (passes 1-2).
+ *
+ * - **Pass 1**: Metadata model extracts quote-specific metadata (proposed dates,
+ *   subjectivities, premium breakdown).
+ * - **Pass 2**: Sections model extracts sections in chunks (with adaptive retry).
+ *
+ * Does not run pass 3 enrichment (quotes rarely have supplementary fields).
+ *
+ * @param pdfBase64 - Base64-encoded PDF document.
+ * @param options - Extraction options (models, logging, callbacks, provider options).
  */
 export async function extractQuoteFromPdf(
-  anthropic: Anthropic,
   pdfBase64: string,
-  log?: LogFn,
-  onMetadata?: (raw: string) => Promise<void>,
+  options?: ExtractOptions,
 ) {
-  // Pass 1: Sonnet for quote metadata
-  await log?.("Pass 1: Extracting quote metadata (Sonnet)...");
-  const metadataRaw = await callClaude(
-    anthropic, pdfBase64, QUOTE_METADATA_PROMPT, 4096, SONNET_MODEL, log,
+  const {
+    log,
+    onMetadata,
+    models,
+    metadataProviderOptions = DEFAULT_METADATA_PROVIDER_OPTIONS,
+    fallbackProviderOptions = DEFAULT_FALLBACK_PROVIDER_OPTIONS,
+  } = options ?? {};
+  const resolved = resolveModels(models);
+
+  // Pass 1: Quote metadata
+  await log?.("Pass 1: Extracting quote metadata...");
+  const metadataRaw = await callModel(
+    resolved.metadata, pdfBase64, QUOTE_METADATA_PROMPT,
+    MODEL_TOKEN_LIMITS.metadata, metadataProviderOptions, log,
   );
 
   let metadataResult: any;
@@ -564,8 +673,10 @@ export async function extractQuoteFromPdf(
   const pageCount = metadataResult.totalPages || 1;
   await log?.(`Quote document: ${pageCount} page(s)`);
 
-  // Pass 2: Haiku for quote sections (chunked)
-  const sectionChunks = await extractSectionChunks(anthropic, pdfBase64, pageCount, buildQuoteSectionsPrompt, log);
+  // Pass 2: Quote sections (chunked)
+  const sectionChunks = await extractSectionChunks(
+    resolved, pdfBase64, pageCount, buildQuoteSectionsPrompt, fallbackProviderOptions, log,
+  );
 
   await log?.("Merging quote extraction results...");
   const merged = mergeChunkedQuoteSections(metadataResult, sectionChunks);
