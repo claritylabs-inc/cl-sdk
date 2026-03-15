@@ -72,3 +72,21 @@ Two modes using pdf-lib:
 - **Path alias**: `@/*` maps to `src/*` in tsconfig
 - **Barrel exports**: `src/index.ts` — all public API goes through here
 - **Platform/Intent model**: Agent prompts use `AgentContext` with `platform` (email/chat/sms/slack/discord) and `intent` (direct/mediated/observed) instead of legacy mode strings
+
+## Releases
+
+Versioning and publishing are fully automated via [semantic-release](https://github.com/semantic-release/semantic-release). Pushing to `master` triggers the GitHub Actions `Release` workflow which:
+
+1. Analyzes commit messages (conventional commits) to determine the semver bump
+2. Updates `CHANGELOG.md`, `package.json`, and `package-lock.json`
+3. Creates a GitHub release with auto-generated release notes
+4. Publishes to GitHub Packages (`npm.pkg.github.com`)
+5. Commits the updated files back to `master`
+
+**Commit message format** (determines version bump):
+- `fix: ...` → patch (0.0.x)
+- `feat: ...` → minor (0.x.0)
+- `feat!: ...` or `BREAKING CHANGE:` in footer → major (x.0.0)
+- `chore:`, `docs:`, `refactor:`, `test:`, etc. → no release
+
+Local dry-run: `npx semantic-release --dry-run`
