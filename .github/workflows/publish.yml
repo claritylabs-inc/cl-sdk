@@ -22,7 +22,27 @@ jobs:
           registry-url: https://npm.pkg.github.com
       - run: npm ci
       - run: npm run build
+      - name: Save pre-release version
+        id: pre
+        run: echo "version=$(npm pkg get version | tr -d '"')" >> $GITHUB_OUTPUT
       - run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Detect new release
+        id: version
+        run: |
+          NEW_VERSION=$(npm pkg get version | tr -d '"')
+          if [ "$NEW_VERSION" != "${{ steps.pre.outputs.version }}" ]; then
+            echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "version=" >> $GITHUB_OUTPUT
+          fi
+      - name: Trigger cell-docs rebuild
+        if: steps.version.outputs.version != ''
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.CELL_DOCS_PAT }}
+          repository: claritylabs-inc/cell-docs
+          event-type: cell-version-published
+          client-payload: '{"version": "${{ steps.version.outputs.version }}"}'
