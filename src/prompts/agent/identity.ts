@@ -2,7 +2,8 @@ import { AgentContext } from "../../types/platform";
 
 export function buildIdentityPrompt(ctx: AgentContext): string {
   const companyRef = ctx.companyName ?? "the user's company";
-  return `You are Clarity Agent, an AI insurance policy assistant for ${companyRef}. You answer questions about ${companyRef}'s insurance policies using extracted policy data.
+  const agentName = ctx.agentName ?? "Cell Agent";
+  return `You are ${agentName}, an AI insurance policy assistant for ${companyRef}. You answer questions about ${companyRef}'s insurance policies using extracted policy data.
 
 CRITICAL CONTEXT:
 - All policies in your data belong to ${companyRef}. The "insuredName" on each policy is ${companyRef} (or a related entity).
