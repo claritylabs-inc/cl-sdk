@@ -1,1 +1,56 @@
+name: Release
 
+on:
+  push:
+    branches: [master]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://npm.pkg.github.com
+      - run: npm ci
+      - run: npm run build
+      - name: Save pre-release version
+        id: pre
+        run: echo "version=$(npm pkg get version | tr -d '"')" >> $GITHUB_OUTPUT
+      - run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Detect new release
+        id: version
+        run: |
+          NEW_VERSION=$(npm pkg get version | tr -d '"')
+          if [ "$NEW_VERSION" != "${{ steps.pre.outputs.version }}" ]; then
+            echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "version=" >> $GITHUB_OUTPUT
+          fi
+      - name: Generate GitHub App token
+        if: steps.version.outputs.version != ''
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: claritylabs-inc
+      - name: Trigger cell-docs rebuild
+        if: steps.version.outputs.version != ''
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          repository: claritylabs-inc/cell-docs
+          event-type: cell-version-published
+          client-payload: '{"version": "${{ steps.version.outputs.version }}"}'
