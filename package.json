@@ -1,6 +1,6 @@
 {
   "name": "@claritylabs-inc/cell",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Shared intelligence layer for AI working with insurance",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

@@ -1,3 +1,10 @@
+## [0.2.3](https://github.com/claritylabs-inc/cell/compare/v0.2.2...v0.2.3) (2026-03-16)
+
+
+### Bug Fixes
+
+* make document link guidance configurable in agent prompts ([20049b4](https://github.com/claritylabs-inc/cell/commit/20049b4f99c0a0fab7fe809e3a665c3255ffd898))
+
 ## [0.2.2](https://github.com/claritylabs-inc/cell/compare/v0.2.1...v0.2.2) (2026-03-15)
 
 
