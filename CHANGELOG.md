@@ -1,3 +1,10 @@
+## [0.2.5](https://github.com/claritylabs-inc/cell/compare/v0.2.4...v0.2.5) (2026-03-16)
+
+
+### Bug Fixes
+
+* clean up publish.yml encoding ([7b2008b](https://github.com/claritylabs-inc/cell/commit/7b2008b3d2e30bf20105262bf32efeab0384d457))
+
 ## [0.2.4](https://github.com/claritylabs-inc/cell/compare/v0.2.3...v0.2.4) (2026-03-16)
 
 
