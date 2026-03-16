@@ -1,3 +1,10 @@
+## [0.2.4](https://github.com/claritylabs-inc/cell/compare/v0.2.3...v0.2.4) (2026-03-16)
+
+
+### Bug Fixes
+
+* make agent name configurable instead of hardcoding "Clarity Agent" ([9dbb850](https://github.com/claritylabs-inc/cell/commit/9dbb85030bb176058ae038d7779f5c6ad035b14c))
+
 ## [0.2.3](https://github.com/claritylabs-inc/cell/compare/v0.2.2...v0.2.3) (2026-03-16)
 
 
