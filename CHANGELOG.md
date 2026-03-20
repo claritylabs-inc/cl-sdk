@@ -1,3 +1,10 @@
+# [0.3.0](https://github.com/claritylabs-inc/cell/compare/v0.2.5...v0.3.0) (2026-03-20)
+
+
+### Features
+
+* rebrand from Cell to CL-0 SDK ([e430073](https://github.com/claritylabs-inc/cell/commit/e4300733dfd3c97a8181a5eeab48c4da3a565729))
+
 ## [0.2.5](https://github.com/claritylabs-inc/cell/compare/v0.2.4...v0.2.5) (2026-03-16)
 
 
