@@ -55,7 +55,7 @@ export interface AgentContext {
   brokerName?: string;
   brokerContactName?: string;
   brokerContactEmail?: string;
-  /** Display name for the AI agent. Defaults to "Cell Agent" if not set. */
+  /** Display name for the AI agent. Defaults to "CL-0 Agent" if not set. */
   agentName?: string;
   /** Custom link guidance for the AI. Replaces the default policy/quote link examples.
    *  Should include markdown link examples showing the AI how to format document links.

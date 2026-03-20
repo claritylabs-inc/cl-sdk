@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-`@claritylabs/cell` is an insurance intelligence engine — a pure TypeScript library for policy/quote extraction, application processing, and agent prompts. It uses the Vercel AI SDK (`ai`) and pdf-lib as peer dependencies. Provider-agnostic — works with any AI provider via `LanguageModel` instances.
+`@claritylabs-inc/cl-sdk` (CL-0 SDK) is an open infrastructure layer for building AI agents that work with insurance — a pure TypeScript library for policy/quote extraction, application processing, and agent prompts. It uses the Vercel AI SDK (`ai`) and pdf-lib as peer dependencies. Provider-agnostic — works with any AI provider via `LanguageModel` instances.
 
 ## Commands
 

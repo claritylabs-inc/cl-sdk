@@ -1,7 +1,7 @@
 {
-  "name": "@claritylabs-inc/cell",
+  "name": "@claritylabs-inc/cl-sdk",
   "version": "0.2.5",
-  "description": "Shared intelligence layer for AI working with insurance",
+  "description": "CL-0 SDK — open infrastructure for building AI agents that work with insurance",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",

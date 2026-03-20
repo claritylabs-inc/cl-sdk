@@ -46,11 +46,11 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           owner: claritylabs-inc
-      - name: Trigger cell-docs rebuild
+      - name: Trigger cl-sdk-docs rebuild
         if: steps.version.outputs.version != ''
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ steps.app-token.outputs.token }}
-          repository: claritylabs-inc/cell-docs
-          event-type: cell-version-published
+          repository: claritylabs-inc/cl-sdk-docs
+          event-type: cl-sdk-version-published
           client-payload: '{"version": "${{ steps.version.outputs.version }}"}'

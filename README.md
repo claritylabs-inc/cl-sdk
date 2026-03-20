@@ -1,16 +1,16 @@
 [Clarity Labs](https://claritylabs.inc) is an applied AI research lab building the infrastructure for AI to work safely with insurance.
 
-AI agents are already executing complex tasks autonomously across industries, but insurance requires context, safeguards, and systems that don't exist yet. Cell fills that gap: a shared intelligence layer that any product or agent can import to understand, reason about, and act on insurance.
+AI agents are already executing complex tasks autonomously across industries, but insurance requires context, safeguards, and systems that don't exist yet. CL-0 SDK fills that gap: a shared intelligence layer that any product or agent can import to understand, reason about, and act on insurance.
 
 ## Installation
 
 ```bash
-npm install @claritylabs-inc/cell
+npm install @claritylabs-inc/cl-sdk
 ```
 
 ### Peer Dependencies
 
-Cell requires the [Vercel AI SDK](https://sdk.vercel.ai) and pdf-lib:
+CL-0 SDK requires the [Vercel AI SDK](https://sdk.vercel.ai) and pdf-lib:
 
 ```bash
 npm install ai pdf-lib
@@ -34,7 +34,7 @@ npm install @ai-sdk/google
 ### Default (Anthropic)
 
 ```typescript
-import { classifyDocumentType, extractFromPdf, applyExtracted } from "@claritylabs-inc/cell";
+import { classifyDocumentType, extractFromPdf, applyExtracted } from "@claritylabs-inc/cl-sdk";
 
 const pdfBase64 = "..."; // base64-encoded PDF
 
@@ -50,7 +50,7 @@ No model configuration needed — `createDefaultModelConfig()` is called automat
 
 ```typescript
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { extractFromPdf, createUniformModelConfig } from "@claritylabs-inc/cell";
+import { extractFromPdf, createUniformModelConfig } from "@claritylabs-inc/cl-sdk";
 
 const anthropic = createAnthropic();
 
@@ -64,7 +64,7 @@ const { extracted } = await extractFromPdf(pdfBase64, {
 
 ```typescript
 import { createOpenAI } from "@ai-sdk/openai";
-import { extractFromPdf, createUniformModelConfig } from "@claritylabs-inc/cell";
+import { extractFromPdf, createUniformModelConfig } from "@claritylabs-inc/cl-sdk";
 
 const openai = createOpenAI();
 const { extracted } = await extractFromPdf(pdfBase64, {
@@ -77,7 +77,7 @@ const { extracted } = await extractFromPdf(pdfBase64, {
 
 ```typescript
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { extractFromPdf, type ModelConfig } from "@claritylabs-inc/cell";
+import { extractFromPdf, type ModelConfig } from "@claritylabs-inc/cl-sdk";
 
 const anthropic = createAnthropic();
 const models: ModelConfig = {

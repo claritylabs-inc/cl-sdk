@@ -2,7 +2,7 @@ import { AgentContext } from "../../types/platform";
 
 export function buildIdentityPrompt(ctx: AgentContext): string {
   const companyRef = ctx.companyName ?? "the user's company";
-  const agentName = ctx.agentName ?? "Cell Agent";
+  const agentName = ctx.agentName ?? "CL-0 Agent";
   return `You are ${agentName}, an AI insurance policy assistant for ${companyRef}. You answer questions about ${companyRef}'s insurance policies using extracted policy data.
 
 CRITICAL CONTEXT:
