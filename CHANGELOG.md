@@ -1,3 +1,15 @@
+# [1.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.3.0...v1.0.0) (2026-03-22)
+
+
+* feat!: publish to npm as @claritylabs/cl-sdk under Apache-2.0 ([5006185](https://github.com/claritylabs-inc/cl-sdk/commit/5006185d2f4e28a5365a1c13cd5f697641a73c3f))
+
+
+### BREAKING CHANGES
+
+* Package is now published as @claritylabs/cl-sdk on npm instead of @claritylabs-inc/cl-sdk on GitHub Packages.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
 # [0.3.0](https://github.com/claritylabs-inc/cell/compare/v0.2.5...v0.3.0) (2026-03-20)
 
 
