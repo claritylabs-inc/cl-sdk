@@ -1,3 +1,11 @@
+## [1.0.1](https://github.com/claritylabs-inc/cl-sdk/compare/v1.0.0...v1.0.1) (2026-03-22)
+
+
+### Bug Fixes
+
+* split npm publish from semantic-release for OIDC trusted publishing ([ac80ca7](https://github.com/claritylabs-inc/cl-sdk/commit/ac80ca74d8cce2e9656e1fd08b4c6ba8090c7dc4))
+* use npm trusted publishing (OIDC) instead of NPM_TOKEN ([14ba8a8](https://github.com/claritylabs-inc/cl-sdk/commit/14ba8a834ef0072c8f53a0308d9021e7969ea8a4))
+
 # [1.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.3.0...v1.0.0) (2026-03-22)
 
 
