@@ -5,7 +5,7 @@ AI agents are already executing complex tasks autonomously across industries, bu
 ## Installation
 
 ```bash
-npm install @claritylabs-inc/cl-sdk
+npm install @claritylabs/cl-sdk
 ```
 
 ### Peer Dependencies
@@ -34,7 +34,7 @@ npm install @ai-sdk/google
 ### Default (Anthropic)
 
 ```typescript
-import { classifyDocumentType, extractFromPdf, applyExtracted } from "@claritylabs-inc/cl-sdk";
+import { classifyDocumentType, extractFromPdf, applyExtracted } from "@claritylabs/cl-sdk";
 
 const pdfBase64 = "..."; // base64-encoded PDF
 
@@ -50,7 +50,7 @@ No model configuration needed — `createDefaultModelConfig()` is called automat
 
 ```typescript
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { extractFromPdf, createUniformModelConfig } from "@claritylabs-inc/cl-sdk";
+import { extractFromPdf, createUniformModelConfig } from "@claritylabs/cl-sdk";
 
 const anthropic = createAnthropic();
 
@@ -64,7 +64,7 @@ const { extracted } = await extractFromPdf(pdfBase64, {
 
 ```typescript
 import { createOpenAI } from "@ai-sdk/openai";
-import { extractFromPdf, createUniformModelConfig } from "@claritylabs-inc/cl-sdk";
+import { extractFromPdf, createUniformModelConfig } from "@claritylabs/cl-sdk";
 
 const openai = createOpenAI();
 const { extracted } = await extractFromPdf(pdfBase64, {
@@ -77,7 +77,7 @@ const { extracted } = await extractFromPdf(pdfBase64, {
 
 ```typescript
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { extractFromPdf, type ModelConfig } from "@claritylabs-inc/cl-sdk";
+import { extractFromPdf, type ModelConfig } from "@claritylabs/cl-sdk";
 
 const anthropic = createAnthropic();
 const models: ModelConfig = {

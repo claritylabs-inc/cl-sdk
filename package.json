@@ -1,5 +1,5 @@
 {
-  "name": "@claritylabs-inc/cl-sdk",
+  "name": "@claritylabs/cl-sdk",
   "version": "0.3.0",
   "description": "CL-0 SDK — open infrastructure for building AI agents that work with insurance",
   "main": "./dist/index.js",
@@ -41,8 +41,9 @@
     "tsup": "^8.4.0",
     "typescript": "^5.8.0"
   },
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
   }
 }
