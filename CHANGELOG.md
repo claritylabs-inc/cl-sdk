@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.1.4...v1.2.0) (2026-04-02)
+
+
+### Features
+
+* add PDF page splitting to reduce API token usage ([ced0e37](https://github.com/claritylabs-inc/cl-sdk/commit/ced0e37fbaed08fc8c14ace51cf3a44aeef3c3a0))
+
 ## [1.1.4](https://github.com/claritylabs-inc/cl-sdk/compare/v1.1.3...v1.1.4) (2026-04-02)
 
 
