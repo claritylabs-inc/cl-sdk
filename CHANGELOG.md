@@ -1,3 +1,19 @@
+# [1.3.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.2.0...v1.3.0) (2026-04-02)
+
+
+### Features
+
+* add comprehensive enum/union types for insurance data model ([088ab06](https://github.com/claritylabs-inc/cl-sdk/commit/088ab06822105033486952fb637919b2b3ca7d20))
+* add context key mapping for policy-to-application auto-fill ([4ff7689](https://github.com/claritylabs-inc/cl-sdk/commit/4ff76891a1afcb3a0b61ca7596e93d37385f93fe))
+* add coverage, parties, financial, loss-history, and underwriting types ([199a89e](https://github.com/claritylabs-inc/cl-sdk/commit/199a89e2ed424679e8ce16d53e5477d4b87c595a))
+* add declarations types (limits, deductibles, locations, vehicles, classifications) ([ba98795](https://github.com/claritylabs-inc/cl-sdk/commit/ba9879519c69686563821b387aa2c8495a7f56da))
+* add endorsement, exclusion, and condition types ([340f246](https://github.com/claritylabs-inc/cl-sdk/commit/340f24685aab9f600599c522f2f6a8d59d2a67c3))
+* add enriched fields to BaseDocument, PolicyDocument, QuoteDocument ([1a9dce1](https://github.com/claritylabs-inc/cl-sdk/commit/1a9dce18e1da60d362d355a09114257271bdefef))
+* add shared interfaces (Address, Contact, FormReference, etc.) ([05b5303](https://github.com/claritylabs-inc/cl-sdk/commit/05b53031e0a008345693384cc4f4973980050c9c))
+* expand extraction prompts with enriched structured fields ([96a26b1](https://github.com/claritylabs-inc/cl-sdk/commit/96a26b1bc7f2bd670633679bbdcbef3d15af3f72))
+* export all new types from barrel index ([29c18c0](https://github.com/claritylabs-inc/cl-sdk/commit/29c18c0224ee49db4e4be77f7d7236619aac7a76))
+* update pipeline to extract and merge enriched structured data ([55e16ca](https://github.com/claritylabs-inc/cl-sdk/commit/55e16caebe1b76558bc848c5e4976de910b52fac))
+
 # [1.2.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.1.4...v1.2.0) (2026-04-02)
 
 
