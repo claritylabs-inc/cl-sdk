@@ -1,3 +1,10 @@
+## [1.1.3](https://github.com/claritylabs-inc/cl-sdk/compare/v1.1.2...v1.1.3) (2026-04-02)
+
+
+### Bug Fixes
+
+* restore --provenance now that repo is public ([0f75e4c](https://github.com/claritylabs-inc/cl-sdk/commit/0f75e4cddbca516ef23e4a560f99bca11bbfe2f9))
+
 ## [1.1.2](https://github.com/claritylabs-inc/cl-sdk/compare/v1.1.1...v1.1.2) (2026-04-02)
 
 
