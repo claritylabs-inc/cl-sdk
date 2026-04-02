@@ -39,7 +39,7 @@ jobs:
           fi
       - name: Publish to npm
         if: steps.version.outputs.version != ''
-        run: npm publish --provenance --access public
+        run: npm publish --access public
       - name: Generate GitHub App token
         if: steps.version.outputs.version != ''
         id: app-token
