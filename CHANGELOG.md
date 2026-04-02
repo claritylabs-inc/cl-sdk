@@ -1,3 +1,10 @@
+## [1.1.4](https://github.com/claritylabs-inc/cl-sdk/compare/v1.1.3...v1.1.4) (2026-04-02)
+
+
+### Bug Fixes
+
+* add repository.url for npm provenance verification ([f7e5b73](https://github.com/claritylabs-inc/cl-sdk/commit/f7e5b73cbe3124d1b02210cfbb731c630512c202))
+
 ## [1.1.3](https://github.com/claritylabs-inc/cl-sdk/compare/v1.1.2...v1.1.3) (2026-04-02)
 
 
