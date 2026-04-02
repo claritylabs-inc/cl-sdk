@@ -26,6 +26,7 @@ import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { ModelConfig } from "../types/models";
 import { createDefaultModelConfig, MODEL_TOKEN_LIMITS } from "../types/models";
 import { METADATA_PROMPT, QUOTE_METADATA_PROMPT, CLASSIFY_DOCUMENT_PROMPT, buildSectionsPrompt, buildQuoteSectionsPrompt, buildSupplementaryEnrichmentPrompt } from "../prompts/extraction";
+import { extractPageRange, getPdfPageCount } from "./pdf";
 
 export const SONNET_MODEL = "claude-sonnet-4-6";
 export const HAIKU_MODEL = "claude-haiku-4-5-20251001";
@@ -224,6 +225,9 @@ export function getPageChunks(totalPages: number, chunkSize: number = 30): Array
 /**
  * Call a model with a PDF document and prompt via Vercel AI SDK.
  * Retries automatically on rate limit errors with exponential backoff.
+ *
+ * @param pageRange - Optional [startPage, endPage] (1-indexed) to trim the PDF
+ *   before sending, reducing input token count for large documents.
  */
 async function callModel(
   model: LanguageModel,
@@ -233,8 +237,15 @@ async function callModel(
   providerOptions?: ProviderOptions,
   log?: LogFn,
   onTokenUsage?: (usage: TokenUsage) => void,
+  pageRange?: [number, number],
 ): Promise<string> {
-  await log?.(`Calling model (max ${maxTokens} tokens)...`);
+  // Trim PDF to page range if specified
+  const pdfToSend = pageRange
+    ? await extractPageRange(pdfBase64, pageRange[0], pageRange[1])
+    : pdfBase64;
+
+  const rangeLabel = pageRange ? ` [pages ${pageRange[0]}–${pageRange[1]}]` : "";
+  await log?.(`Calling model (max ${maxTokens} tokens)${rangeLabel}...`);
   const start = Date.now();
 
   const { text, usage } = await withRetry(
@@ -244,7 +255,7 @@ async function callModel(
       messages: [{
         role: "user",
         content: [
-          { type: "file", data: pdfBase64, mediaType: "application/pdf" },
+          { type: "file", data: pdfToSend, mediaType: "application/pdf" },
           { type: "text", text: prompt },
         ],
       }],
@@ -394,6 +405,7 @@ export async function classifyDocumentType(
   const raw = await callModel(
     resolved.classification, pdfBase64, CLASSIFY_DOCUMENT_PROMPT,
     MODEL_TOKEN_LIMITS.classification, undefined, log, onTokenUsage,
+    [1, 3], // Only need first 3 pages for classification
   );
   try {
     const parsed = JSON.parse(stripFences(raw));
@@ -520,6 +532,7 @@ async function extractChunkWithRetry(
   const chunkRaw = await callModel(
     models.sections, pdfBase64, promptBuilder(start, end),
     MODEL_TOKEN_LIMITS.sections, undefined, log, onTokenUsage,
+    [start, end], // Only send this chunk's pages
   );
   try {
     return [JSON.parse(stripFences(chunkRaw))];
@@ -552,6 +565,7 @@ async function extractChunkWithRetry(
     const fallbackRaw = await callModel(
       models.sectionsFallback, pdfBase64, promptBuilder(start, end),
       MODEL_TOKEN_LIMITS.sectionsFallback, fallbackProviderOptions, log, onTokenUsage,
+      [start, end], // Only send this chunk's pages
     );
     try {
       return [JSON.parse(stripFences(fallbackRaw))];
@@ -636,11 +650,16 @@ export async function extractFromPdf(
   } = options ?? {};
   const resolved = resolveModels(models);
 
-  // Pass 1: Metadata extraction
+  // Get actual page count for smart page trimming
+  const actualPageCount = await getPdfPageCount(pdfBase64);
+
+  // Pass 1: Metadata extraction (first 10 pages contain declarations, schedule, coverages)
   await log?.("Pass 1: Extracting metadata...");
+  const metadataPageRange: [number, number] = [1, Math.min(10, actualPageCount)];
   const metadataRaw = await callModel(
     resolved.metadata, pdfBase64, METADATA_PROMPT,
     MODEL_TOKEN_LIMITS.metadata, metadataProviderOptions, log, onTokenUsage,
+    metadataPageRange,
   );
 
   let metadataResult: any;
@@ -655,7 +674,8 @@ export async function extractFromPdf(
   // Persist metadata early so it survives pass 2 failures
   await onMetadata?.(metadataRaw);
 
-  const pageCount = metadataResult.totalPages || 1;
+  // Use actual page count (metadata may report wrong count)
+  const pageCount = actualPageCount;
   await log?.(`Document: ${pageCount} page(s)`);
 
   // Pass 2: Sections (chunked, with fallback)
@@ -762,11 +782,16 @@ export async function extractQuoteFromPdf(
   } = options ?? {};
   const resolved = resolveModels(models);
 
-  // Pass 1: Quote metadata
+  // Get actual page count for smart page trimming
+  const actualPageCount = await getPdfPageCount(pdfBase64);
+
+  // Pass 1: Quote metadata (first 10 pages contain key quote info)
   await log?.("Pass 1: Extracting quote metadata...");
+  const metadataPageRange: [number, number] = [1, Math.min(10, actualPageCount)];
   const metadataRaw = await callModel(
     resolved.metadata, pdfBase64, QUOTE_METADATA_PROMPT,
     MODEL_TOKEN_LIMITS.metadata, metadataProviderOptions, log, onTokenUsage,
+    metadataPageRange,
   );
 
   let metadataResult: any;
@@ -781,7 +806,8 @@ export async function extractQuoteFromPdf(
   // Persist metadata early
   await onMetadata?.(metadataRaw);
 
-  const pageCount = metadataResult.totalPages || 1;
+  // Use actual page count (metadata may report wrong count)
+  const pageCount = actualPageCount;
   await log?.(`Quote document: ${pageCount} page(s)`);
 
   // Pass 2: Quote sections (chunked)

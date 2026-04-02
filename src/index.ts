@@ -115,6 +115,8 @@ export {
   getAcroFormFields,
   fillAcroForm,
   overlayTextOnPdf,
+  extractPageRange,
+  getPdfPageCount,
 } from "./extraction/pdf";
 
 export type {

@@ -8,6 +8,61 @@ import {
   rgb,
 } from "pdf-lib";
 
+/**
+ * Extract a page range from a PDF and return as base64.
+ * Used to reduce API token usage by only sending relevant pages.
+ *
+ * @param pdfBase64 - Full PDF as base64 string.
+ * @param startPage - First page to include (1-indexed).
+ * @param endPage - Last page to include (1-indexed, clamped to total pages).
+ * @returns Base64 string of the trimmed PDF, or original if range covers all pages.
+ */
+export async function extractPageRange(
+  pdfBase64: string,
+  startPage: number,
+  endPage: number,
+): Promise<string> {
+  const srcBytes = typeof Buffer !== "undefined"
+    ? Buffer.from(pdfBase64, "base64")
+    : Uint8Array.from(atob(pdfBase64), (c) => c.charCodeAt(0));
+  const srcDoc = await PDFDocument.load(srcBytes, { ignoreEncryption: true });
+  const totalPages = srcDoc.getPageCount();
+  const start = Math.max(startPage - 1, 0); // 0-indexed
+  const end = Math.min(endPage, totalPages) - 1; // 0-indexed
+
+  if (start === 0 && end >= totalPages - 1) {
+    return pdfBase64; // No point splitting if we want all pages
+  }
+
+  const newDoc = await PDFDocument.create();
+  const indices = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+  const pages = await newDoc.copyPages(srcDoc, indices);
+  pages.forEach((page) => newDoc.addPage(page));
+  const bytes = await newDoc.save();
+
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(bytes).toString("base64");
+  }
+  // Browser fallback
+  let binary = "";
+  const uint8 = new Uint8Array(bytes);
+  for (let i = 0; i < uint8.length; i++) {
+    binary += String.fromCharCode(uint8[i]);
+  }
+  return btoa(binary);
+}
+
+/**
+ * Get the page count of a PDF without fully parsing it.
+ */
+export async function getPdfPageCount(pdfBase64: string): Promise<number> {
+  const srcBytes = typeof Buffer !== "undefined"
+    ? Buffer.from(pdfBase64, "base64")
+    : Uint8Array.from(atob(pdfBase64), (c) => c.charCodeAt(0));
+  const doc = await PDFDocument.load(srcBytes, { ignoreEncryption: true });
+  return doc.getPageCount();
+}
+
 export interface AcroFormFieldInfo {
   name: string;
   type: "text" | "checkbox" | "dropdown" | "radio";
