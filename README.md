@@ -99,7 +99,7 @@ A multi-pass system that turns insurance PDFs into structured, queryable data:
 
 - **Pass 0 — Classification**: Determines whether a document is a policy or a quote. Returns document type, confidence score, and supporting signals.
 - **Pass 1 — Metadata Extraction**: Extracts high-level metadata — carrier, policy/quote number, dates, premium, insured name, coverage table with limits and deductibles. Includes an early persistence callback (`onMetadata`) so metadata is saved immediately, surviving downstream failures.
-- **Pass 2 — Section Extraction**: Splits the document into page chunks (starting at 15 pages) and extracts structured sections. Adaptive fallback: if a chunk's output is truncated (JSON parse failure), it re-splits into smaller chunks (10, then 5 pages), and escalates to the fallback model. Results are merged across chunks.
+- **Pass 2 — Section Extraction**: Splits the document into page chunks (starting at 15 pages) and extracts structured sections in parallel (concurrency-limited, default 2). All model calls automatically retry on rate-limit errors with exponential backoff. Adaptive fallback: if a chunk's output is truncated (JSON parse failure), it re-splits into smaller chunks (10, then 5 pages), and escalates to the fallback model. Results are merged across chunks.
 - **Pass 3 — Enrichment**: A non-fatal pass that parses raw text into structured supplementary fields — regulatory context, complaint contacts, costs and fees, claims contacts.
 
 For quotes specifically, the pipeline also extracts premium breakdowns, subjectivities (conditions that must be met before binding), and underwriting conditions.
@@ -160,12 +160,52 @@ interface ExtractOptions {
   models?: ModelConfig;
   metadataProviderOptions?: ProviderOptions;
   fallbackProviderOptions?: ProviderOptions;
+  concurrency?: number;          // parallel chunk limit (default: 2)
+  onTokenUsage?: (usage: TokenUsage) => void;
+}
+
+interface ExtractSectionsOptions {
+  log?: LogFn;
+  promptBuilder?: PromptBuilder;
+  models?: ModelConfig;
+  fallbackProviderOptions?: ProviderOptions;
+  concurrency?: number;          // parallel chunk limit (default: 2)
+  onTokenUsage?: (usage: TokenUsage) => void;
 }
 
 interface ClassifyOptions {
   log?: LogFn;
   models?: ModelConfig;
+  onTokenUsage?: (usage: TokenUsage) => void;
 }
+
+interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+```
+
+### Rate-Limit Resilience
+
+All model calls automatically retry on rate-limit errors (HTTP 429 or "rate limit" in error message) with exponential backoff — up to 5 retries with delays of 2s, 4s, 8s, 16s, 32s (plus jitter). Non-rate-limit errors are re-thrown immediately.
+
+### Parallel Chunk Extraction
+
+Pass 2 section extraction processes page chunks in parallel with a configurable concurrency limit (default: 2). This balances throughput against rate limits. Sub-chunk retries on truncation are also parallelized.
+
+```typescript
+// Track token usage across all passes
+let totalInput = 0, totalOutput = 0;
+
+const { extracted } = await extractFromPdf(pdfBase64, {
+  concurrency: 3,
+  onTokenUsage: ({ inputTokens, outputTokens }) => {
+    totalInput += inputTokens;
+    totalOutput += outputTokens;
+  },
+});
+
+console.log(`Total: ${totalInput} input, ${totalOutput} output tokens`);
 ```
 
 ### Agent
