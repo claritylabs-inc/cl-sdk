@@ -108,7 +108,7 @@ export {
   extractQuoteFromPdf,
 } from "./extraction/pipeline";
 
-export type { LogFn, PromptBuilder, ExtractOptions, ExtractSectionsOptions, ClassifyOptions } from "./extraction/pipeline";
+export type { LogFn, PromptBuilder, ExtractOptions, ExtractSectionsOptions, ClassifyOptions, TokenUsage } from "./extraction/pipeline";
 
 // PDF Operations
 export {

@@ -42,6 +42,74 @@ const DEFAULT_FALLBACK_PROVIDER_OPTIONS = {
   anthropic: { thinking: { type: "enabled", budgetTokens: 4096 } },
 };
 
+/** Maximum number of retries for rate-limited requests. */
+const MAX_RETRIES = 5;
+/** Base delay in ms for exponential backoff (doubles each retry). */
+const BASE_DELAY_MS = 2000;
+
+/** Check if an error is a rate limit error (HTTP 429 or matching message). */
+function isRateLimitError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    if (msg.includes("rate limit") || msg.includes("rate_limit") || msg.includes("too many requests")) {
+      return true;
+    }
+  }
+  if (typeof error === "object" && error !== null) {
+    const status = (error as any).status ?? (error as any).statusCode;
+    if (status === 429) return true;
+  }
+  return false;
+}
+
+/** Retry a function with exponential backoff on rate limit errors. */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  log?: LogFn,
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (!isRateLimitError(error) || attempt >= MAX_RETRIES) {
+        throw error;
+      }
+      const jitter = Math.random() * 1000;
+      const delay = BASE_DELAY_MS * Math.pow(2, attempt) + jitter;
+      await log?.(`Rate limited, retrying in ${(delay / 1000).toFixed(1)}s (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+/**
+ * Concurrency limiter — returns a function that wraps async tasks
+ * so at most `concurrency` run simultaneously. No external dependency.
+ */
+function pLimit(concurrency: number) {
+  let active = 0;
+  const queue: Array<() => void> = [];
+
+  function next() {
+    if (queue.length > 0 && active < concurrency) {
+      active++;
+      queue.shift()!();
+    }
+  }
+
+  return <T>(fn: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const run = () => {
+        fn().then(resolve, reject).finally(() => {
+          active--;
+          next();
+        });
+      };
+      queue.push(run);
+      next();
+    });
+}
+
 /** Strip markdown code fences from AI response text. */
 export function stripFences(text: string): string {
   return text.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
@@ -155,6 +223,7 @@ export function getPageChunks(totalPages: number, chunkSize: number = 30): Array
 
 /**
  * Call a model with a PDF document and prompt via Vercel AI SDK.
+ * Retries automatically on rate limit errors with exponential backoff.
  */
 async function callModel(
   model: LanguageModel,
@@ -163,57 +232,67 @@ async function callModel(
   maxTokens: number,
   providerOptions?: ProviderOptions,
   log?: LogFn,
+  onTokenUsage?: (usage: TokenUsage) => void,
 ): Promise<string> {
   await log?.(`Calling model (max ${maxTokens} tokens)...`);
   const start = Date.now();
 
-  const { text, usage } = await generateText({
-    model,
-    maxOutputTokens: maxTokens,
-    messages: [{
-      role: "user",
-      content: [
-        { type: "file", data: pdfBase64, mediaType: "application/pdf" },
-        { type: "text", text: prompt },
-      ],
-    }],
-    ...(providerOptions ? { providerOptions } : {}),
-  });
+  const { text, usage } = await withRetry(
+    () => generateText({
+      model,
+      maxOutputTokens: maxTokens,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "file", data: pdfBase64, mediaType: "application/pdf" },
+          { type: "text", text: prompt },
+        ],
+      }],
+      ...(providerOptions ? { providerOptions } : {}),
+    }),
+    log,
+  );
 
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   const inputTokens = usage?.inputTokens ?? 0;
   const outputTokens = usage?.outputTokens ?? 0;
   await log?.(`${inputTokens} in / ${outputTokens} out tokens (${elapsed}s)`);
+  onTokenUsage?.({ inputTokens, outputTokens });
 
   return text || "{}";
 }
 
 /**
  * Call a model with text-only prompt (no PDF) via Vercel AI SDK.
- * Used for pass 3 enrichment.
+ * Used for pass 3 enrichment. Retries on rate limit errors.
  */
 async function callModelText(
   model: LanguageModel,
   prompt: string,
   maxTokens: number,
   log?: LogFn,
+  onTokenUsage?: (usage: TokenUsage) => void,
 ): Promise<string> {
   await log?.(`Calling model text-only (max ${maxTokens} tokens)...`);
   const start = Date.now();
 
-  const { text, usage } = await generateText({
-    model,
-    maxOutputTokens: maxTokens,
-    messages: [{
-      role: "user",
-      content: prompt,
-    }],
-  });
+  const { text, usage } = await withRetry(
+    () => generateText({
+      model,
+      maxOutputTokens: maxTokens,
+      messages: [{
+        role: "user",
+        content: prompt,
+      }],
+    }),
+    log,
+  );
 
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   const inputTokens = usage?.inputTokens ?? 0;
   const outputTokens = usage?.outputTokens ?? 0;
   await log?.(`text: ${inputTokens} in / ${outputTokens} out tokens (${elapsed}s)`);
+  onTokenUsage?.({ inputTokens, outputTokens });
 
   return text || "{}";
 }
@@ -231,6 +310,7 @@ export async function enrichSupplementaryFields(
   document: any,
   models?: ModelConfig,
   log?: LogFn,
+  onTokenUsage?: (usage: TokenUsage) => void,
 ): Promise<any> {
   const fields: Record<string, string> = {};
   if (document.regulatoryContext?.content) {
@@ -256,7 +336,7 @@ export async function enrichSupplementaryFields(
   try {
     const resolved = resolveModels(models);
     const prompt = buildSupplementaryEnrichmentPrompt(fields);
-    const raw = await callModelText(resolved.enrichment, prompt, MODEL_TOKEN_LIMITS.enrichment, log);
+    const raw = await callModelText(resolved.enrichment, prompt, MODEL_TOKEN_LIMITS.enrichment, log, onTokenUsage);
     const parsed = JSON.parse(stripFences(raw));
 
     const enriched = { ...document };
@@ -297,6 +377,8 @@ export async function enrichSupplementaryFields(
 export interface ClassifyOptions {
   log?: LogFn;
   models?: ModelConfig;
+  /** Called after each model call with token usage for tracking. */
+  onTokenUsage?: (usage: TokenUsage) => void;
 }
 
 /**
@@ -306,12 +388,12 @@ export async function classifyDocumentType(
   pdfBase64: string,
   options?: ClassifyOptions,
 ): Promise<{ documentType: "policy" | "quote"; confidence: number; signals: string[] }> {
-  const { log, models } = options ?? {};
+  const { log, models, onTokenUsage } = options ?? {};
   const resolved = resolveModels(models);
   await log?.("Pass 0: Classifying document type...");
   const raw = await callModel(
     resolved.classification, pdfBase64, CLASSIFY_DOCUMENT_PROMPT,
-    MODEL_TOKEN_LIMITS.classification, undefined, log,
+    MODEL_TOKEN_LIMITS.classification, undefined, log, onTokenUsage,
   );
   try {
     const parsed = JSON.parse(stripFences(raw));
@@ -431,11 +513,13 @@ async function extractChunkWithRetry(
   promptBuilder: PromptBuilder,
   fallbackProviderOptions?: ProviderOptions,
   log?: LogFn,
+  onTokenUsage?: (usage: TokenUsage) => void,
+  concurrency: number = 2,
 ): Promise<any[]> {
   await log?.(`Pass 2: Extracting sections pages ${start}–${end}...`);
   const chunkRaw = await callModel(
     models.sections, pdfBase64, promptBuilder(start, end),
-    MODEL_TOKEN_LIMITS.sections, undefined, log,
+    MODEL_TOKEN_LIMITS.sections, undefined, log, onTokenUsage,
   );
   try {
     return [JSON.parse(stripFences(chunkRaw))];
@@ -450,15 +534,16 @@ async function extractChunkWithRetry(
         const subChunks = getPageChunks(pageSpan, smallerSize).map(
           ([s, e]) => [s + start - 1, e + start - 1] as [number, number],
         );
-        const results: any[] = [];
-        for (const [subStart, subEnd] of subChunks) {
-          const subResults = await extractChunkWithRetry(
-            models, pdfBase64, subStart, subEnd, nextSizeIndex,
-            promptBuilder, fallbackProviderOptions, log,
-          );
-          results.push(...subResults);
-        }
-        return results;
+        const limit = pLimit(concurrency);
+        const nestedResults = await Promise.all(
+          subChunks.map(([subStart, subEnd]) =>
+            limit(() => extractChunkWithRetry(
+              models, pdfBase64, subStart, subEnd, nextSizeIndex,
+              promptBuilder, fallbackProviderOptions, log, onTokenUsage, concurrency,
+            ))
+          ),
+        );
+        return nestedResults.flat();
       }
     }
 
@@ -466,7 +551,7 @@ async function extractChunkWithRetry(
     await log?.(`Sections model exhausted for pages ${start}–${end}, falling back...`);
     const fallbackRaw = await callModel(
       models.sectionsFallback, pdfBase64, promptBuilder(start, end),
-      MODEL_TOKEN_LIMITS.sectionsFallback, fallbackProviderOptions, log,
+      MODEL_TOKEN_LIMITS.sectionsFallback, fallbackProviderOptions, log, onTokenUsage,
     );
     try {
       return [JSON.parse(stripFences(fallbackRaw))];
@@ -488,18 +573,28 @@ async function extractSectionChunks(
   promptBuilder: PromptBuilder = buildSectionsPrompt,
   fallbackProviderOptions?: ProviderOptions,
   log?: LogFn,
+  onTokenUsage?: (usage: TokenUsage) => void,
+  concurrency: number = 2,
 ): Promise<any[]> {
   const chunks = getPageChunks(pageCount, CHUNK_SIZES[0]);
-  const sectionChunks: any[] = [];
+  const limit = pLimit(concurrency);
 
-  for (const [start, end] of chunks) {
-    const results = await extractChunkWithRetry(
-      models, pdfBase64, start, end, 0, promptBuilder, fallbackProviderOptions, log,
-    );
-    sectionChunks.push(...results);
-  }
+  const nestedResults = await Promise.all(
+    chunks.map(([start, end]) =>
+      limit(() => extractChunkWithRetry(
+        models, pdfBase64, start, end, 0, promptBuilder,
+        fallbackProviderOptions, log, onTokenUsage, concurrency,
+      ))
+    ),
+  );
 
-  return sectionChunks;
+  return nestedResults.flat();
+}
+
+/** Token usage reported per model call. */
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
 }
 
 export interface ExtractOptions {
@@ -510,6 +605,10 @@ export interface ExtractOptions {
   metadataProviderOptions?: ProviderOptions;
   /** Provider-specific options for fallback calls. Defaults to Anthropic thinking enabled. */
   fallbackProviderOptions?: ProviderOptions;
+  /** Maximum number of chunk extractions to run in parallel (default: 2). */
+  concurrency?: number;
+  /** Called after each model call with token usage for tracking. */
+  onTokenUsage?: (usage: TokenUsage) => void;
 }
 
 /**
@@ -532,6 +631,8 @@ export async function extractFromPdf(
     models,
     metadataProviderOptions = DEFAULT_METADATA_PROVIDER_OPTIONS,
     fallbackProviderOptions = DEFAULT_FALLBACK_PROVIDER_OPTIONS,
+    concurrency = 2,
+    onTokenUsage,
   } = options ?? {};
   const resolved = resolveModels(models);
 
@@ -539,7 +640,7 @@ export async function extractFromPdf(
   await log?.("Pass 1: Extracting metadata...");
   const metadataRaw = await callModel(
     resolved.metadata, pdfBase64, METADATA_PROMPT,
-    MODEL_TOKEN_LIMITS.metadata, metadataProviderOptions, log,
+    MODEL_TOKEN_LIMITS.metadata, metadataProviderOptions, log, onTokenUsage,
   );
 
   let metadataResult: any;
@@ -559,7 +660,8 @@ export async function extractFromPdf(
 
   // Pass 2: Sections (chunked, with fallback)
   const sectionChunks = await extractSectionChunks(
-    resolved, pdfBase64, pageCount, buildSectionsPrompt, fallbackProviderOptions, log,
+    resolved, pdfBase64, pageCount, buildSectionsPrompt,
+    fallbackProviderOptions, log, onTokenUsage, concurrency,
   );
 
   await log?.("Merging extraction results...");
@@ -567,7 +669,7 @@ export async function extractFromPdf(
 
   // Pass 3: Enrich supplementary fields (non-fatal)
   if (merged.document) {
-    merged.document = await enrichSupplementaryFields(merged.document, resolved, log);
+    merged.document = await enrichSupplementaryFields(merged.document, resolved, log, onTokenUsage);
   }
 
   const mergedRaw = JSON.stringify(merged);
@@ -580,6 +682,10 @@ export interface ExtractSectionsOptions {
   models?: ModelConfig;
   /** Provider-specific options for fallback calls. */
   fallbackProviderOptions?: ProviderOptions;
+  /** Maximum number of chunk extractions to run in parallel (default: 2). */
+  concurrency?: number;
+  /** Called after each model call with token usage for tracking. */
+  onTokenUsage?: (usage: TokenUsage) => void;
 }
 
 /**
@@ -596,6 +702,8 @@ export async function extractSectionsOnly(
     promptBuilder = buildSectionsPrompt,
     models,
     fallbackProviderOptions = DEFAULT_FALLBACK_PROVIDER_OPTIONS,
+    concurrency = 2,
+    onTokenUsage,
   } = options ?? {};
   const resolved = resolveModels(models);
 
@@ -611,7 +719,8 @@ export async function extractSectionsOnly(
   await log?.(`Document: ${pageCount} page(s)`);
 
   const sectionChunks = await extractSectionChunks(
-    resolved, pdfBase64, pageCount, promptBuilder, fallbackProviderOptions, log,
+    resolved, pdfBase64, pageCount, promptBuilder,
+    fallbackProviderOptions, log, onTokenUsage, concurrency,
   );
 
   await log?.("Merging extraction results...");
@@ -619,7 +728,7 @@ export async function extractSectionsOnly(
 
   // Pass 3: Enrich supplementary fields (non-fatal)
   if (merged.document) {
-    merged.document = await enrichSupplementaryFields(merged.document, resolved, log);
+    merged.document = await enrichSupplementaryFields(merged.document, resolved, log, onTokenUsage);
   }
 
   const mergedRaw = JSON.stringify(merged);
@@ -648,6 +757,8 @@ export async function extractQuoteFromPdf(
     models,
     metadataProviderOptions = DEFAULT_METADATA_PROVIDER_OPTIONS,
     fallbackProviderOptions = DEFAULT_FALLBACK_PROVIDER_OPTIONS,
+    concurrency = 2,
+    onTokenUsage,
   } = options ?? {};
   const resolved = resolveModels(models);
 
@@ -655,7 +766,7 @@ export async function extractQuoteFromPdf(
   await log?.("Pass 1: Extracting quote metadata...");
   const metadataRaw = await callModel(
     resolved.metadata, pdfBase64, QUOTE_METADATA_PROMPT,
-    MODEL_TOKEN_LIMITS.metadata, metadataProviderOptions, log,
+    MODEL_TOKEN_LIMITS.metadata, metadataProviderOptions, log, onTokenUsage,
   );
 
   let metadataResult: any;
@@ -675,7 +786,8 @@ export async function extractQuoteFromPdf(
 
   // Pass 2: Quote sections (chunked)
   const sectionChunks = await extractSectionChunks(
-    resolved, pdfBase64, pageCount, buildQuoteSectionsPrompt, fallbackProviderOptions, log,
+    resolved, pdfBase64, pageCount, buildQuoteSectionsPrompt,
+    fallbackProviderOptions, log, onTokenUsage, concurrency,
   );
 
   await log?.("Merging quote extraction results...");
