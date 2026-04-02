@@ -28,8 +28,8 @@ import { createDefaultModelConfig, MODEL_TOKEN_LIMITS } from "../types/models";
 import { METADATA_PROMPT, QUOTE_METADATA_PROMPT, CLASSIFY_DOCUMENT_PROMPT, buildSectionsPrompt, buildQuoteSectionsPrompt, buildSupplementaryEnrichmentPrompt } from "../prompts/extraction";
 import { extractPageRange, getPdfPageCount } from "./pdf";
 
-export const SONNET_MODEL = "claude-sonnet-4-6";
-export const HAIKU_MODEL = "claude-haiku-4-5-20251001";
+export const SONNET_MODEL = "claude-sonnet-4.6";
+export const HAIKU_MODEL = "claude-haiku-4.5.20251001";
 
 export type LogFn = (message: string) => Promise<void>;
 
@@ -146,7 +146,7 @@ export function applyExtracted(extracted: any) {
       ? [meta.policyType]
       : ["other"];
 
-  return {
+  const fields: any = {
     carrier: meta.carrier || meta.security || "Unknown",
     security: meta.security ?? undefined,
     underwriter: meta.underwriter ?? undefined,
@@ -168,6 +168,38 @@ export function applyExtracted(extracted: any) {
     extractionStatus: "complete" as const,
     extractionError: "",
   };
+
+  // Enriched metadata fields (v1.2+)
+  if (extracted.metadata?.carrierLegalName) fields.carrierLegalName = extracted.metadata.carrierLegalName;
+  if (extracted.metadata?.carrierNaicNumber) fields.carrierNaicNumber = extracted.metadata.carrierNaicNumber;
+  if (extracted.metadata?.carrierAmBestRating) fields.carrierAmBestRating = extracted.metadata.carrierAmBestRating;
+  if (extracted.metadata?.carrierAdmittedStatus) fields.carrierAdmittedStatus = extracted.metadata.carrierAdmittedStatus;
+  if (extracted.metadata?.mga) fields.mga = extracted.metadata.mga;
+  if (extracted.metadata?.underwriter) fields.underwriter = extracted.metadata.underwriter;
+  if (extracted.metadata?.brokerAgency ?? extracted.metadata?.broker) fields.brokerAgency = extracted.metadata.brokerAgency ?? extracted.metadata.broker;
+  if (extracted.metadata?.brokerContactName) fields.brokerContactName = extracted.metadata.brokerContactName;
+  if (extracted.metadata?.brokerLicenseNumber) fields.brokerLicenseNumber = extracted.metadata.brokerLicenseNumber;
+  if (extracted.metadata?.priorPolicyNumber) fields.priorPolicyNumber = extracted.metadata.priorPolicyNumber;
+  if (extracted.metadata?.programName) fields.programName = extracted.metadata.programName;
+  if (extracted.metadata?.isRenewal != null) fields.isRenewal = extracted.metadata.isRenewal;
+  if (extracted.metadata?.isPackage != null) fields.isPackage = extracted.metadata.isPackage;
+  if (extracted.metadata?.coverageForm) fields.coverageForm = extracted.metadata.coverageForm;
+  if (extracted.metadata?.retroactiveDate) fields.retroactiveDate = extracted.metadata.retroactiveDate;
+  if (extracted.metadata?.effectiveTime) fields.effectiveTime = extracted.metadata.effectiveTime;
+  if (extracted.metadata?.insuredDba) fields.insuredDba = extracted.metadata.insuredDba;
+  if (extracted.metadata?.insuredAddress) fields.insuredAddress = extracted.metadata.insuredAddress;
+  if (extracted.metadata?.insuredEntityType) fields.insuredEntityType = extracted.metadata.insuredEntityType;
+  if (extracted.metadata?.insuredFein) fields.insuredFein = extracted.metadata.insuredFein;
+  if (extracted.additionalNamedInsureds?.length) fields.additionalNamedInsureds = extracted.additionalNamedInsureds;
+  if (extracted.limits) fields.limits = extracted.limits;
+  if (extracted.deductibles) fields.deductibles = extracted.deductibles;
+  if (extracted.locations?.length) fields.locations = extracted.locations;
+  if (extracted.vehicles?.length) fields.vehicles = extracted.vehicles;
+  if (extracted.classifications?.length) fields.classifications = extracted.classifications;
+  if (extracted.formInventory?.length) fields.formInventory = extracted.formInventory;
+  if (extracted.taxesAndFees?.length) fields.taxesAndFees = extracted.taxesAndFees;
+
+  return fields;
 }
 
 /**
@@ -187,6 +219,11 @@ export function mergeChunkedSections(
   let costsAndFees: any = null;
   let claimsContact: any = null;
 
+  // Merge structured endorsements, exclusions, conditions from all chunks
+  const allEndorsements: any[] = [];
+  const allExclusions: any[] = [];
+  const allPolicyConditions: any[] = [];
+
   for (const chunk of sectionChunks) {
     if (chunk.sections) {
       allSections.push(...chunk.sections);
@@ -195,9 +232,12 @@ export function mergeChunkedSections(
     if (chunk.complaintContact) complaintContact = chunk.complaintContact;
     if (chunk.costsAndFees) costsAndFees = chunk.costsAndFees;
     if (chunk.claimsContact) claimsContact = chunk.claimsContact;
+    if (chunk.endorsements?.length) allEndorsements.push(...chunk.endorsements);
+    if (chunk.exclusions?.length) allExclusions.push(...chunk.exclusions);
+    if (chunk.conditions?.length) allPolicyConditions.push(...chunk.conditions);
   }
 
-  return {
+  const result = {
     metadata: metadataResult.metadata,
     metadataSource: metadataResult.metadataSource,
     coverages: metadataResult.coverages,
@@ -207,9 +247,15 @@ export function mergeChunkedSections(
       ...(complaintContact && { complaintContact }),
       ...(costsAndFees && { costsAndFees }),
       ...(claimsContact && { claimsContact }),
-    },
+    } as any,
     totalPages: metadataResult.totalPages,
   };
+
+  if (allEndorsements.length) result.document.endorsements = allEndorsements;
+  if (allExclusions.length) result.document.exclusions = allExclusions;
+  if (allPolicyConditions.length) result.document.conditions = allPolicyConditions;
+
+  return result;
 }
 
 /** Determine page ranges for chunked extraction. */
@@ -428,7 +474,7 @@ export function applyExtractedQuote(extracted: any) {
     ? meta.policyTypes
     : ["other"];
 
-  return {
+  const fields: any = {
     carrier: meta.carrier || meta.security || "Unknown",
     security: meta.security ?? undefined,
     underwriter: meta.underwriter ?? undefined,
@@ -461,6 +507,39 @@ export function applyExtractedQuote(extracted: any) {
     extractionStatus: "complete" as const,
     extractionError: "",
   };
+
+  // Enriched quote fields (v1.2+)
+  if (meta.carrierLegalName) fields.carrierLegalName = meta.carrierLegalName;
+  if (meta.carrierNaicNumber) fields.carrierNaicNumber = meta.carrierNaicNumber;
+  if (meta.carrierAdmittedStatus) fields.carrierAdmittedStatus = meta.carrierAdmittedStatus;
+  if (meta.coverageForm) fields.coverageForm = meta.coverageForm;
+  if (meta.retroactiveDate) fields.retroactiveDate = meta.retroactiveDate;
+  if (meta.insuredAddress) fields.insuredAddress = meta.insuredAddress;
+  if (extracted.limits) fields.limits = extracted.limits;
+  if (extracted.deductibles) fields.deductibles = extracted.deductibles;
+  if (extracted.warrantyRequirements?.length) fields.warrantyRequirements = extracted.warrantyRequirements;
+  if (extracted.taxesAndFees?.length) fields.taxesAndFees = extracted.taxesAndFees;
+
+  // Map enriched subjectivities
+  if (extracted.subjectivities?.length) {
+    fields.enrichedSubjectivities = extracted.subjectivities.map((s: any) => ({
+      description: s.description,
+      category: s.category ?? undefined,
+      dueDate: s.dueDate ?? undefined,
+      pageNumber: s.pageNumber ?? undefined,
+    }));
+  }
+
+  // Map enriched underwriting conditions
+  if (extracted.underwritingConditions?.length) {
+    fields.enrichedUnderwritingConditions = extracted.underwritingConditions.map((c: any) => ({
+      description: c.description,
+      category: c.category ?? undefined,
+      pageNumber: c.pageNumber ?? undefined,
+    }));
+  }
+
+  return fields;
 }
 
 /**
@@ -477,6 +556,8 @@ export function mergeChunkedQuoteSections(
   const allSubjectivities: any[] = metadataResult.subjectivities || [];
   const allConditions: any[] = metadataResult.underwritingConditions || [];
 
+  const allExclusions: any[] = [];
+
   for (const chunk of sectionChunks) {
     if (chunk.sections) {
       allSections.push(...chunk.sections);
@@ -487,9 +568,12 @@ export function mergeChunkedQuoteSections(
     if (chunk.underwritingConditions) {
       allConditions.push(...chunk.underwritingConditions);
     }
+    if (chunk.exclusions?.length) {
+      allExclusions.push(...chunk.exclusions);
+    }
   }
 
-  return {
+  const result = {
     metadata: metadataResult.metadata,
     metadataSource: metadataResult.metadataSource,
     coverages: metadataResult.coverages,
@@ -498,9 +582,13 @@ export function mergeChunkedQuoteSections(
     underwritingConditions: allConditions.length > 0 ? allConditions : undefined,
     document: {
       sections: allSections,
-    },
+    } as any,
     totalPages: metadataResult.totalPages,
   };
+
+  if (allExclusions.length) result.document.exclusions = allExclusions;
+
+  return result;
 }
 
 /** Chunk sizes to try in order — progressively smaller to avoid output token limits. */
@@ -626,7 +714,7 @@ export interface ExtractOptions {
 }
 
 /**
- * Full extraction pipeline for policy documents (passes 1-3).
+ * Full extraction pipeline for policy documents (passes 1 through 3).
  *
  * - **Pass 1**: Metadata model extracts metadata, coverages, and page count.
  * - **Pass 2**: Sections model extracts sections in chunks (with adaptive retry and fallback).
@@ -756,7 +844,7 @@ export async function extractSectionsOnly(
 }
 
 /**
- * Full extraction pipeline for quote documents (passes 1-2).
+ * Full extraction pipeline for quote documents (passes 1 through 2).
  *
  * - **Pass 1**: Metadata model extracts quote-specific metadata (proposed dates,
  *   subjectivities, premium breakdown).
