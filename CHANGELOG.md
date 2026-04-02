@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.0.1...v1.1.0) (2026-04-02)
+
+
+### Features
+
+* add rate-limit retry, parallel chunk extraction, and token tracking ([e8e51af](https://github.com/claritylabs-inc/cl-sdk/commit/e8e51af00e0e3cde5925598dd27d6b0aa216b8b4))
+
 ## [1.0.1](https://github.com/claritylabs-inc/cl-sdk/compare/v1.0.0...v1.0.1) (2026-03-22)
 
 
