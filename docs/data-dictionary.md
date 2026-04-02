@@ -1,0 +1,723 @@
+# Insurance Data Dictionary
+
+**Version:** 1.0
+**Last Updated:** 2026-04-02
+**Scope:** All extractable fields from insurance policies, quotes, and related documents
+
+---
+
+## Purpose
+
+This document defines every field that the CL-0 SDK extraction pipeline can extract from insurance documents. It is the canonical reference for:
+
+- **Extraction prompt authors** — when writing or updating prompts in `src/prompts/extraction.ts`, use the field names and types here as the schema contract
+- **TypeScript interface authors** — field names map directly to properties in `src/types/document.ts`
+- **Application auto-fill developers** — context key column maps extracted fields to business context storage keys used by `src/prompts/application.ts`
+- **Agent prompt authors** — understanding what structured data is available to agent system prompts in `src/prompts/agent/`
+
+## How to Use This Document
+
+### Field Name → TypeScript Property
+
+Every field listed in this document uses `snake_case` naming. The `snake_case` name maps directly to the TypeScript property name in the interface. For example, `insured_name` maps to `document.insuredName` is **wrong** — it maps to `document.insured_name` (the TypeScript interfaces use snake_case to match extraction output directly, avoiding transformation).
+
+### Context Key → Application Auto-Fill
+
+Fields marked with a **Context Key** in the rightmost column can be stored as reusable business context entries. When the extraction pipeline runs, these values are stored under the context key and are available to the application auto-fill system. The context key is what you pass to `update_business_context` and what the application processor looks up when filling form fields.
+
+Context key storage flow:
+1. Extract policy/quote using the enriched pipeline
+2. For each field with a context key, call `update_business_context(category, key, value)`
+3. When processing applications, the auto-fill system queries `get_business_context` and matches keys to form field IDs
+4. Cite the source: "from [Carrier] [PolicyType] Policy #[PolicyNumber]"
+
+### Reliability Ratings
+
+| Rating | Meaning |
+|--------|---------|
+| **high** | Present and parseable in 90%+ of documents. Safe to require in prompts. |
+| **medium** | Present in 50–90% of documents, or present but inconsistently formatted. Extract if available, handle absence gracefully. |
+| **low** | Present in fewer than 50% of documents, or highly variable across carriers. Best-effort extraction only. |
+
+---
+
+## Domain 1: Core Document Metadata
+
+Fields present on ALL insurance documents regardless of line of business. These form the foundation of `BaseDocument` in `src/types/document.ts`.
+
+### Document Identification
+
+| Field | Type | Description | Source Section | Reliability | Context Key |
+|-------|------|-------------|----------------|-------------|-------------|
+| `document_type` | `"policy" \| "quote" \| "binder" \| "endorsement" \| "certificate"` | Classification of the document. Determined in Pass 0 (classification). | Cover page / header | high | — |
+| `carrier` | `string` | Insurance company marketing name as it appears on the document. May differ from legal name. | Declarations / header | high | — |
+| `carrier_legal_name` | `string` | Full legal entity name of the insurer. Important for certificate issuance and legal documents. | Declarations | high | — |
+| `carrier_naic_number` | `string` | NAIC company code (5-digit number assigned by the National Association of Insurance Commissioners). Used for regulatory lookups. | Declarations / footer | medium | — |
+| `carrier_am_best_rating` | `string` | AM Best financial strength rating and size category (e.g., "A+ XV"). | Declarations or separate rating page | low | — |
+| `carrier_admitted_status` | `"admitted" \| "non_admitted" \| "surplus_lines"` | Whether the carrier is licensed (admitted) or unauthorized (surplus lines/non-admitted) in the state. Affects policyholder protections. | Declarations / surplus lines notice | medium | — |
+| `security` | `string` | The legal entity actually on risk. May differ from carrier marketing name when an MGA or program administrator is involved. | Declarations | medium | — |
+| `mga` | `string \| null` | Managing General Agent name, if the policy was placed through an MGA rather than directly with the carrier. | Declarations / cover | medium | — |
+| `underwriter` | `string \| null` | Named underwriter handling the account. Rarely shown on policy documents; more common in submission correspondence. | Cover letter / dec page | low | — |
+| `broker_agency` | `string` | Producer or broker agency name. The organization that placed the coverage. | Declarations | high | `broker_agency` |
+| `broker_contact_name` | `string` | Individual producer/agent name within the agency. | Declarations | medium | `broker_contact_name` |
+| `broker_license_number` | `string` | Producer license number. Required on surplus lines placements in many states. | Declarations | low | — |
+| `policy_number` | `string` | Unique policy identifier assigned by the carrier. Present on bound policies, not quotes. | Declarations | high | — |
+| `quote_number` | `string` | Quote or proposal reference number assigned by carrier or system. Present on quotes, sometimes also on bound policies as prior reference. | Cover page | high | — |
+| `prior_policy_number` | `string \| null` | Previous policy number if this is a renewal. Links renewal to expiring policy. | Declarations | medium | — |
+| `program_name` | `string \| null` | Named program or facility (e.g., "Artisan Contractors Program", "Hospitality Select"). Indicates the pricing/underwriting program used. | Declarations / cover | low | — |
+| `is_renewal` | `boolean` | Whether this is a renewal policy vs new business. Look for "RENEWAL" designation or prior policy number. | Declarations | medium | — |
+| `is_package` | `boolean` | Whether this is a Commercial Package Policy (CPP) covering multiple lines under one policy. Look for "PACKAGE" in title or multiple coverage part declarations. | Declarations / form schedule | high | — |
+
+### Named Insureds
+
+| Field | Type | Description | Source Section | Reliability | Context Key |
+|-------|------|-------------|----------------|-------------|-------------|
+| `insured_name` | `string` | First/primary named insured exactly as shown on the policy. This is the party with the most rights under the policy. | Declarations | high | `company_name` |
+| `insured_dba` | `string \| null` | Doing-business-as name if the insured operates under a trade name different from the legal name. | Declarations | medium | `dba_name` |
+| `insured_address` | `Address` | Mailing address of the primary named insured. See `Address` type in Shared Types appendix. | Declarations | high | `company_address` |
+| `insured_entity_type` | `"corporation" \| "llc" \| "partnership" \| "sole_proprietor" \| "joint_venture" \| "trust" \| "nonprofit" \| "municipality" \| "other"` | Legal entity type of the primary named insured. Affects coverage scope and certain endorsements. | Declarations / application | medium | `entity_type` |
+| `additional_named_insureds` | `NamedInsured[]` | All additional named insureds listed on declarations or by endorsement. These parties have full insured rights, unlike additional insureds added by endorsement. See `NamedInsured` type. | Declarations / endorsement | medium | — |
+| `insured_sic_code` | `string \| null` | Standard Industrial Classification code. Used for rating and underwriting. | Declarations | low | `sic_code` |
+| `insured_naics_code` | `string \| null` | North American Industry Classification System code. More detailed than SIC. | Declarations | low | `naics_code` |
+| `insured_fein` | `string \| null` | Federal Employer Identification Number. Appears on WC policies and some others. | Declarations / application | low | `fein` |
+
+### Policy Period
+
+| Field | Type | Description | Source Section | Reliability | Context Key |
+|-------|------|-------------|----------------|-------------|-------------|
+| `effective_date` | `string` (MM/DD/YYYY) | Policy inception date. Coverage begins at the effective time on this date. | Declarations | high | — |
+| `expiration_date` | `string` (MM/DD/YYYY) | Policy expiration date. Coverage ends at the effective time on this date. | Declarations | high | — |
+| `effective_time` | `string` | Time of day coverage begins and ends (e.g., "12:01 AM Standard Time"). Almost always 12:01 AM. | Declarations | medium | — |
+| `retroactive_date` | `string \| null` (MM/DD/YYYY) | For claims-made policies: the date before which occurrences are not covered. Claims arising from acts before this date are excluded even if reported during the policy period. | Declarations (claims-made policies) | high (when applicable) | — |
+| `pending_prior_date` | `string \| null` (MM/DD/YYYY) | A date for claims-made policies that extends backward coverage for known circumstances that may result in claims. | Declarations | medium | — |
+| `extended_reporting_period` | `ExtendedReportingPeriod \| null` | Tail coverage options available when a claims-made policy expires or is canceled without renewal to another claims-made policy. Includes automatic mini-tail days and supplemental tail years/premium. | Endorsement / conditions | medium | — |
+| `cancellation_notice_days` | `number \| null` | Days of advance written notice the carrier must give before cancellation. Statutory minimums apply but may be extended by endorsement. | Conditions | medium | — |
+| `nonrenewal_notice_days` | `number \| null` | Days of advance written notice required for nonrenewal. | Conditions | medium | — |
+
+### Premium Structure
+
+| Field | Type | Description | Source Section | Reliability | Context Key |
+|-------|------|-------------|----------------|-------------|-------------|
+| `total_premium` | `string` | Total policy premium in the carrier's standard currency format (e.g., "$12,500"). Does not include taxes and fees unless so stated. | Declarations | high | — |
+| `premium_breakdown` | `PremiumLine[]` | Premium allocated by coverage line or part. See `PremiumLine` type in `src/types/document.ts`. Essential for package policies with multiple lines. | Declarations / premium page | high | — |
+| `taxes_and_fees` | `TaxFeeItem[]` | Itemized taxes, surcharges, and fees. Includes state premium taxes, surplus lines taxes, stamping fees, TRIA surcharges, inspection fees, etc. | Declarations / billing page | medium | — |
+| `total_cost` | `string` | Total amount due: premium + taxes + fees. What the insured actually pays. | Declarations / billing page | medium | — |
+| `minimum_premium` | `string \| null` | Minimum premium that will be earned regardless of cancellation or audit result. Expressed as dollar amount. | Declarations / conditions | medium | — |
+| `deposit_premium` | `string \| null` | Initial deposit premium for audit-based policies. Actual premium is determined at audit. | Declarations | medium | — |
+| `payment_plan` | `PaymentPlan \| null` | Installment payment schedule if not paid in full. See `PaymentPlan` type. | Billing page / dec | low | — |
+| `audit_type` | `"annual" \| "semi_annual" \| "quarterly" \| "monthly" \| "self" \| "physical" \| "none" \| null` | Type of premium audit. Policies with variable exposure bases (payroll, revenue) are typically audited annually. | Declarations / conditions | medium | — |
+| `rating_basis` | `RatingBasis[]` | What the premium is based on (payroll, revenue, square footage, vehicle count, etc.). See `RatingBasis` type. | Declarations / rating page | medium | — |
+| `experience_modifier` | `number \| null` | Experience modification factor applied to WC premiums. A factor below 1.0 is favorable; above 1.0 is adverse. | Declarations | high (WC) | `experience_mod` |
+| `retrospective_rating` | `boolean` | Whether a retrospective rating plan applies. Under retro-rating, final premium is adjusted after the policy period based on actual losses. | Declarations / endorsement | low | — |
+
+### Policy Lines Classification
+
+| Field | Type | Description | Source Section | Reliability | Context Key |
+|-------|------|-------------|----------------|-------------|-------------|
+| `policy_types` | `PolicyType[]` | Lines of business covered. Uses the expanded `PolicyType` enum (see Shared Types appendix). | Declarations / form schedule | high | — |
+| `coverage_form` | `"occurrence" \| "claims_made" \| "accident"` | Coverage trigger type. Occurrence: injury/damage must occur during policy period. Claims-made: claim must be made during policy period. | Declarations / insuring agreement | high | — |
+| `policy_form_numbers` | `FormReference[]` | All form numbers listed in the policy (the forms and endorsements schedule). See `FormReference` type. This is the complete inventory of forms attached to the policy. | Form schedule / endorsement schedule | high | — |
+
+**TypeScript Interface:** `BaseDocument` in `src/types/document.ts`
+
+---
+
+## Domain 2: Declarations (Structured Per-Line)
+
+The declarations page(s) contain the structured deal summary for each coverage part. These fields go beyond core metadata into line-specific structured data.
+
+**TypeScript Interface:** Part of `PolicyDocument` and line-specific extensions in `src/types/document.ts`
+
+### Limits Schedule
+
+| Field | Type | Description | Source Section | Reliability |
+|-------|------|-------------|----------------|-------------|
+| `limits` | `LimitSchedule` | Complete limits structure containing all applicable limit fields for the coverage. | Declarations | high |
+| `limits.per_occurrence` | `string \| null` | Per-occurrence limit (GL, umbrella) or per-claim limit (professional lines). The maximum the insurer will pay for a single occurrence or claim. | Declarations | high |
+| `limits.general_aggregate` | `string \| null` | General aggregate limit (GL). The maximum paid for all occurrences during the policy period, excluding products/completed operations. | Declarations | high |
+| `limits.products_completed_ops_aggregate` | `string \| null` | Products and completed operations aggregate (GL). Separate aggregate for claims arising from products or finished work. | Declarations (GL) | high |
+| `limits.personal_advertising_injury` | `string \| null` | Personal and advertising injury limit (GL Coverage B). Per person or organization limit for offenses such as libel, slander, copyright infringement. | Declarations (GL) | high |
+| `limits.each_employee` | `string \| null` | Each employee limit (EPLI). Maximum per claimant/employee for employment practices claims. | Declarations | high |
+| `limits.fire_damage` | `string \| null` | Damage to premises rented to you limit (GL). Covers fire damage to rented/leased premises. | Declarations (GL) | high |
+| `limits.medical_expense` | `string \| null` | Medical expense limit (GL Coverage C). Per person limit for first-aid/medical costs regardless of fault. | Declarations (GL) | medium |
+| `limits.combined_single_limit` | `string \| null` | Combined single limit for auto liability (CSL). One limit applies to all bodily injury and property damage claims from a single accident. | Declarations (auto) | high |
+| `limits.bodily_injury_per_person` | `string \| null` | Split limit: bodily injury per person (auto). Maximum for one person's injuries in an accident. | Declarations (auto) | high |
+| `limits.bodily_injury_per_accident` | `string \| null` | Split limit: bodily injury per accident (auto). Maximum for all injuries in one accident. | Declarations (auto) | high |
+| `limits.property_damage` | `string \| null` | Split limit: property damage (auto). Maximum for property damage in one accident. | Declarations (auto) | high |
+| `limits.each_occurrence_umbrella` | `string \| null` | Umbrella/excess per occurrence limit. | Declarations (umbrella) | high |
+| `limits.umbrella_aggregate` | `string \| null` | Umbrella/excess annual aggregate limit. | Declarations (umbrella) | high |
+| `limits.umbrella_retention` | `string \| null` | Self-insured retention for umbrella. Applies when underlying coverage is insufficient (retained drop-down). | Declarations (umbrella) | high |
+| `limits.statutory` | `boolean` | Whether workers' compensation limits are statutory (required by state law). Part One WC is always statutory. | Declarations (WC) | high |
+| `limits.employers_liability` | `EmployersLiabilityLimits \| null` | Employers' liability limits: each accident, disease-policy limit, disease-each employee. See `EmployersLiabilityLimits` type. | Declarations (WC) | high |
+| `limits.sublimits` | `Sublimit[]` | Named sublimits within the overall policy limit (e.g., cyber sublimits for ransomware, social engineering). See `Sublimit` type. | Declarations / endorsements | medium |
+| `limits.shared_limits` | `SharedLimit[] \| null` | Limits shared across coverage parts (relevant for management liability packages). See `SharedLimit` type. | Declarations (package) | medium |
+| `limits.defense_cost_treatment` | `"inside_limits" \| "outside_limits" \| "supplementary"` | Whether defense costs erode the coverage limit. "Inside" means defense costs reduce the available limit. "Outside" or "supplementary" means defense is in addition to the limit. Critical for professional liability and cyber. | Insuring agreement / conditions | high |
+
+### Deductibles & Self-Insured Retentions
+
+| Field | Type | Description | Source Section | Reliability |
+|-------|------|-------------|----------------|-------------|
+| `deductibles` | `DeductibleSchedule` | Complete deductible structure for all coverages. | Declarations | high |
+| `deductibles.per_claim` | `string \| null` | Per-claim deductible amount. Applies to each claim individually. | Declarations | high |
+| `deductibles.per_occurrence` | `string \| null` | Per-occurrence deductible. Applies to all claims from one occurrence. | Declarations | high |
+| `deductibles.aggregate_deductible` | `string \| null` | Annual aggregate deductible. Maximum total deductible obligation in a policy period. | Declarations | medium |
+| `deductibles.self_insured_retention` | `string \| null` | Self-insured retention (SIR) amount. Unlike a deductible (where insurer pays first then seeks reimbursement), with an SIR the insured defends and pays claims up to the retention before coverage attaches. | Declarations | high |
+| `deductibles.corridor_deductible` | `string \| null` | Corridor deductible sitting between the primary policy and excess/umbrella. Insured retains this amount above primary limits. | Declarations | low |
+| `deductibles.waiting_period` | `string \| null` | Waiting period before coverage applies (cyber business interruption). Typically expressed in hours (e.g., "8 hours"). | Declarations | medium |
+| `deductibles.applies_to` | `"damages_only" \| "damages_and_defense" \| "defense_only"` | Whether the deductible applies only to indemnity payments, to both defense costs and damages, or only to defense costs. | Conditions / insuring agreement | medium |
+
+### Named Locations / Premises
+
+| Field | Type | Description | Source Section | Reliability |
+|-------|------|-------------|----------------|-------------|
+| `locations` | `InsuredLocation[]` | Schedule of all insured locations or premises. | Declarations / location schedule | high |
+| `locations[].number` | `number` | Sequential location number as assigned in the policy schedule. | Schedule | high |
+| `locations[].address` | `Address` | Physical street address of the location. | Schedule | high |
+| `locations[].description` | `string \| null` | Description of operations or occupancy at this location. | Schedule | medium |
+| `locations[].building_value` | `string \| null` | Replacement cost or ACV of the building structure at this location. | Schedule (property) | high (property) |
+| `locations[].contents_value` | `string \| null` | Value of business personal property / contents at this location. | Schedule (property) | high (property) |
+| `locations[].business_income_value` | `string \| null` | Business income coverage limit for this location. | Schedule (property) | medium |
+| `locations[].construction_type` | `string \| null` | ISO construction class (e.g., "Frame", "Joisted Masonry", "Masonry Non-Combustible", "Fire Resistive"). Affects property rating. | Schedule (property) | medium |
+| `locations[].year_built` | `number \| null` | Year the building was constructed. Affects property rating. | Schedule (property) | medium |
+| `locations[].square_footage` | `number \| null` | Total square footage of the building. | Schedule (property) | low |
+| `locations[].protection_class` | `string \| null` | ISO fire protection class (1-10, where 1 is best). Determines proximity to fire station and hydrants. | Schedule (property) | medium |
+| `locations[].sprinklered` | `boolean \| null` | Whether the building is fully sprinklered. | Schedule (property) | medium |
+| `locations[].alarm_type` | `string \| null` | Security alarm type (e.g., "Central Station", "Local", "None"). | Schedule (property) | low |
+| `locations[].occupancy` | `string \| null` | Occupancy description (e.g., "Office", "Warehouse", "Retail", "Restaurant"). | Schedule (property) | medium |
+
+### Vehicle / Equipment Schedule
+
+| Field | Type | Description | Source Section | Reliability |
+|-------|------|-------------|----------------|-------------|
+| `vehicles` | `InsuredVehicle[]` | Schedule of all covered vehicles. | Declarations / vehicle schedule | high (auto) |
+| `vehicles[].number` | `number` | Sequential vehicle number as assigned in the schedule. | Schedule | high |
+| `vehicles[].year` | `number` | Model year of the vehicle. | Schedule | high |
+| `vehicles[].make` | `string` | Vehicle manufacturer (e.g., "Ford", "Toyota"). | Schedule | high |
+| `vehicles[].model` | `string` | Vehicle model name (e.g., "F-150", "Tacoma"). | Schedule | high |
+| `vehicles[].vin` | `string` | Vehicle Identification Number (17 characters). Unique vehicle identifier. | Schedule | high |
+| `vehicles[].cost_new` | `string \| null` | Original cost when new. Used as a reference for physical damage valuation. | Schedule | medium |
+| `vehicles[].stated_value` | `string \| null` | Stated or agreed value for physical damage coverage. When present, replaces cost/ACV calculations. | Schedule | medium |
+| `vehicles[].garage_location` | `number \| null` | Location number (from locations schedule) where the vehicle is principally garaged. | Schedule | medium |
+| `vehicles[].coverages` | `VehicleCoverage[]` | Per-vehicle coverage selections (liability, collision, comprehensive, UM/UIM, etc.). See `VehicleCoverage` type. | Schedule | high |
+| `vehicles[].radius` | `string \| null` | Operating radius from garage location (e.g., "Local (0-50 miles)", "Intermediate", "Long Haul"). Affects trucking premiums. | Schedule | low |
+| `vehicles[].vehicle_type` | `string` | Type of vehicle (e.g., "Private Passenger", "Light Truck", "Heavy Truck", "Tractor", "Trailer"). | Schedule | medium |
+
+### Classification Codes
+
+| Field | Type | Description | Source Section | Reliability |
+|-------|------|-------------|----------------|-------------|
+| `classifications` | `ClassificationCode[]` | Rating classification codes and their exposure data. Present on GL (ISO class codes), WC (NCCI/state class codes), and other lines. | Declarations / rating schedule | high |
+| `classifications[].code` | `string` | Class code number (e.g., "91560" for GL contracting operations, "5403" for WC carpentry). | Schedule | high |
+| `classifications[].description` | `string` | Human-readable description of the class code. | Schedule | high |
+| `classifications[].premium_basis` | `string` | What the premium is based on (e.g., "Payroll", "Gross Sales", "Receipts", "Area", "Units"). | Schedule | high |
+| `classifications[].basis_amount` | `string \| null` | Estimated exposure amount for the period (e.g., "$2,500,000" payroll). Used to calculate premium. | Schedule | medium |
+| `classifications[].rate` | `string \| null` | Rate per unit of exposure (e.g., "$1.25 per $100 of payroll"). | Schedule | medium |
+| `classifications[].premium` | `string \| null` | Calculated premium for this classification (basis × rate). | Schedule | medium |
+| `classifications[].location_number` | `number \| null` | Location number this classification applies to (for multi-location risks). | Schedule | medium |
+
+---
+
+## Domain 3: Coverages (Structured)
+
+A richer coverage model that replaces the flat `{name, limit, deductible}` structure. Each coverage entry is self-contained with full context.
+
+**TypeScript Interface:** `EnrichedCoverage` in `src/types/document.ts`
+
+| Field | Type | Description | Source Section | Reliability |
+|-------|------|-------------|----------------|-------------|
+| `coverages` | `EnrichedCoverage[]` | Complete list of all coverages on the policy. | Declarations + insuring agreement | high |
+| `coverages[].name` | `string` | Coverage name exactly as labeled (e.g., "Coverage A — Bodily Injury and Property Damage Liability"). | Declarations | high |
+| `coverages[].coverage_code` | `string \| null` | Standard coverage code if applicable (e.g., "CovA", "GL-BI", "PropertyBuilding"). | Form schedule | medium |
+| `coverages[].form_number` | `string \| null` | ISO or carrier form number providing this coverage (e.g., "CG 00 01"). | Form schedule | medium |
+| `coverages[].form_edition_date` | `string \| null` | Edition date of the form providing coverage (e.g., "04 13"). | Form schedule | medium |
+| `coverages[].limit` | `string` | Coverage limit as stated (e.g., "$1,000,000"). | Declarations | high |
+| `coverages[].limit_type` | `"per_occurrence" \| "per_claim" \| "aggregate" \| "per_person" \| "per_accident" \| "statutory" \| "blanket" \| "scheduled"` | How the limit applies. Determines how claims are counted against the limit. | Declarations | high |
+| `coverages[].deductible` | `string \| null` | Deductible amount for this coverage. | Declarations | high |
+| `coverages[].deductible_type` | `"per_occurrence" \| "per_claim" \| "aggregate" \| "percentage" \| "waiting_period" \| null` | How the deductible applies. | Declarations | medium |
+| `coverages[].sir` | `string \| null` | Self-insured retention amount for this coverage. | Declarations | medium |
+| `coverages[].sublimit` | `string \| null` | Sublimit if this coverage is subject to a limit lower than the overall policy limit. | Declarations / endorsement | medium |
+| `coverages[].coinsurance` | `string \| null` | Coinsurance percentage (property). Insured must maintain coverage equal to this percentage of property value or face a penalty at claim. | Declarations | medium |
+| `coverages[].valuation` | `"replacement_cost" \| "actual_cash_value" \| "agreed_value" \| "functional_replacement" \| null` | Valuation method for property coverages. Replacement cost pays to replace; ACV deducts depreciation. | Declarations / conditions | medium |
+| `coverages[].territory` | `string \| null` | Geographic territory where this coverage applies (e.g., "United States, its territories and possessions, Canada"). | Insuring agreement | medium |
+| `coverages[].trigger` | `"occurrence" \| "claims_made" \| "accident"` | Coverage trigger for this specific coverage. | Insuring agreement | high |
+| `coverages[].retroactive_date` | `string \| null` | Retroactive date for claims-made coverages. | Declarations | high (when applicable) |
+| `coverages[].included` | `boolean` | Whether this coverage is included (true) or excluded/not purchased (false). Useful for tracking options not taken. | Declarations | high |
+| `coverages[].premium` | `string \| null` | Premium allocated to this coverage if broken out. | Declarations / premium page | medium |
+| `coverages[].page_number` | `number \| null` | Page number where this coverage appears in the document. | Declarations | medium |
+| `coverages[].section_ref` | `string \| null` | Cross-reference to the section of the coverage form (e.g., "Section I, Coverage A"). | Various | low |
+
+---
+
+## Domain 4: Endorsements (Structured)
+
+Endorsements modify the base policy. Previously extracted as generic text sections, they are now structured objects with typed classification.
+
+**TypeScript Interface:** `Endorsement` in `src/types/document.ts`
+
+| Field | Type | Description | Source Section | Reliability |
+|-------|------|-------------|----------------|-------------|
+| `endorsements` | `Endorsement[]` | All endorsements attached to the policy. | Endorsement section | high |
+| `endorsements[].form_number` | `string` | Form number appearing in the endorsement header (e.g., "CG 20 10", "IL 09 85"). | Endorsement header | high |
+| `endorsements[].edition_date` | `string \| null` | Edition date of the endorsement form (e.g., "04 13" for April 2013). | Endorsement header | high |
+| `endorsements[].title` | `string` | Full endorsement title as printed (e.g., "Additional Insured — Owners, Lessees or Contractors — Scheduled Person or Organization"). | Endorsement header | high |
+| `endorsements[].endorsement_type` | `EndorsementType` | Classified type of endorsement. See `EndorsementType` enum below. | Analysis of content | high |
+| `endorsements[].effective_date` | `string \| null` | Effective date if different from the policy effective date (mid-term endorsement). | Endorsement | medium |
+| `endorsements[].affected_coverage_parts` | `string[]` | Which coverage parts this endorsement modifies (e.g., ["Commercial General Liability", "Commercial Auto"]). | Endorsement text | high |
+| `endorsements[].named_parties` | `EndorsementParty[]` | Parties named in the endorsement (additional insureds, loss payees, mortgage holders, etc.). See `EndorsementParty` type below. | Endorsement schedule | high |
+| `endorsements[].key_terms` | `string[]` | Brief list of key modifications or terms (e.g., ["Ongoing operations only", "Written contract required"]). Not a full summary — high-signal phrases. | Endorsement text | medium |
+| `endorsements[].premium_impact` | `string \| null` | Additional or return premium for this endorsement, if stated. | Endorsement / premium page | low |
+| `endorsements[].content` | `string` | Full verbatim text of the endorsement. Always captured as fallback. | Endorsement | high |
+| `endorsements[].page_start` | `number` | First page of this endorsement in the document. | Endorsement | high |
+| `endorsements[].page_end` | `number \| null` | Last page of this endorsement in the document. | Endorsement | medium |
+
+### EndorsementType Enum
+
+```typescript
+type EndorsementType =
+  | "additional_insured"          // Adds one or more additional insureds
+  | "waiver_of_subrogation"       // Waives carrier's right to recover from third parties
+  | "primary_noncontributory"     // Makes this coverage primary and non-contributory vs other coverage
+  | "blanket_additional_insured"  // Adds AI for all required by written contract (no schedule)
+  | "loss_payee"                  // Adds loss payee for property claims
+  | "mortgage_holder"             // Adds mortgage holder (lender)
+  | "broadening"                  // Expands coverage beyond base form
+  | "restriction"                 // Restricts or limits coverage below base form
+  | "exclusion"                   // Adds an exclusion
+  | "amendatory"                  // Amends policy terms or definitions
+  | "notice_of_cancellation"      // Extends cancellation notice to a third party
+  | "designated_premises"         // Limits coverage to specified premises
+  | "classification_change"       // Changes rating classification or premium basis
+  | "schedule_update"             // Updates a schedule (locations, vehicles, classifications)
+  | "deductible_change"           // Modifies deductible amount or structure
+  | "limit_change"                // Modifies coverage limit
+  | "territorial_extension"       // Extends coverage territory
+  | "other";
+```
+
+### EndorsementParty Type
+
+```typescript
+interface EndorsementParty {
+  name: string;
+  role: "additional_insured" | "loss_payee" | "mortgage_holder" | "certificate_holder" | "notice_recipient" | "other";
+  address?: Address;
+  relationship?: string;  // e.g., "As required by written contract", "Lender"
+  scope?: string;         // e.g., "Ongoing operations only", "Completed operations included"
+}
+```
+
+---
+
+## Domain 5: Exclusions (Structured)
+
+Exclusions define what is not covered. Previously only captured as raw text, they are now structured to support coverage gap analysis.
+
+**TypeScript Interface:** `Exclusion` in `src/types/document.ts`
+
+| Field | Type | Description | Source Section | Reliability |
+|-------|------|-------------|----------------|-------------|
+| `exclusions` | `Exclusion[]` | All exclusions from base form and endorsements. | Exclusions section + endorsements | high |
+| `exclusions[].name` | `string` | Exclusion name or title (e.g., "Pollution Exclusion", "Professional Services Exclusion"). | Section header | high |
+| `exclusions[].form_number` | `string \| null` | Form number if this exclusion was added by endorsement (rather than being part of the base form). | Endorsement header | medium |
+| `exclusions[].excluded_perils` | `string[]` | What is excluded, expressed as brief descriptive strings (e.g., ["pollution", "gradual contamination", "pre-existing contamination"]). | Exclusion text | high |
+| `exclusions[].is_absolute` | `boolean` | Whether this is an absolute exclusion (no exceptions) or whether it has carve-outs/exceptions. | Analysis | medium |
+| `exclusions[].exceptions` | `string[]` | Exceptions to the exclusion (coverage that is carved back in). | Exclusion text | medium |
+| `exclusions[].buyback_available` | `boolean` | Whether a buyback endorsement exists on this policy to reinstate coverage. | Cross-reference with endorsements | low |
+| `exclusions[].buyback_endorsement` | `string \| null` | Form number of the buyback endorsement if present. | Endorsements | low |
+| `exclusions[].applies_to` | `string[]` | Which coverage parts this exclusion affects (e.g., ["Coverage A", "Coverage B", "All Parts"]). | Exclusion text | high |
+| `exclusions[].content` | `string` | Full verbatim text of the exclusion. | Exclusion section | high |
+| `exclusions[].page_number` | `number \| null` | Page number where this exclusion appears. | Section | medium |
+
+---
+
+## Domain 6: Conditions (Enriched Text with Metadata)
+
+Policy conditions define the rights and obligations of parties. They vary significantly across carriers and lines. Rather than a fully rigid schema, structured metadata tags are applied to the verbatim text.
+
+**TypeScript Interface:** `PolicyCondition` in `src/types/document.ts`
+
+| Field | Type | Description | Source Section | Reliability |
+|-------|------|-------------|----------------|-------------|
+| `conditions` | `PolicyCondition[]` | All policy conditions. | Conditions section | high |
+| `conditions[].name` | `string` | Condition name as labeled (e.g., "Duties in the Event of Occurrence, Offense, Claim or Suit"). | Section header | high |
+| `conditions[].condition_type` | `ConditionType` | Classification of condition type. See `ConditionType` enum below. | Analysis | high |
+| `conditions[].content` | `string` | Full verbatim text of the condition. | Section | high |
+| `conditions[].key_values` | `Record<string, string>` | Key-value pairs extracted from structured content within the condition (e.g., `{"notice_days": "30", "method": "written"}` for a notice condition). | Varies | medium |
+| `conditions[].page_number` | `number \| null` | Page number where this condition appears. | Section | medium |
+
+### ConditionType Enum
+
+```typescript
+type ConditionType =
+  | "duties_after_loss"       // What insured must do after a loss event
+  | "notice_requirements"     // How and when to report claims or occurrences
+  | "other_insurance"         // How this policy coordinates with other coverage (primary, excess, pro-rata)
+  | "cancellation"            // Carrier's and insured's cancellation rights and procedures
+  | "nonrenewal"              // Nonrenewal notice requirements
+  | "transfer_of_rights"      // Subrogation rights and assignment of interest
+  | "liberalization"          // Automatic broadening when carrier files broader forms
+  | "arbitration"             // Dispute resolution process
+  | "concealment_fraud"       // Consequences of misrepresentation or fraud
+  | "examination_under_oath"  // Carrier's right to examine insured under oath
+  | "legal_action"            // Limitations on suing the insurer
+  | "loss_payment"            // How and when losses are paid
+  | "appraisal"               // Appraisal process for disputed property loss amounts
+  | "mortgage_holders"        // Special provisions for mortgage holders
+  | "policy_territory"        // Geographic scope of coverage
+  | "separation_of_insureds"  // Severability clause (policy applies separately to each insured)
+  | "other";
+```
+
+---
+
+## Domain 7: Parties & Contacts (Structured)
+
+All entities with a role in the policy, organized for quick lookup.
+
+**TypeScript Interface:** `InsurerInfo`, `ProducerInfo`, `Contact` in `src/types/document.ts`
+
+| Field | Type | Description | Source Section | Reliability |
+|-------|------|-------------|----------------|-------------|
+| `insurer` | `InsurerInfo` | Full insurer entity details. | Declarations / footer | high |
+| `insurer.legal_name` | `string` | Legal entity name of the insurer. | Declarations | high |
+| `insurer.naic_number` | `string \| null` | NAIC company code (5 digits). | Declarations / footer | medium |
+| `insurer.am_best_rating` | `string \| null` | AM Best financial strength rating (e.g., "A+"). | Various | low |
+| `insurer.am_best_number` | `string \| null` | AM Best identification number. | Various | low |
+| `insurer.admitted_status` | `string` | Whether admitted, non-admitted, or surplus lines in the state of filing. | Declarations | medium |
+| `insurer.state_of_domicile` | `string \| null` | State where the insurer is domiciled. | Various | low |
+| `producer` | `ProducerInfo` | Broker/agent/producer details. | Declarations | high |
+| `producer.agency_name` | `string` | Producer agency name. | Declarations | high |
+| `producer.contact_name` | `string \| null` | Individual producer contact name. | Declarations | medium |
+| `producer.license_number` | `string \| null` | Producer license number. Required on surplus lines in most states. | Declarations | low |
+| `producer.phone` | `string \| null` | Producer phone number. | Declarations | medium |
+| `producer.email` | `string \| null` | Producer email address. | Declarations | low |
+| `producer.address` | `Address \| null` | Producer office address. | Declarations | medium |
+| `claims_contacts` | `Contact[]` | How and where to report claims (carrier claims dept address, phone, email, hours). | Conditions / notice page | medium |
+| `regulatory_contacts` | `Contact[]` | State department of insurance contact info and complaint process. | Regulatory notices | medium |
+| `third_party_administrators` | `Contact[]` | TPA contact details if claims are handled by a third party. | Declarations / endorsement | low |
+| `additional_insureds` | `EndorsementParty[]` | Consolidated list of all additional insureds across all endorsements. Aggregated from `endorsements[].named_parties` where `role == "additional_insured"`. | Endorsements | high |
+| `loss_payees` | `EndorsementParty[]` | Consolidated list of all loss payees. | Endorsements | high |
+| `mortgage_holders` | `EndorsementParty[]` | Consolidated list of all mortgage holders. | Endorsements | medium |
+
+---
+
+## Domain 8: Financial (Structured)
+
+Detailed financial breakdown beyond the top-level premium fields.
+
+**TypeScript Interface:** Part of `PolicyDocument` in `src/types/document.ts`
+
+| Field | Type | Description | Source Section | Reliability |
+|-------|------|-------------|----------------|-------------|
+| `premium_by_location` | `LocationPremium[]` | Premium allocated per location (multi-location property risks). | Premium page / schedule | medium |
+| `premium_by_coverage` | `PremiumLine[]` | Premium broken out by coverage line (enriched version of existing `PremiumLine` type). | Declarations | high |
+| `taxes` | `TaxFeeItem[]` | Tax line items (state premium tax, surplus lines tax, stamping fees). | Billing page | medium |
+| `fees` | `TaxFeeItem[]` | Fee line items (broker fees, policy fees, inspection fees). | Billing page | medium |
+| `surcharges` | `TaxFeeItem[]` | Surcharge line items (TRIA surcharge, catastrophe surcharge, assessments). | Billing page | medium |
+| `payment_schedule` | `PaymentInstallment[]` | Installment payment dates and amounts if not paying in full. | Billing page | low |
+| `finance_charge` | `string \| null` | Finance charge if the premium is financed through a premium finance company. | Billing page | low |
+| `minimum_earned_premium` | `string \| null` | The minimum premium that will be earned if the policy is canceled short-term. Expressed as a dollar amount or percentage. | Conditions / dec | medium |
+| `commission_rate` | `string \| null` | Producer commission rate. Rarely disclosed on policy documents. | Rarely disclosed | low |
+
+---
+
+## Domain 9: Underwriting (Quote-Specific)
+
+Fields specific to quotes and proposals. Present in `QuoteDocument`, not `PolicyDocument`.
+
+**TypeScript Interface:** `QuoteDocument`, `EnrichedSubjectivity`, `UnderwritingCondition` in `src/types/document.ts`
+
+| Field | Type | Description | Source Section | Reliability |
+|-------|------|-------------|----------------|-------------|
+| `subjectivities` | `EnrichedSubjectivity[]` | Conditions that must be satisfied before or after binding. These are open items required by the underwriter. | Quote / subjectivity page | high |
+| `subjectivities[].description` | `string` | Full text of the subjectivity requirement. | Quote | high |
+| `subjectivities[].category` | `"pre_binding" \| "post_binding" \| "information"` | When the subjectivity must be addressed: before binding (pre_binding), after binding but before policy issuance (post_binding), or informational only. | Quote | high |
+| `subjectivities[].due_date` | `string \| null` | Deadline for satisfying this subjectivity, if specified. | Quote | medium |
+| `subjectivities[].status` | `"open" \| "satisfied" \| "waived" \| null` | Current status. Not extractable from document — populated by workflow system. | — | — |
+| `underwriting_conditions` | `UnderwritingCondition[]` | Underwriting conditions and warranties that apply to the quoted terms. | Quote | high |
+| `underwriting_conditions[].description` | `string` | Full text of the condition. | Quote | high |
+| `underwriting_conditions[].category` | `string \| null` | Category if the carrier groups conditions (e.g., "Safety Conditions", "Reporting Requirements"). | Quote | low |
+| `warranty_requirements` | `string[]` | Explicit warranties the insured must make to obtain coverage. Breach of warranty can void coverage. | Quote | medium |
+| `loss_control_recommendations` | `string[]` | Loss control or risk management recommendations from the underwriter. | Quote | low |
+| `binding_authority` | `BindingAuthority \| null` | Who has authority to bind the quoted terms and any conditions or deadlines. See `BindingAuthority` type. | Quote | medium |
+| `quote_valid_until` | `string \| null` | Date the quoted terms expire. After this date, re-underwriting may be required. | Quote | high |
+| `proposed_effective_date` | `string \| null` | Proposed policy inception date for the quote. | Quote | high |
+| `proposed_expiration_date` | `string \| null` | Proposed policy expiration date for the quote. | Quote | high |
+
+---
+
+## Domain 10: Loss History & Claims
+
+Loss history and claims data extracted from loss runs attached to or included within the document.
+
+**TypeScript Interface:** `LossSummary`, `ClaimRecord`, `ExperienceMod` in `src/types/document.ts`
+
+| Field | Type | Description | Source Section | Reliability |
+|-------|------|-------------|----------------|-------------|
+| `loss_summary` | `LossSummary \| null` | Aggregate loss statistics for the historical period. | Loss runs / experience page | medium |
+| `loss_summary.period` | `string` | Time period covered by the loss history (e.g., "5 years", "January 1, 2020 through December 31, 2024"). | Loss runs | medium |
+| `loss_summary.total_claims` | `number \| null` | Total number of claims in the period. | Loss runs | medium |
+| `loss_summary.total_incurred` | `string \| null` | Total incurred losses (paid + reserves) for the period. | Loss runs | medium |
+| `loss_summary.total_paid` | `string \| null` | Total paid losses for the period. | Loss runs | medium |
+| `loss_summary.total_reserved` | `string \| null` | Total open reserves for the period. | Loss runs | medium |
+| `loss_summary.loss_ratio` | `string \| null` | Loss ratio if calculated (losses / premium). | Experience page | low |
+| `individual_claims` | `ClaimRecord[]` | Individual claim records. May not be present if only summary data is provided. | Loss runs | medium |
+| `individual_claims[].date_of_loss` | `string` | Date the loss occurred. | Loss runs | high |
+| `individual_claims[].claim_number` | `string \| null` | Carrier claim number. | Loss runs | high |
+| `individual_claims[].description` | `string` | Brief description of the loss. | Loss runs | high |
+| `individual_claims[].status` | `"open" \| "closed" \| "reopened"` | Current claim status. | Loss runs | high |
+| `individual_claims[].paid` | `string \| null` | Amount paid to date on this claim. | Loss runs | high |
+| `individual_claims[].reserved` | `string \| null` | Current reserve amount for this claim. | Loss runs | high |
+| `individual_claims[].incurred` | `string \| null` | Total incurred (paid + reserved) for this claim. | Loss runs | high |
+| `individual_claims[].claimant` | `string \| null` | Claimant name (may be redacted for privacy). | Loss runs | medium |
+| `individual_claims[].coverage_line` | `string \| null` | Which coverage line this claim falls under (e.g., "General Liability", "Auto"). | Loss runs | medium |
+| `experience_modification` | `ExperienceMod \| null` | Workers' compensation experience modification data. | Declarations (WC) | high (WC) |
+| `experience_modification.factor` | `number` | The mod factor (e.g., 0.85 means 15% credit; 1.20 means 20% debit). | Declarations | high |
+| `experience_modification.effective_date` | `string` | Effective date of this mod. | Mod worksheet | medium |
+| `experience_modification.state` | `string` | State (or "NCCI" for multi-state) that calculated the mod. | Mod worksheet | medium |
+
+---
+
+## Domain 11: Business Context Storage
+
+This domain bridges the extraction pipeline and the application auto-fill system. Extracted policy data is mapped to reusable business context keys stored via `update_business_context`. When processing new applications, these stored values auto-populate matching fields.
+
+**Storage system:** Prism `update_business_context` tool (see `src/prompts/application.ts`)
+
+### Context Categories
+
+| Category | Description | Typical Source |
+|----------|-------------|----------------|
+| `company_info` | Legal name, DBA, address, entity type, FEIN, website | Named insured data from declarations |
+| `operations` | Description of operations, SIC/NAICS codes, employee count, annual revenue | Classifications and declarations |
+| `financial` | Annual revenue, annual payroll, total assets, property values | Rating basis and schedules |
+| `coverage` | Current coverage types, limits, deductibles, carriers, policy numbers | Coverage data from declarations |
+| `loss_history` | Claims history summary, experience mod, years of loss runs | Loss history domain |
+| `premises` | Location addresses, building details, construction type, occupancy | Location schedules |
+| `vehicles` | Vehicle count, fleet composition, types | Vehicle schedules |
+| `employees` | Employee count by class, payroll by state, officer names | WC classifications |
+
+### Business Context Key Mapping Table
+
+The following table shows all extractable fields that have defined business context keys. These are the fields that should be stored after extraction to enable application auto-fill.
+
+| Extracted Field | Context Category | Context Key | Notes |
+|----------------|-----------------|-------------|-------|
+| `insured_name` | `company_info` | `company_name` | Primary named insured legal name |
+| `insured_dba` | `company_info` | `dba_name` | Trade name if different from legal |
+| `insured_address` | `company_info` | `company_address` | Full mailing address object |
+| `insured_entity_type` | `company_info` | `entity_type` | LLC, Corp, Partnership, etc. |
+| `insured_fein` | `company_info` | `fein` | Federal tax ID |
+| `insured_sic_code` | `operations` | `sic_code` | SIC classification |
+| `insured_naics_code` | `operations` | `naics_code` | NAICS classification |
+| `broker_agency` | `company_info` | `broker_agency` | Current broker agency |
+| `broker_contact_name` | `company_info` | `broker_contact_name` | Individual agent |
+| `classifications[].description` (GL) | `operations` | `description_of_operations` | From GL class code descriptions |
+| `classifications[].basis_amount` (payroll) | `financial` | `annual_payroll` | Total estimated payroll |
+| `classifications[].basis_amount` (revenue) | `financial` | `annual_revenue` | Total estimated revenue |
+| `locations[0].address` | `premises` | `primary_location` | First/primary business location |
+| `locations` | `premises` | `all_locations` | Full location schedule |
+| `locations[].building_value` (total) | `financial` | `total_property_values` | Sum of building values |
+| `locations[].contents_value` (total) | `financial` | `total_contents_values` | Sum of contents values |
+| `locations[].construction_type` | `premises` | `construction_type` | Construction class |
+| `locations[].year_built` | `premises` | `year_built` | Year built (primary location) |
+| `locations[].sprinklered` | `premises` | `sprinkler_system` | Sprinkler status (primary) |
+| `experience_modification.factor` | `loss_history` | `experience_mod` | WC experience mod factor |
+| `vehicles` (count) | `vehicles` | `vehicle_count` | Total number of vehicles |
+| `vehicles` (types) | `vehicles` | `fleet_composition` | Distribution of vehicle types |
+| `loss_summary` | `loss_history` | `loss_history_summary` | Aggregate loss statistics |
+| `individual_claims` (count) | `loss_history` | `claim_count_5yr` | Claims in past 5 years |
+| `coverages` (by type) | `coverage` | `current_coverage_[type]` | Current limits by line |
+
+### Auto-Fill Workflow
+
+When the extraction pipeline runs on a new policy or quote:
+
+1. Extract document using `extractFromPdf` or `extractQuoteFromPdf`
+2. For each field with a context key, call `update_business_context(category, key, value)`
+3. Include a source citation: `"from [carrier] [policyType] Policy #[policyNumber] effective [effectiveDate]"`
+4. When processing a new application, the auto-fill system calls `get_business_context` and maps stored values to application field IDs
+5. When multiple policies provide conflicting values for the same key, the most recent policy wins (or prompt the user to confirm)
+
+---
+
+## Shared Types Appendix
+
+These types are referenced throughout the domains above. All are defined in `src/types/document.ts`.
+
+### Address
+
+```typescript
+interface Address {
+  street1: string;
+  street2?: string;
+  city: string;
+  state: string;           // 2-letter state code (e.g., "CA", "NY")
+  zip: string;             // 5-digit or ZIP+4
+  country?: string;        // Defaults to "US" if not specified
+}
+```
+
+### Contact
+
+```typescript
+interface Contact {
+  name?: string;
+  title?: string;
+  type?: string;           // "Claims", "State DOI", "Carrier", "TPA", etc.
+  phone?: string;
+  fax?: string;
+  email?: string;
+  address?: Address;
+  hours?: string;          // e.g., "24/7" or "Monday-Friday 8AM-5PM CST"
+}
+```
+
+### FormReference
+
+```typescript
+interface FormReference {
+  form_number: string;     // e.g., "CG 00 01", "IL 00 17", "CA 20 48"
+  edition_date?: string;   // e.g., "04 13" (April 2013)
+  title?: string;          // e.g., "Commercial General Liability Coverage Form"
+  form_type: "coverage" | "endorsement" | "declarations" | "application" | "notice" | "other";
+}
+```
+
+### TaxFeeItem
+
+```typescript
+interface TaxFeeItem {
+  name: string;            // e.g., "California Premium Tax", "Surplus Lines Tax", "TRIA Surcharge"
+  amount: string;          // Dollar amount as string, e.g., "$125.00"
+  type?: "tax" | "fee" | "surcharge" | "assessment";
+  description?: string;    // Additional context
+}
+```
+
+### PaymentInstallment
+
+```typescript
+interface PaymentInstallment {
+  due_date: string;        // MM/DD/YYYY
+  amount: string;          // Dollar amount due
+  description?: string;    // e.g., "2nd Installment"
+}
+```
+
+### RatingBasis
+
+```typescript
+interface RatingBasis {
+  type: "payroll" | "revenue" | "area" | "units" | "vehicle_count" | "employee_count" | "per_capita" | "other";
+  amount?: string;         // Estimated basis amount for the period
+  description?: string;    // Additional detail on the basis
+}
+```
+
+### Sublimit
+
+```typescript
+interface Sublimit {
+  name: string;            // e.g., "Ransomware Coverage", "Social Engineering"
+  limit: string;           // Sublimit amount, e.g., "$250,000"
+  applies_to?: string;     // Which coverage this sublimit applies within
+  deductible?: string;     // Deductible specific to this sublimit
+}
+```
+
+### SharedLimit
+
+```typescript
+interface SharedLimit {
+  description: string;     // e.g., "Policy aggregate shared across D&O, EPLI, and Fiduciary"
+  limit: string;           // Shared limit amount
+  coverage_parts: string[]; // Coverage parts that share this limit
+}
+```
+
+### ExtendedReportingPeriod
+
+```typescript
+interface ExtendedReportingPeriod {
+  basic_days?: number;         // Automatic mini-tail days (typically 60)
+  supplemental_years?: number; // Optional purchased tail period in years
+  supplemental_premium?: string; // Premium for supplemental tail
+}
+```
+
+### EmployersLiabilityLimits
+
+```typescript
+interface EmployersLiabilityLimits {
+  each_accident: string;          // e.g., "$1,000,000" — per accident for bodily injury
+  disease_policy_limit: string;   // e.g., "$1,000,000" — policy limit for disease
+  disease_each_employee: string;  // e.g., "$1,000,000" — per employee for disease
+}
+```
+
+### VehicleCoverage
+
+```typescript
+interface VehicleCoverage {
+  type: "liability" | "collision" | "comprehensive" | "uninsured_motorist" | "underinsured_motorist" | "medical_payments" | "hired_auto" | "non_owned_auto" | "cargo" | "physical_damage";
+  limit?: string;
+  deductible?: string;
+  included: boolean;
+}
+```
+
+### BindingAuthority
+
+```typescript
+interface BindingAuthority {
+  authorized_by?: string;     // "Broker", "Underwriter", "MGA"
+  method?: string;            // "Written confirmation required", "Verbal binding accepted"
+  expiration?: string;        // Quote expiration date (when binding authority lapses)
+  conditions?: string[];      // Any conditions on binding authority
+}
+```
+
+### NamedInsured
+
+```typescript
+interface NamedInsured {
+  name: string;
+  relationship?: string;    // "Subsidiary", "Affiliate", "Parent Company", etc.
+  address?: Address;
+}
+```
+
+### PolicyType Enum
+
+The full expanded enum covering all 20+ lines of business:
+
+```typescript
+type PolicyType =
+  // Commercial Package Lines
+  | "general_liability"
+  | "commercial_property"
+  | "commercial_auto"
+  | "non_owned_auto"
+  | "workers_comp"
+  | "umbrella"
+  | "excess_liability"
+  // Professional & Management Lines
+  | "professional_liability"
+  | "cyber"
+  | "epli"
+  | "directors_officers"
+  | "fiduciary_liability"
+  // Specialty Lines
+  | "crime_fidelity"
+  | "inland_marine"
+  | "builders_risk"
+  | "environmental"
+  | "ocean_marine"
+  | "surety"
+  | "product_liability"
+  // Packaged Products
+  | "bop"                          // Business Owners Policy
+  | "management_liability_package" // Bundled D&O + EPLI + Fiduciary + Crime
+  | "other";
+```
