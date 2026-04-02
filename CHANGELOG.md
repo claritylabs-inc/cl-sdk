@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/claritylabs-inc/cl-sdk/compare/v1.1.1...v1.1.2) (2026-04-02)
+
+
+### Bug Fixes
+
+* remove --provenance flag (requires public repo) ([8243815](https://github.com/claritylabs-inc/cl-sdk/commit/8243815c186931a8010a363767808e958bc56f23))
+
 ## [1.1.1](https://github.com/claritylabs-inc/cl-sdk/compare/v1.1.0...v1.1.1) (2026-04-02)
 
 
