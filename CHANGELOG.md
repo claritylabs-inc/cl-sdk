@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/claritylabs-inc/cl-sdk/compare/v1.1.0...v1.1.1) (2026-04-02)
+
+
+### Bug Fixes
+
+* upgrade to Node 24 for npm trusted publishing support ([d52646f](https://github.com/claritylabs-inc/cl-sdk/commit/d52646fac8ab74cc8c1b4ed27157ff31a093bdbb))
+
 # [1.1.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.0.1...v1.1.0) (2026-04-02)
 
 
