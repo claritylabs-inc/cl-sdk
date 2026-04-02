@@ -21,7 +21,7 @@ Respond with JSON only. The JSON must follow this exact structure:
     "broker": "insurance broker name if identifiable, or null",
     "policyNumber": "policy or quote reference number",
     "documentType": "policy" or "quote",
-    "policyTypes": ["general_liability", "workers_comp", "commercial_auto", "non_owned_auto", "property", "umbrella", "professional_liability", "cyber", "epli", "directors_officers", "other"],
+    "policyTypes": ["general_liability", "commercial_property", "commercial_auto", "non_owned_auto", "workers_comp", "umbrella", "excess_liability", "professional_liability", "cyber", "epli", "directors_officers", "fiduciary_liability", "crime_fidelity", "inland_marine", "builders_risk", "environmental", "ocean_marine", "surety", "product_liability", "bop", "management_liability_package", "property", "other"],
     "policyYear": number,
     "effectiveDate": "MM/DD/YYYY",
     "expirationDate": "MM/DD/YYYY",
@@ -117,26 +117,42 @@ If uncertain, lean toward "policy" for documents with declarations pages and bin
  * Chunked extraction: metadata-only prompt for the first pass on long documents.
  * Used for both policy and quote extractions (documentType already known from pass 0).
  */
-export const METADATA_PROMPT = `You are an expert insurance document analyst. Extract ONLY the high-level metadata from this insurance document. Do NOT extract full section content — that will be done in a separate pass.
+export const METADATA_PROMPT = `You are an expert insurance document analyst. Extract the high-level metadata AND structured declarations data from this insurance document. Do NOT extract full section content — that will be done in a separate pass.
 
 Respond with JSON only:
 
 {
   "metadata": {
     "carrier": "primary insurance company name",
+    "carrierLegalName": "legal entity name of insurer, or null",
+    "carrierNaicNumber": "NAIC company code, or null",
+    "carrierAmBestRating": "AM Best rating (e.g. 'A+ XV'), or null",
+    "carrierAdmittedStatus": "admitted" or "non_admitted" or "surplus_lines" or null,
     "security": "insurer or underwriter entity providing coverage, or null",
     "underwriter": "named individual underwriter, or null",
     "mga": "MGA or Program Administrator, or null",
-    "broker": "insurance broker, or null",
+    "broker": "insurance broker agency name, or null",
+    "brokerContactName": "individual producer name, or null",
+    "brokerLicenseNumber": "producer license number, or null",
     "policyNumber": "policy number",
+    "priorPolicyNumber": "previous policy number if renewal, or null",
     "documentType": "policy" or "quote",
-    "policyTypes": ["general_liability", ...],
+    "policyTypes": ["general_liability", "commercial_property", "commercial_auto", "non_owned_auto", "workers_comp", "umbrella", "excess_liability", "professional_liability", "cyber", "epli", "directors_officers", "fiduciary_liability", "crime_fidelity", "inland_marine", "builders_risk", "environmental", "ocean_marine", "surety", "product_liability", "bop", "management_liability_package", "property", "other"],
+    "coverageForm": "occurrence" or "claims_made" or "accident" or null,
     "policyYear": number,
     "effectiveDate": "MM/DD/YYYY",
     "expirationDate": "MM/DD/YYYY",
+    "effectiveTime": "e.g. 12:01 AM, or null",
+    "retroactiveDate": "MM/DD/YYYY for claims-made policies, or null",
     "isRenewal": boolean,
+    "isPackage": boolean,
+    "programName": "named program, or null",
     "premium": "$X,XXX",
-    "insuredName": "name of insured party",
+    "insuredName": "name of primary named insured",
+    "insuredDba": "doing-business-as name, or null",
+    "insuredAddress": { "street1": "", "city": "", "state": "", "zip": "" } or null,
+    "insuredEntityType": "corporation" or "llc" or "partnership" or "sole_proprietor" or "joint_venture" or "trust" or "nonprofit" or "municipality" or "other" or null,
+    "insuredFein": "FEIN, or null",
     "summary": "1-2 sentence summary"
   },
   "metadataSource": {
@@ -145,39 +161,99 @@ Respond with JSON only:
     "premiumPage": number or null,
     "effectiveDatePage": number or null
   },
+  "additionalNamedInsureds": [
+    { "name": "insured name", "relationship": "subsidiary, affiliate, etc., or null" }
+  ],
   "coverages": [
     { "name": "coverage name", "limit": "$X,XXX,XXX", "deductible": "$X,XXX or null", "pageNumber": number, "sectionRef": "section ref or null" }
+  ],
+  "limits": {
+    "perOccurrence": "$X,XXX,XXX or null",
+    "generalAggregate": "$X,XXX,XXX or null",
+    "productsCompletedOpsAggregate": "or null",
+    "personalAdvertisingInjury": "or null",
+    "fireDamage": "or null",
+    "medicalExpense": "or null",
+    "combinedSingleLimit": "or null",
+    "bodilyInjuryPerPerson": "or null",
+    "bodilyInjuryPerAccident": "or null",
+    "propertyDamage": "or null",
+    "eachOccurrenceUmbrella": "or null",
+    "umbrellaAggregate": "or null",
+    "umbrellaRetention": "or null",
+    "statutory": boolean or null,
+    "employersLiability": { "eachAccident": "", "diseasePolicyLimit": "", "diseaseEachEmployee": "" } or null,
+    "defenseCostTreatment": "inside_limits" or "outside_limits" or "supplementary" or null
+  },
+  "deductibles": {
+    "perClaim": "or null",
+    "perOccurrence": "or null",
+    "selfInsuredRetention": "or null",
+    "waitingPeriod": "or null"
+  },
+  "locations": [
+    { "number": 1, "address": { "street1": "", "city": "", "state": "", "zip": "" }, "description": "or null", "buildingValue": "or null", "contentsValue": "or null" }
+  ],
+  "vehicles": [
+    { "number": 1, "year": 2024, "make": "", "model": "", "vin": "", "vehicleType": "or null" }
+  ],
+  "classifications": [
+    { "code": "12345", "description": "class description", "premiumBasis": "payroll or revenue or area", "basisAmount": "or null", "rate": "or null", "premium": "or null" }
+  ],
+  "formInventory": [
+    { "formNumber": "CG 00 01", "editionDate": "04 13", "title": "or null", "formType": "coverage or endorsement or declarations or application or notice or other" }
+  ],
+  "taxesAndFees": [
+    { "name": "fee name", "amount": "$X,XXX", "type": "tax or fee or surcharge or assessment or null" }
   ],
   "totalPages": number,
   "tableOfContents": [
     { "title": "section title", "pageStart": number, "pageEnd": number }
   ]
-}`;
+}
+
+IMPORTANT:
+- policyTypes should include ALL coverage types found in the document
+- coverageForm is the primary trigger type: "occurrence" for occurrence-based, "claims_made" for claims-made, "accident" for auto/WC
+- isPackage is true if this is a Commercial Package Policy (CPP) with multiple coverage parts
+- Extract locations ONLY if a location/premises schedule is visible on the declarations
+- Extract vehicles ONLY if a vehicle schedule is visible
+- Extract classifications ONLY if a classification/rating schedule is visible
+- formInventory: list ALL form numbers found in any forms schedule or endorsement schedule
+- For limits, extract the standard limit fields that appear on the declarations page
+- For deductibles, extract from the declarations or deductible schedule`;
 
 /**
  * Quote-specific metadata prompt (Sonnet).
  * Extracts quote-specific fields like subjectivities, underwriting conditions, premium breakdown.
  */
-export const QUOTE_METADATA_PROMPT = `You are an expert insurance document analyst. Extract ONLY the high-level metadata from this insurance QUOTE or PROPOSAL document. Do NOT extract full section content — that will be done in a separate pass.
+export const QUOTE_METADATA_PROMPT = `You are an expert insurance document analyst. Extract the high-level metadata AND structured data from this insurance QUOTE or PROPOSAL. Do NOT extract full section content — that will be done in a separate pass.
 
 Respond with JSON only:
 
 {
   "metadata": {
     "carrier": "primary insurance company name",
-    "security": "insurer or underwriter entity providing coverage, or null",
+    "carrierLegalName": "legal entity name, or null",
+    "carrierNaicNumber": "NAIC code, or null",
+    "carrierAdmittedStatus": "admitted or non_admitted or surplus_lines, or null",
+    "security": "insurer or underwriter entity, or null",
     "underwriter": "named individual underwriter, or null",
     "mga": "MGA or Program Administrator, or null",
     "broker": "insurance broker, or null",
+    "brokerContactName": "individual producer, or null",
     "quoteNumber": "quote or proposal reference number",
-    "policyTypes": ["general_liability", ...],
+    "policyTypes": ["general_liability", "commercial_property", "commercial_auto", "non_owned_auto", "workers_comp", "umbrella", "excess_liability", "professional_liability", "cyber", "epli", "directors_officers", "fiduciary_liability", "crime_fidelity", "inland_marine", "builders_risk", "environmental", "ocean_marine", "surety", "product_liability", "bop", "management_liability_package", "property", "other"],
+    "coverageForm": "occurrence or claims_made or accident, or null",
     "quoteYear": number,
     "proposedEffectiveDate": "MM/DD/YYYY or null",
     "proposedExpirationDate": "MM/DD/YYYY or null",
     "quoteExpirationDate": "MM/DD/YYYY — when this quote offer expires, or null",
+    "retroactiveDate": "MM/DD/YYYY for claims-made, or null",
     "isRenewal": boolean,
     "premium": "$X,XXX — total proposed premium",
     "insuredName": "name of insured party",
+    "insuredAddress": { "street1": "", "city": "", "state": "", "zip": "" } or null,
     "summary": "1-2 sentence summary of the quote"
   },
   "metadataSource": {
@@ -187,16 +263,31 @@ Respond with JSON only:
     "effectiveDatePage": number or null
   },
   "coverages": [
-    { "name": "coverage name", "proposedLimit": "$X,XXX,XXX", "proposedDeductible": "$X,XXX or null", "pageNumber": number, "sectionRef": "section ref or null" }
+    { "name": "coverage name", "proposedLimit": "$X,XXX,XXX", "proposedDeductible": "$X,XXX or null", "pageNumber": number, "sectionRef": "or null" }
   ],
+  "limits": {
+    "perOccurrence": "or null",
+    "generalAggregate": "or null",
+    "defenseCostTreatment": "inside_limits or outside_limits or supplementary, or null"
+  },
+  "deductibles": {
+    "perClaim": "or null",
+    "perOccurrence": "or null",
+    "selfInsuredRetention": "or null",
+    "waitingPeriod": "or null"
+  },
   "premiumBreakdown": [
     { "line": "coverage line name", "amount": "$X,XXX" }
   ],
   "subjectivities": [
-    { "description": "subjectivity description", "category": "pre_binding" or "post_binding" or "information" or null, "pageNumber": number or null }
+    { "description": "subjectivity description", "category": "pre_binding or post_binding or information, or null", "dueDate": "or null", "pageNumber": number or null }
   ],
   "underwritingConditions": [
-    { "description": "condition description", "pageNumber": number or null }
+    { "description": "condition description", "category": "or null", "pageNumber": number or null }
+  ],
+  "warrantyRequirements": ["warranty text"],
+  "taxesAndFees": [
+    { "name": "fee name", "amount": "$X,XXX", "type": "tax or fee or surcharge, or null" }
   ],
   "totalPages": number,
   "tableOfContents": [
@@ -206,8 +297,10 @@ Respond with JSON only:
 
 IMPORTANT:
 - quoteExpirationDate is when the quote offer itself expires (not the proposed policy period)
-- subjectivities are conditions that must be met before or after binding (look for "subject to", "subjectivities", "conditions precedent")
-- premiumBreakdown should list each coverage line's individual premium if available`;
+- subjectivities are conditions that must be met before or after binding
+- premiumBreakdown should list each coverage line's individual premium if available
+- warrantyRequirements: extract any warranty provisions required for coverage
+- For limits and deductibles, extract the proposed structure from the quote`;
 
 /**
  * Chunked extraction: sections prompt for a specific page range (policies).
@@ -232,6 +325,35 @@ Respond with JSON only:
       ]
     }
   ],
+  "endorsements": [
+    {
+      "formNumber": "e.g. CG 21 47",
+      "editionDate": "e.g. 12 07, or null",
+      "title": "endorsement title",
+      "coverageType": "policyTypes value if coverage-specific, or null",
+      "pageStart": number,
+      "effectType": "broadening or restrictive or informational or null",
+      "additionalPremium": "$X,XXX or null",
+      "content": "full verbatim text of the endorsement"
+    }
+  ],
+  "exclusions": [
+    {
+      "title": "exclusion title or short description",
+      "formNumber": "form number if part of a named endorsement, or null",
+      "coverageType": "policyTypes value if coverage-specific, or null",
+      "pageNumber": number,
+      "content": "full verbatim exclusion text"
+    }
+  ],
+  "conditions": [
+    {
+      "title": "condition title",
+      "coverageType": "policyTypes value if coverage-specific, or null",
+      "pageNumber": number,
+      "content": "full verbatim condition text"
+    }
+  ],
   "regulatoryContext": { "content": "verbatim text", "pageNumber": number } or null,
   "complaintContact": { "content": "verbatim text", "pageNumber": number } or null,
   "costsAndFees": { "content": "verbatim text", "pageNumber": number } or null,
@@ -245,6 +367,19 @@ SECTION TYPE GUIDANCE:
 - "application" — the insurance application or supplemental application
 - "insuring_agreement" — the insuring agreement clause (only if standalone, not inside a policy_form)
 - Other types for standalone sections only
+
+ENDORSEMENT GUIDANCE:
+- List every endorsement found in the page range in the "endorsements" array
+- effectType: "broadening" adds or expands coverage; "restrictive" limits or excludes coverage; "informational" changes administrative terms only
+- additionalPremium: extract if a premium charge or credit is shown on the endorsement
+
+EXCLUSION GUIDANCE:
+- List named exclusions from exclusion schedules or endorsements in the "exclusions" array
+- Also capture exclusions embedded within insuring agreements or conditions as separate entries if clearly labeled
+- Preserve the full verbatim exclusion text
+
+CONDITION GUIDANCE:
+- List policy conditions (duties after loss, cooperation clause, cancellation, etc.) in the "conditions" array
 
 IMPORTANT: Only extract content from pages ${pageStart}-${pageEnd}. Preserve original language exactly.`;
 }
@@ -275,11 +410,19 @@ Respond with JSON only:
       ]
     }
   ],
+  "exclusions": [
+    {
+      "title": "exclusion title or short description",
+      "coverageType": "policyTypes value if coverage-specific, or null",
+      "pageNumber": number,
+      "content": "full verbatim exclusion text"
+    }
+  ],
   "subjectivities": [
-    { "description": "subjectivity text", "category": "pre_binding" or "post_binding" or "information" or null, "pageNumber": number or null }
+    { "description": "subjectivity text", "category": "pre_binding or post_binding or information, or null", "dueDate": "or null", "pageNumber": number or null }
   ],
   "underwritingConditions": [
-    { "description": "condition text", "pageNumber": number or null }
+    { "description": "condition text", "category": "or null", "pageNumber": number or null }
   ]
 }
 
@@ -291,6 +434,11 @@ SECTION TYPE GUIDANCE:
 - "coverage_summary" — proposed coverage limits, deductibles, coverage descriptions
 - "exclusion" — excluded coverages, limitations
 - "other" — anything else
+
+EXCLUSION GUIDANCE:
+- List named exclusions from any exclusion schedule, endorsement, or coverage summary in the "exclusions" array
+- Preserve the full verbatim exclusion text
+- Set coverageType if the exclusion applies to a specific coverage line
 
 IMPORTANT: Only extract content from pages ${pageStart}-${pageEnd}. Preserve original language exactly.`;
 }
