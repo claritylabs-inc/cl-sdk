@@ -41,6 +41,10 @@
     "tsup": "^8.4.0",
     "typescript": "^5.8.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/claritylabs-inc/cl-sdk"
+  },
   "license": "Apache-2.0",
   "publishConfig": {
     "registry": "https://registry.npmjs.org",
