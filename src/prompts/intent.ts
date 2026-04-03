@@ -33,8 +33,17 @@ Respond with JSON only:
   "isInsurance": boolean,
   "reason": "brief explanation",
   "confidence": number between 0 and 1,
-  "suggestedIntent": "policy_question" | "coi_request" | "renewal_inquiry" | "claim_report" | "general" | "unrelated"
+  "suggestedIntent": "policy_question" | "coi_request" | "renewal_inquiry" | "claim_report" | "coverage_shopping" | "general" | "unrelated"
 }
+
+INTENT DETECTION:
+- "policy_question": questions about existing coverage, limits, deductibles, endorsements (commercial or personal)
+- "coi_request": requests for certificate of insurance or proof of coverage
+- "renewal_inquiry": questions about upcoming renewals, rate changes, policy period
+- "claim_report": reporting a loss or incident — includes property damage ("my roof leaked", "tree fell on house", "pipe burst"), auto accidents ("got in an accident", "someone hit my car"), theft, water damage, fire, liability incidents
+- "coverage_shopping": looking for new coverage, requesting quotes, comparing rates ("I need homeowners insurance", "looking for auto coverage", "do I need flood insurance")
+- "general": insurance-related but doesn't fit above categories
+- "unrelated": not insurance-related
 
 Message context:
 {
