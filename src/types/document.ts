@@ -7,6 +7,7 @@ import type { Endorsement, EndorsementParty } from "./endorsement";
 import type { Exclusion } from "./exclusion";
 import type { PolicyCondition } from "./condition";
 import type { LimitSchedule, DeductibleSchedule, InsuredLocation, InsuredVehicle, ClassificationCode } from "./declarations";
+import type { Declarations } from "./declarations/index";
 import type { InsurerInfo, ProducerInfo } from "./parties";
 import type { PaymentPlan, LocationPremium } from "./financial";
 import type { LossSummary, ClaimRecord, ExperienceMod } from "./loss-history";
@@ -120,18 +121,21 @@ export interface BaseDocument {
   exclusions?: Exclusion[];
   /** Structured conditions */
   conditions?: PolicyCondition[];
-  /** Structured limits schedule */
+  /** @deprecated Use declarations instead. Structured limits schedule */
   limits?: LimitSchedule;
-  /** Structured deductible schedule */
+  /** @deprecated Use declarations instead. Structured deductible schedule */
   deductibles?: DeductibleSchedule;
-  /** Insured locations/premises */
+  /** @deprecated Use declarations instead. Insured locations/premises */
   locations?: InsuredLocation[];
-  /** Insured vehicles */
+  /** @deprecated Use declarations instead. Insured vehicles */
   vehicles?: InsuredVehicle[];
-  /** Rating classification codes */
+  /** @deprecated Use declarations instead. Rating classification codes */
   classifications?: ClassificationCode[];
   /** All form numbers in the policy */
   formInventory?: FormReference[];
+
+  /** Typed declarations union — line-specific structured data (v1.3+) */
+  declarations?: Declarations;
 
   /** Coverage trigger type */
   coverageForm?: CoverageForm;
