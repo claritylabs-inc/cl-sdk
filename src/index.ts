@@ -35,6 +35,19 @@ export type {
   ChunkType,
   RatingBasisType,
   VehicleCoverageType,
+  HomeownersFormType,
+  DwellingFireFormType,
+  FloodZone,
+  ConstructionType,
+  RoofType,
+  FoundationType,
+  PersonalAutoUsage,
+  LossSettlement,
+  BoatType,
+  RVType,
+  ScheduledItemCategory,
+  TitlePolicyType,
+  PetSpecies,
 } from "./types/enums";
 
 export { POLICY_TYPES } from "./types/enums";
@@ -62,6 +75,37 @@ export type {
   VehicleCoverage,
   ClassificationCode,
 } from "./types/declarations";
+
+// Types - Declarations (typed union, v1.3+)
+export type {
+  Declarations,
+  DwellingDetails,
+  DriverRecord,
+  PersonalVehicleDetails,
+  HomeownersDeclarations,
+  PersonalAutoDeclarations,
+  DwellingFireDeclarations,
+  FloodDeclarations,
+  EarthquakeDeclarations,
+  PersonalUmbrellaDeclarations,
+  PersonalArticlesDeclarations,
+  WatercraftDeclarations,
+  RecreationalVehicleDeclarations,
+  FarmRanchDeclarations,
+  TitleDeclarations,
+  PetDeclarations,
+  TravelDeclarations,
+  IdentityTheftDeclarations,
+  GLDeclarations,
+  CommercialPropertyDeclarations,
+  CommercialAutoDeclarations,
+  WorkersCompDeclarations,
+  UmbrellaExcessDeclarations,
+  ProfessionalLiabilityDeclarations,
+  CyberDeclarations,
+  DODeclarations,
+  CrimeDeclarations,
+} from "./types/declarations/index";
 
 // Types - Coverage
 export type { EnrichedCoverage } from "./types/coverage";
@@ -115,6 +159,7 @@ export {
   buildPolicySectionsPrompt,
   buildQuoteSectionsPrompt,
   buildSupplementaryEnrichmentPrompt,
+  buildPersonalLinesHint,
 } from "./prompts/extraction";
 
 // Application Prompts
