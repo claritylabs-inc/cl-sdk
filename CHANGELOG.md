@@ -1,3 +1,22 @@
+# [1.4.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.0...v1.4.0) (2026-04-03)
+
+
+### Bug Fixes
+
+* document composite-key convention in CONTEXT_KEY_MAP ([8b9649f](https://github.com/claritylabs-inc/cl-sdk/commit/8b9649f02f3ffdc7cf346ce124e9b362dd4ac038))
+
+
+### Features
+
+* add 19 personal lines PolicyType values and supporting union types ([6ea40b1](https://github.com/claritylabs-inc/cl-sdk/commit/6ea40b116788946e986f996feabb67cab31cd1e5))
+* add 21 personal lines context key mappings for application auto-fill ([b76817e](https://github.com/claritylabs-inc/cl-sdk/commit/b76817e803f97546f25bb3ed860f88ee9a5c49b7))
+* add typed declarations union with 14 personal + 9 commercial variants ([fd082f1](https://github.com/claritylabs-inc/cl-sdk/commit/fd082f1ae48f9987ba00f6ac64ae4cdece368198))
+* create personal and commercial declarations variant files ([eabc6e7](https://github.com/claritylabs-inc/cl-sdk/commit/eabc6e79dfb519c780817525242482e58e05bc90))
+* expand agent prompts for personal lines coverage guidance and intent detection ([23f4d85](https://github.com/claritylabs-inc/cl-sdk/commit/23f4d85b34996b3c7397bd2f2ab45dc2a5b961c6))
+* expand extraction prompts for personal lines detection and field guidance ([8401bc5](https://github.com/claritylabs-inc/cl-sdk/commit/8401bc502fc62f0a5c4f1314e440d6f1018f3e0e))
+* export all new declarations types and personal lines enums ([6c5fcb7](https://github.com/claritylabs-inc/cl-sdk/commit/6c5fcb71342b8ecae9337f9f7e55d208cc995b97))
+* pipeline constructs typed declarations from extracted metadata ([c0e0790](https://github.com/claritylabs-inc/cl-sdk/commit/c0e079067bdbf850a6f37f282d93f7de2d16d5ca))
+
 # [1.3.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.2.0...v1.3.0) (2026-04-02)
 
 
