@@ -25,7 +25,7 @@ import { generateText, type LanguageModel } from "ai";
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { ModelConfig } from "../types/models";
 import { createDefaultModelConfig, MODEL_TOKEN_LIMITS } from "../types/models";
-import { METADATA_PROMPT, QUOTE_METADATA_PROMPT, CLASSIFY_DOCUMENT_PROMPT, buildSectionsPrompt, buildQuoteSectionsPrompt, buildSupplementaryEnrichmentPrompt } from "../prompts/extraction";
+import { METADATA_PROMPT, QUOTE_METADATA_PROMPT, CLASSIFY_DOCUMENT_PROMPT, buildSectionsPrompt, buildQuoteSectionsPrompt, buildSupplementaryEnrichmentPrompt, buildPersonalLinesHint } from "../prompts/extraction";
 import { extractPageRange, getPdfPageCount } from "./pdf";
 
 export const SONNET_MODEL = "claude-sonnet-4.6";
@@ -136,6 +136,325 @@ export function sanitizeNulls<T>(obj: T): T {
   return obj;
 }
 
+/**
+ * Construct a typed Declarations variant from extracted metadata and policyTypes.
+ * Returns undefined if the primary line can't be mapped to a known variant.
+ */
+function buildDeclarations(meta: any, extracted: any): any {
+  const policyTypes: string[] = Array.isArray(meta.policyTypes) ? meta.policyTypes : [];
+  const primary = policyTypes[0];
+  if (!primary) return undefined;
+
+  // Personal lines mapping
+  if (primary === "homeowners_ho3" || primary === "homeowners_ho5" || primary === "renters_ho4" || primary === "condo_ho6" || primary === "mobile_home") {
+    const formMap: Record<string, string> = {
+      homeowners_ho3: "HO-3", homeowners_ho5: "HO-5", renters_ho4: "HO-4",
+      condo_ho6: "HO-6", mobile_home: "HO-7",
+    };
+    return sanitizeNulls({
+      line: "homeowners",
+      formType: formMap[primary],
+      coverageA: meta.coverageA ?? meta.declarations?.coverageA,
+      coverageB: meta.coverageB ?? meta.declarations?.coverageB,
+      coverageC: meta.coverageC ?? meta.declarations?.coverageC,
+      coverageD: meta.coverageD ?? meta.declarations?.coverageD,
+      coverageE: meta.coverageE ?? meta.declarations?.coverageE,
+      coverageF: meta.coverageF ?? meta.declarations?.coverageF,
+      allPerilDeductible: meta.allPerilDeductible ?? meta.declarations?.allPerilDeductible,
+      windHailDeductible: meta.windHailDeductible ?? meta.declarations?.windHailDeductible,
+      hurricaneDeductible: meta.hurricaneDeductible ?? meta.declarations?.hurricaneDeductible,
+      lossSettlement: meta.lossSettlement ?? meta.declarations?.lossSettlement,
+      dwelling: meta.dwelling ?? meta.declarations?.dwelling ?? {},
+      mortgagee: meta.mortgagee ?? meta.declarations?.mortgagee,
+      additionalMortgagees: meta.additionalMortgagees ?? meta.declarations?.additionalMortgagees,
+    });
+  }
+
+  if (primary === "personal_auto") {
+    return sanitizeNulls({
+      line: "personal_auto",
+      vehicles: meta.vehicles ?? meta.declarations?.vehicles ?? extracted.vehicles ?? [],
+      drivers: meta.drivers ?? meta.declarations?.drivers ?? [],
+      liabilityLimits: meta.liabilityLimits ?? meta.declarations?.liabilityLimits,
+      umLimits: meta.umLimits ?? meta.declarations?.umLimits,
+      uimLimits: meta.uimLimits ?? meta.declarations?.uimLimits,
+      pipLimit: meta.pipLimit ?? meta.declarations?.pipLimit,
+      medPayLimit: meta.medPayLimit ?? meta.declarations?.medPayLimit,
+    });
+  }
+
+  if (primary === "dwelling_fire") {
+    return sanitizeNulls({
+      line: "dwelling_fire",
+      formType: meta.dwellingFireFormType ?? meta.declarations?.formType ?? "DP-3",
+      dwellingLimit: meta.dwellingLimit ?? meta.declarations?.dwellingLimit,
+      otherStructuresLimit: meta.otherStructuresLimit ?? meta.declarations?.otherStructuresLimit,
+      personalPropertyLimit: meta.personalPropertyLimit ?? meta.declarations?.personalPropertyLimit,
+      fairRentalValueLimit: meta.fairRentalValueLimit ?? meta.declarations?.fairRentalValueLimit,
+      liabilityLimit: meta.liabilityLimit ?? meta.declarations?.liabilityLimit,
+      medicalPaymentsLimit: meta.medicalPaymentsLimit ?? meta.declarations?.medicalPaymentsLimit,
+      deductible: meta.deductible ?? meta.declarations?.deductible,
+      dwelling: meta.dwelling ?? meta.declarations?.dwelling ?? {},
+    });
+  }
+
+  if (primary === "flood_nfip" || primary === "flood_private") {
+    return sanitizeNulls({
+      line: "flood",
+      programType: primary === "flood_nfip" ? "nfip" : "private",
+      floodZone: meta.floodZone ?? meta.declarations?.floodZone,
+      communityNumber: meta.communityNumber ?? meta.declarations?.communityNumber,
+      communityRating: meta.communityRating ?? meta.declarations?.communityRating,
+      buildingCoverage: meta.buildingCoverage ?? meta.declarations?.buildingCoverage,
+      contentsCoverage: meta.contentsCoverage ?? meta.declarations?.contentsCoverage,
+      iccCoverage: meta.iccCoverage ?? meta.declarations?.iccCoverage,
+      deductible: meta.deductible ?? meta.declarations?.deductible,
+      waitingPeriodDays: meta.waitingPeriodDays ?? meta.declarations?.waitingPeriodDays,
+      elevationCertificate: meta.elevationCertificate ?? meta.declarations?.elevationCertificate,
+      elevationDifference: meta.elevationDifference ?? meta.declarations?.elevationDifference,
+      buildingDiagramNumber: meta.buildingDiagramNumber ?? meta.declarations?.buildingDiagramNumber,
+      basementOrEnclosure: meta.basementOrEnclosure ?? meta.declarations?.basementOrEnclosure,
+      postFirmConstruction: meta.postFirmConstruction ?? meta.declarations?.postFirmConstruction,
+    });
+  }
+
+  if (primary === "earthquake") {
+    return sanitizeNulls({
+      line: "earthquake",
+      dwellingCoverage: meta.dwellingCoverage ?? meta.declarations?.dwellingCoverage,
+      contentsCoverage: meta.contentsCoverage ?? meta.declarations?.contentsCoverage,
+      lossOfUseCoverage: meta.lossOfUseCoverage ?? meta.declarations?.lossOfUseCoverage,
+      deductiblePercent: meta.deductiblePercent ?? meta.declarations?.deductiblePercent,
+      retrofitDiscount: meta.retrofitDiscount ?? meta.declarations?.retrofitDiscount,
+      masonryVeneerCoverage: meta.masonryVeneerCoverage ?? meta.declarations?.masonryVeneerCoverage,
+    });
+  }
+
+  if (primary === "personal_umbrella") {
+    return sanitizeNulls({
+      line: "personal_umbrella",
+      perOccurrenceLimit: meta.perOccurrenceLimit ?? meta.declarations?.perOccurrenceLimit,
+      aggregateLimit: meta.aggregateLimit ?? meta.declarations?.aggregateLimit,
+      retainedLimit: meta.retainedLimit ?? meta.declarations?.retainedLimit,
+      underlyingPolicies: meta.underlyingPolicies ?? meta.declarations?.underlyingPolicies ?? [],
+    });
+  }
+
+  if (primary === "personal_inland_marine") {
+    return sanitizeNulls({
+      line: "personal_articles",
+      scheduledItems: meta.scheduledItems ?? meta.declarations?.scheduledItems ?? [],
+      blanketCoverage: meta.blanketCoverage ?? meta.declarations?.blanketCoverage,
+      deductible: meta.deductible ?? meta.declarations?.deductible,
+      worldwideCoverage: meta.worldwideCoverage ?? meta.declarations?.worldwideCoverage,
+      breakageCoverage: meta.breakageCoverage ?? meta.declarations?.breakageCoverage,
+    });
+  }
+
+  if (primary === "watercraft") {
+    return sanitizeNulls({
+      line: "watercraft",
+      boatType: meta.boatType ?? meta.declarations?.boatType,
+      year: meta.boatYear ?? meta.declarations?.year,
+      make: meta.boatMake ?? meta.declarations?.make,
+      model: meta.boatModel ?? meta.declarations?.model,
+      length: meta.boatLength ?? meta.declarations?.length,
+      hullMaterial: meta.hullMaterial ?? meta.declarations?.hullMaterial,
+      hullValue: meta.hullValue ?? meta.declarations?.hullValue,
+      motorHorsepower: meta.motorHorsepower ?? meta.declarations?.motorHorsepower,
+      motorType: meta.motorType ?? meta.declarations?.motorType,
+      navigationLimits: meta.navigationLimits ?? meta.declarations?.navigationLimits,
+      layupPeriod: meta.layupPeriod ?? meta.declarations?.layupPeriod,
+      liabilityLimit: meta.liabilityLimit ?? meta.declarations?.liabilityLimit,
+      medicalPaymentsLimit: meta.medicalPaymentsLimit ?? meta.declarations?.medicalPaymentsLimit,
+      physicalDamageDeductible: meta.physicalDamageDeductible ?? meta.declarations?.physicalDamageDeductible,
+      uninsuredBoaterLimit: meta.uninsuredBoaterLimit ?? meta.declarations?.uninsuredBoaterLimit,
+      trailerCovered: meta.trailerCovered ?? meta.declarations?.trailerCovered,
+      trailerValue: meta.trailerValue ?? meta.declarations?.trailerValue,
+    });
+  }
+
+  if (primary === "recreational_vehicle") {
+    return sanitizeNulls({
+      line: "recreational_vehicle",
+      vehicleType: meta.rvType ?? meta.declarations?.vehicleType ?? "other",
+      year: meta.rvYear ?? meta.declarations?.year,
+      make: meta.rvMake ?? meta.declarations?.make,
+      model: meta.rvModel ?? meta.declarations?.model,
+      vin: meta.rvVin ?? meta.declarations?.vin,
+      value: meta.rvValue ?? meta.declarations?.value,
+      liabilityLimit: meta.liabilityLimit ?? meta.declarations?.liabilityLimit,
+      collisionDeductible: meta.collisionDeductible ?? meta.declarations?.collisionDeductible,
+      comprehensiveDeductible: meta.comprehensiveDeductible ?? meta.declarations?.comprehensiveDeductible,
+      personalEffectsCoverage: meta.personalEffectsCoverage ?? meta.declarations?.personalEffectsCoverage,
+      fullTimerCoverage: meta.fullTimerCoverage ?? meta.declarations?.fullTimerCoverage,
+    });
+  }
+
+  if (primary === "farm_ranch") {
+    return sanitizeNulls({
+      line: "farm_ranch",
+      dwellingCoverage: meta.dwellingCoverage ?? meta.declarations?.dwellingCoverage,
+      farmPersonalPropertyCoverage: meta.farmPersonalPropertyCoverage ?? meta.declarations?.farmPersonalPropertyCoverage,
+      farmLiabilityLimit: meta.farmLiabilityLimit ?? meta.declarations?.farmLiabilityLimit,
+      farmAutoIncluded: meta.farmAutoIncluded ?? meta.declarations?.farmAutoIncluded,
+      livestock: meta.livestock ?? meta.declarations?.livestock,
+      equipmentSchedule: meta.equipmentSchedule ?? meta.declarations?.equipmentSchedule,
+      acreage: meta.acreage ?? meta.declarations?.acreage,
+      dwelling: meta.dwelling ?? meta.declarations?.dwelling,
+    });
+  }
+
+  if (primary === "pet") {
+    return sanitizeNulls({
+      line: "pet",
+      species: meta.species ?? meta.declarations?.species ?? "other",
+      breed: meta.breed ?? meta.declarations?.breed,
+      petName: meta.petName ?? meta.declarations?.petName,
+      age: meta.petAge ?? meta.declarations?.age,
+      annualLimit: meta.annualLimit ?? meta.declarations?.annualLimit,
+      perIncidentLimit: meta.perIncidentLimit ?? meta.declarations?.perIncidentLimit,
+      deductible: meta.deductible ?? meta.declarations?.deductible,
+      reimbursementPercent: meta.reimbursementPercent ?? meta.declarations?.reimbursementPercent,
+      waitingPeriodDays: meta.waitingPeriodDays ?? meta.declarations?.waitingPeriodDays,
+      preExistingConditionsExcluded: meta.preExistingConditionsExcluded ?? meta.declarations?.preExistingConditionsExcluded,
+      wellnessCoverage: meta.wellnessCoverage ?? meta.declarations?.wellnessCoverage,
+    });
+  }
+
+  if (primary === "travel") {
+    return sanitizeNulls({
+      line: "travel",
+      tripDepartureDate: meta.tripDepartureDate ?? meta.declarations?.tripDepartureDate,
+      tripReturnDate: meta.tripReturnDate ?? meta.declarations?.tripReturnDate,
+      destinations: meta.destinations ?? meta.declarations?.destinations,
+      travelers: meta.travelers ?? meta.declarations?.travelers,
+      tripCost: meta.tripCost ?? meta.declarations?.tripCost,
+      tripCancellationLimit: meta.tripCancellationLimit ?? meta.declarations?.tripCancellationLimit,
+      medicalLimit: meta.medicalLimit ?? meta.declarations?.medicalLimit,
+      evacuationLimit: meta.evacuationLimit ?? meta.declarations?.evacuationLimit,
+      baggageLimit: meta.baggageLimit ?? meta.declarations?.baggageLimit,
+    });
+  }
+
+  if (primary === "identity_theft") {
+    return sanitizeNulls({
+      line: "identity_theft",
+      coverageLimit: meta.coverageLimit ?? meta.declarations?.coverageLimit,
+      expenseReimbursement: meta.expenseReimbursement ?? meta.declarations?.expenseReimbursement,
+      creditMonitoring: meta.creditMonitoring ?? meta.declarations?.creditMonitoring,
+      restorationServices: meta.restorationServices ?? meta.declarations?.restorationServices,
+      lostWagesLimit: meta.lostWagesLimit ?? meta.declarations?.lostWagesLimit,
+    });
+  }
+
+  if (primary === "title") {
+    return sanitizeNulls({
+      line: "title",
+      policyType: meta.titlePolicyType ?? meta.declarations?.policyType ?? "owners",
+      policyAmount: meta.titlePolicyAmount ?? meta.declarations?.policyAmount ?? "",
+      legalDescription: meta.legalDescription ?? meta.declarations?.legalDescription,
+      propertyAddress: meta.propertyAddress ?? meta.declarations?.propertyAddress,
+      effectiveDate: meta.titleEffectiveDate ?? meta.declarations?.effectiveDate,
+      exceptions: meta.exceptions ?? meta.declarations?.exceptions,
+      underwriter: meta.titleUnderwriter ?? meta.declarations?.underwriter,
+    });
+  }
+
+  // Commercial lines mapping
+  if (primary === "general_liability") {
+    return sanitizeNulls({
+      line: "gl",
+      coverageForm: meta.coverageForm ?? extracted.coverageForm,
+      perOccurrenceLimit: extracted.limits?.perOccurrence,
+      generalAggregate: extracted.limits?.generalAggregate,
+      productsCompletedOpsAggregate: extracted.limits?.productsCompletedOpsAggregate,
+      personalAdvertisingInjury: extracted.limits?.personalAdvertisingInjury,
+      fireDamage: extracted.limits?.fireDamage,
+      medicalExpense: extracted.limits?.medicalExpense,
+      defenseCostTreatment: extracted.limits?.defenseCostTreatment,
+      deductible: extracted.deductibles?.perOccurrence,
+      classifications: extracted.classifications,
+      retroactiveDate: meta.retroactiveDate,
+    });
+  }
+
+  if (primary === "commercial_property" || primary === "property") {
+    return sanitizeNulls({
+      line: "commercial_property",
+      locations: extracted.locations ?? [],
+      blanketLimit: meta.blanketLimit,
+      businessIncomeLimit: meta.businessIncomeLimit,
+      extraExpenseLimit: meta.extraExpenseLimit,
+    });
+  }
+
+  if (primary === "commercial_auto") {
+    return sanitizeNulls({
+      line: "commercial_auto",
+      vehicles: extracted.vehicles ?? [],
+      liabilityLimit: extracted.limits?.combinedSingleLimit ?? extracted.limits?.perOccurrence,
+      umLimit: meta.umLimit,
+      uimLimit: meta.uimLimit,
+    });
+  }
+
+  if (primary === "workers_comp") {
+    return sanitizeNulls({
+      line: "workers_comp",
+      classifications: extracted.classifications ?? [],
+      experienceMod: extracted.experienceMod,
+      employersLiability: extracted.limits?.employersLiability,
+    });
+  }
+
+  if (primary === "umbrella" || primary === "excess_liability") {
+    return sanitizeNulls({
+      line: "umbrella_excess",
+      perOccurrenceLimit: extracted.limits?.eachOccurrenceUmbrella ?? extracted.limits?.perOccurrence,
+      aggregateLimit: extracted.limits?.umbrellaAggregate ?? extracted.limits?.generalAggregate,
+      retention: extracted.limits?.umbrellaRetention ?? extracted.deductibles?.selfInsuredRetention,
+      underlyingPolicies: meta.underlyingPolicies ?? [],
+    });
+  }
+
+  if (primary === "professional_liability") {
+    return sanitizeNulls({
+      line: "professional_liability",
+      perClaimLimit: extracted.limits?.perOccurrence,
+      aggregateLimit: extracted.limits?.generalAggregate,
+      retroactiveDate: meta.retroactiveDate,
+      defenseCostTreatment: extracted.limits?.defenseCostTreatment,
+    });
+  }
+
+  if (primary === "cyber") {
+    return sanitizeNulls({
+      line: "cyber",
+      aggregateLimit: extracted.limits?.generalAggregate ?? extracted.limits?.perOccurrence,
+      retroactiveDate: meta.retroactiveDate,
+    });
+  }
+
+  if (primary === "directors_officers") {
+    return sanitizeNulls({
+      line: "directors_officers",
+      sideALimit: meta.sideALimit,
+      sideBLimit: meta.sideBLimit,
+      sideCLimit: meta.sideCLimit,
+    });
+  }
+
+  if (primary === "crime_fidelity") {
+    return sanitizeNulls({
+      line: "crime",
+      agreements: meta.agreements ?? [],
+    });
+  }
+
+  return undefined;
+}
+
 /** Map raw Claude extraction JSON to mutation-compatible fields. */
 export function applyExtracted(extracted: any) {
   const meta = extracted.metadata ?? extracted;
@@ -198,6 +517,10 @@ export function applyExtracted(extracted: any) {
   if (extracted.classifications?.length) fields.classifications = extracted.classifications;
   if (extracted.formInventory?.length) fields.formInventory = extracted.formInventory;
   if (extracted.taxesAndFees?.length) fields.taxesAndFees = extracted.taxesAndFees;
+
+  // Construct typed declarations (v1.3+)
+  const declarations = buildDeclarations(meta, extracted);
+  if (declarations) fields.declarations = declarations;
 
   return fields;
 }
@@ -538,6 +861,10 @@ export function applyExtractedQuote(extracted: any) {
       pageNumber: c.pageNumber ?? undefined,
     }));
   }
+
+  // Construct typed declarations (v1.3+)
+  const declarations = buildDeclarations(meta, extracted);
+  if (declarations) fields.declarations = declarations;
 
   return fields;
 }
