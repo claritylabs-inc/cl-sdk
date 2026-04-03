@@ -721,3 +721,80 @@ type PolicyType =
   | "management_liability_package" // Bundled D&O + EPLI + Fiduciary + Crime
   | "other";
 ```
+
+## Domain 12: Personal Lines Declarations
+
+Typed declarations variants for personal lines policies. Each variant is keyed by a `line` discriminant.
+
+### DwellingDetails (shared)
+| Field | Type | Description |
+|---|---|---|
+| constructionType | ConstructionType? | frame, masonry, superior, mixed, other |
+| yearBuilt | number? | Year the dwelling was built |
+| squareFootage | number? | Total square footage |
+| stories | number? | Number of stories |
+| roofType | RoofType? | asphalt_shingle, tile, metal, slate, flat, wood_shake, other |
+| roofAge | number? | Roof age in years |
+| heatingType | string? | central, baseboard, radiant, space_heater, heat_pump, other |
+| foundationType | FoundationType? | basement, crawl_space, slab, pier, other |
+| plumbingType | string? | copper, pex, galvanized, polybutylene, cpvc, other |
+| electricalType | string? | circuit_breaker, fuse_box, knob_and_tube, other |
+| electricalAmps | number? | Electrical service amperage |
+| hasSwimmingPool | boolean? | Pool present on premises |
+| poolType | string? | in_ground or above_ground |
+| hasTrampoline | boolean? | Trampoline present |
+| hasDog | boolean? | Dog on premises |
+| dogBreed | string? | Dog breed (underwriting concern) |
+| protectiveDevices | string[]? | alarm, sprinkler, deadbolt, smoke detector |
+| distanceToFireStation | string? | Distance to nearest fire station |
+| distanceToHydrant | string? | Distance to nearest fire hydrant |
+| fireProtectionClass | string? | ISO fire protection class (1-10) |
+
+### DriverRecord
+| Field | Type | Description |
+|---|---|---|
+| name | string | Driver full name |
+| dateOfBirth | string? | Date of birth |
+| licenseNumber | string? | Driver license number |
+| licenseState | string? | License issuing state |
+| relationship | string? | named_insured, spouse, child, other_household, other |
+| yearsLicensed | number? | Years holding license |
+| violations | array? | Date, type, description per violation |
+| accidents | array? | Date, at-fault, description, amount per accident |
+| sr22Required | boolean? | SR-22 filing required |
+
+### PersonalVehicleDetails
+| Field | Type | Description |
+|---|---|---|
+| number | number? | Vehicle number on declarations |
+| year | number? | Model year |
+| make | string? | Manufacturer |
+| model | string? | Model name |
+| vin | string? | Vehicle Identification Number |
+| usage | PersonalAutoUsage? | pleasure, commute, business, farm |
+| annualMileage | number? | Annual miles driven |
+| collisionDeductible | string? | Collision deductible |
+| comprehensiveDeductible | string? | Comprehensive deductible |
+
+## Domain 13: Personal Lines Context Keys
+
+| Extracted Field Path | Context Category | Context Key | Description |
+|---|---|---|---|
+| declarations.dwelling.yearBuilt | property_info | year_built | Year dwelling was built |
+| declarations.dwelling.constructionType | property_info | construction_type | Dwelling construction type |
+| declarations.dwelling.squareFootage | property_info | square_footage | Dwelling square footage |
+| declarations.dwelling.roofType | property_info | roof_type | Roof material type |
+| declarations.dwelling.roofAge | property_info | roof_age | Roof age in years |
+| declarations.dwelling.protectiveDevices | property_info | protective_devices | Protective device list |
+| declarations.coverageA | coverage | dwelling_coverage_limit | HO Coverage A limit |
+| declarations.coverageE | coverage | personal_liability_limit | HO Coverage E limit |
+| declarations.drivers[].name | driver_info | driver_names | Listed driver names |
+| declarations.drivers[].licenseNumber | driver_info | driver_license_numbers | Driver license numbers |
+| declarations.vehicles[].vin | vehicle_info | vehicle_vins | Personal vehicle VINs |
+| declarations.vehicles[].annualMileage | vehicle_info | annual_mileage | Annual mileage per vehicle |
+| declarations.floodZone | property_info | flood_zone | FEMA flood zone |
+| declarations.elevationCertificate | property_info | has_elevation_cert | Elevation certificate status |
+| declarations.mortgagee.name | financial | mortgagee_name | Mortgage holder name |
+| declarations.petName | pet_info | pet_name | Insured pet name |
+| declarations.species | pet_info | pet_species | Pet species |
+| declarations.breed | pet_info | pet_breed | Pet breed |
