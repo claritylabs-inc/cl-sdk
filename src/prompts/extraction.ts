@@ -108,7 +108,8 @@ Respond with JSON only:
 }
 
 CLASSIFICATION SIGNALS:
-- POLICY signals: declarations page, ISO form numbers (e.g. CG 00 01), binding language ("This policy is issued to"), endorsement schedules, "Certificate of Insurance"
+- POLICY signals: declarations page, ISO form numbers (e.g. CG 00 01, HO 00 03, PP 00 01), binding language ("This policy is issued to"), endorsement schedules, "Certificate of Insurance"
+- POLICY (personal lines) signals: HO form numbers (HO 00 03/04/05/06/07/08), PAP form numbers (PP 00 01), NFIP flood policy headers, Auto ID card format, title commitment or title policy headers, pet/travel policy declarations
 - QUOTE signals: "quote", "proposal", "indication" wording, subjectivities, "subject to" conditions, quote expiration date, "proposed premium", "terms and conditions may vary"
 
 If uncertain, lean toward "policy" for documents with declarations pages and binding language, "quote" for everything else.`;
@@ -137,7 +138,7 @@ Respond with JSON only:
     "policyNumber": "policy number",
     "priorPolicyNumber": "previous policy number if renewal, or null",
     "documentType": "policy" or "quote",
-    "policyTypes": ["general_liability", "commercial_property", "commercial_auto", "non_owned_auto", "workers_comp", "umbrella", "excess_liability", "professional_liability", "cyber", "epli", "directors_officers", "fiduciary_liability", "crime_fidelity", "inland_marine", "builders_risk", "environmental", "ocean_marine", "surety", "product_liability", "bop", "management_liability_package", "property", "other"],
+    "policyTypes": ["general_liability", "commercial_property", "commercial_auto", "non_owned_auto", "workers_comp", "umbrella", "excess_liability", "professional_liability", "cyber", "epli", "directors_officers", "fiduciary_liability", "crime_fidelity", "inland_marine", "builders_risk", "environmental", "ocean_marine", "surety", "product_liability", "bop", "management_liability_package", "property", "homeowners_ho3", "homeowners_ho5", "renters_ho4", "condo_ho6", "dwelling_fire", "mobile_home", "personal_auto", "personal_umbrella", "flood_nfip", "flood_private", "earthquake", "personal_inland_marine", "watercraft", "recreational_vehicle", "farm_ranch", "pet", "travel", "identity_theft", "title", "other"],
     "coverageForm": "occurrence" or "claims_made" or "accident" or null,
     "policyYear": number,
     "effectiveDate": "MM/DD/YYYY",
@@ -151,7 +152,7 @@ Respond with JSON only:
     "insuredName": "name of primary named insured",
     "insuredDba": "doing-business-as name, or null",
     "insuredAddress": { "street1": "", "city": "", "state": "", "zip": "" } or null,
-    "insuredEntityType": "corporation" or "llc" or "partnership" or "sole_proprietor" or "joint_venture" or "trust" or "nonprofit" or "municipality" or "other" or null,
+    "insuredEntityType": "corporation" or "llc" or "partnership" or "sole_proprietor" or "joint_venture" or "trust" or "nonprofit" or "municipality" or "individual" or "married_couple" or "other" or null,
     "insuredFein": "FEIN, or null",
     "summary": "1-2 sentence summary"
   },
@@ -221,7 +222,12 @@ IMPORTANT:
 - Extract classifications ONLY if a classification/rating schedule is visible
 - formInventory: list ALL form numbers found in any forms schedule or endorsement schedule
 - For limits, extract the standard limit fields that appear on the declarations page
-- For deductibles, extract from the declarations or deductible schedule`;
+- For deductibles, extract from the declarations or deductible schedule
+- For PERSONAL LINES: Use personal line-specific policyTypes (homeowners_ho3, personal_auto, etc.)
+- For homeowners policies (HO forms), extract Coverage A through F limits if visible on declarations
+- For personal auto (PAP), extract per-vehicle coverages and driver list if visible
+- For flood (NFIP), extract flood zone, community number, building/contents coverage
+- For personal articles, extract scheduled items list if visible`;
 
 /**
  * Quote-specific metadata prompt (Sonnet).
@@ -243,7 +249,7 @@ Respond with JSON only:
     "broker": "insurance broker, or null",
     "brokerContactName": "individual producer, or null",
     "quoteNumber": "quote or proposal reference number",
-    "policyTypes": ["general_liability", "commercial_property", "commercial_auto", "non_owned_auto", "workers_comp", "umbrella", "excess_liability", "professional_liability", "cyber", "epli", "directors_officers", "fiduciary_liability", "crime_fidelity", "inland_marine", "builders_risk", "environmental", "ocean_marine", "surety", "product_liability", "bop", "management_liability_package", "property", "other"],
+    "policyTypes": ["general_liability", "commercial_property", "commercial_auto", "non_owned_auto", "workers_comp", "umbrella", "excess_liability", "professional_liability", "cyber", "epli", "directors_officers", "fiduciary_liability", "crime_fidelity", "inland_marine", "builders_risk", "environmental", "ocean_marine", "surety", "product_liability", "bop", "management_liability_package", "property", "homeowners_ho3", "homeowners_ho5", "renters_ho4", "condo_ho6", "dwelling_fire", "mobile_home", "personal_auto", "personal_umbrella", "flood_nfip", "flood_private", "earthquake", "personal_inland_marine", "watercraft", "recreational_vehicle", "farm_ranch", "pet", "travel", "identity_theft", "title", "other"],
     "coverageForm": "occurrence or claims_made or accident, or null",
     "quoteYear": number,
     "proposedEffectiveDate": "MM/DD/YYYY or null",
@@ -380,6 +386,13 @@ EXCLUSION GUIDANCE:
 
 CONDITION GUIDANCE:
 - List policy conditions (duties after loss, cooperation clause, cancellation, etc.) in the "conditions" array
+
+PERSONAL LINES ENDORSEMENT RECOGNITION:
+- HO 04 XX series: homeowners endorsements (e.g. HO 04 10 Additional Interests, HO 04 41 Special Personal Property, HO 04 61 Scheduled Personal Property)
+- PP 03 XX series: personal auto endorsements (e.g. PP 03 06 Named Non-Owner, PP 03 13 Extended Non-Owned)
+- HO 17 XX series: mobilehome endorsements
+- DP 04 XX series: dwelling fire endorsements
+- Personal lines exclusion patterns: animal liability, business pursuits, home daycare, watercraft, aircraft
 
 IMPORTANT: Only extract content from pages ${pageStart}-${pageEnd}. Preserve original language exactly.`;
 }
@@ -540,4 +553,33 @@ export function buildSupplementaryEnrichmentPrompt(
   }
 
   return parts.join("");
+}
+
+/**
+ * Build a context hint for personal lines extraction based on detected policyType.
+ * Returns null for commercial lines or unknown types.
+ */
+export function buildPersonalLinesHint(policyType: string): string | null {
+  const hints: Record<string, string> = {
+    homeowners_ho3: "This is an HO-3 Special Form homeowners policy. Extract Coverage A through F limits, dwelling details (construction, year built, sq ft, roof), deductible(s), loss settlement method, and mortgagee information.",
+    homeowners_ho5: "This is an HO-5 Comprehensive Form homeowners policy. Extract Coverage A through F limits, dwelling details, deductible(s), loss settlement method, and mortgagee.",
+    renters_ho4: "This is an HO-4 Contents Broad Form renters policy. Extract Coverage C (personal property), Coverage D (loss of use), Coverage E (liability), Coverage F (medical payments), and deductible.",
+    condo_ho6: "This is an HO-6 Unit-Owners Form condo policy. Extract Coverage A (dwelling/unit), Coverage C, Coverage D, Coverage E, Coverage F, loss assessment coverage, and deductible.",
+    dwelling_fire: "This is a Dwelling Fire policy (DP form). Extract dwelling limit, other structures, personal property, fair rental value, liability, medical payments, and deductible. Note the form type (DP-1, DP-2, or DP-3).",
+    mobile_home: "This is a Mobile/Manufactured Home policy (HO-7). Extract Coverage A through F limits, dwelling details, tie-down/anchoring info, and deductible.",
+    personal_auto: "This is a Personal Auto Policy (PAP). Extract liability BI/PD limits (split or CSL), UM/UIM limits, PIP/med pay, per-vehicle coverages (collision/comprehensive deductibles), driver list with DOB/license/violations, and vehicle schedule with VINs.",
+    personal_umbrella: "This is a Personal Umbrella/Excess policy. Extract per-occurrence limit, aggregate limit, retained limit (SIR), and underlying policy schedule.",
+    flood_nfip: "This is an NFIP Standard Flood Insurance Policy. Extract flood zone, community number/CRS rating, building coverage, contents coverage, ICC coverage, deductible, waiting period, elevation certificate status, and building diagram number.",
+    flood_private: "This is a Private Flood policy. Extract building coverage, contents coverage, deductible, and any additional living expense coverage. Note differences from NFIP terms.",
+    earthquake: "This is a Residential Earthquake policy. Extract dwelling coverage, contents coverage, loss of use coverage, deductible percentage, retrofit discount, and masonry veneer coverage.",
+    personal_inland_marine: "This is a Personal Articles Floater. Extract scheduled items (category, description, appraised value, appraisal date), blanket coverage limit, deductible, and worldwide/breakage coverage.",
+    watercraft: "This is a Watercraft/Boat policy. Extract boat details (type, year, make, model, length, hull material, motor), hull value, liability limit, medical payments, physical damage deductible, and trailer coverage.",
+    recreational_vehicle: "This is an RV/ATV/Snowmobile policy. Extract vehicle details (type, year, make, model, VIN), value, liability limit, collision/comprehensive deductibles, personal effects coverage, and full-timer coverage.",
+    farm_ranch: "This is a Farm/Ranch Owner policy. Extract dwelling coverage, farm personal property, farm liability, farm auto inclusion, livestock schedule, equipment schedule, and acreage.",
+    pet: "This is a Pet Insurance policy. Extract species, breed, pet name, age, annual limit, per-incident limit, deductible, reimbursement percentage, waiting period, and wellness coverage.",
+    travel: "This is a Travel Insurance policy. Extract trip dates, destinations, travelers, trip cost, cancellation limit, medical limit, evacuation limit, and baggage limit.",
+    identity_theft: "This is an Identity Theft policy. Extract coverage limit, expense reimbursement, credit monitoring, restoration services, and lost wages limit.",
+    title: "This is a Title Insurance policy. Extract policy type (owner's or lender's), policy amount, legal description, property address, effective date, schedule B exceptions, and underwriter.",
+  };
+  return hints[policyType] ?? null;
 }
