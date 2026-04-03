@@ -1307,3 +1307,1377 @@ Claims-made vs occurrence is one of the most important distinctions across lines
 | Crime | Not applicable | Defense is usually not a major element |
 
 The inside-vs-outside distinction is material: for a $1M professional liability policy with a $300K defense cost, inside limits leaves only $700K for indemnity; outside limits leaves the full $1M.
+
+---
+
+## Personal Lines Profiles
+
+The following 19 profiles cover consumer personal lines insurance. These lines are characterized by standardized ISO and NFIP/ALTA forms, personal (not commercial) named insureds, and coverage structures centered on individuals and families rather than business operations. Extraction uses the typed declarations variants in `src/types/declarations/`.
+
+---
+
+## Profile 21: Homeowners (HO-3)
+
+### Overview
+
+The HO-3 Special Form is the most widely sold homeowners policy in the United States. It provides open-perils coverage on the dwelling (Coverage A) and other structures (Coverage B), with named-perils coverage on personal property (Coverage C). The HO-3 is the baseline policy against which all other homeowners forms are compared.
+
+The policy bundles property coverage (Coverages A–D) with personal liability (Coverage E) and medical payments to others (Coverage F) in a single contract. Most mortgage lenders require at least HO-3 equivalent coverage on financed dwellings.
+
+**PolicyType enum value:** `"homeowners_ho3"`
+
+### Key Forms
+
+| Form | Purpose |
+|------|---------|
+| **HO 00 03** | Homeowners 3 — Special Form (current ISO edition) |
+| **HO DS 00** | Homeowners Declarations Page |
+| **HO 04 61** | Additional Insured — Residence Premises |
+| **HO 04 35** | Loss Assessment Coverage |
+| **HO 05 24** | Home Systems Protection |
+| **HO 17 33** | Scheduled Personal Property |
+| **HO 04 96** | No Section II — Liability Coverages |
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `formType` | high | Should be `ho3` |
+| `coverageA` | high | Dwelling replacement cost value |
+| `coverageB` | high | Other structures (default 10% of Cov A) |
+| `coverageC` | high | Personal property (default 50% of Cov A) |
+| `coverageD` | high | Loss of use / additional living expense (default 20–30% of Cov A) |
+| `coverageE` | high | Personal liability (commonly $100K–$500K) |
+| `coverageF` | high | Medical payments to others (commonly $1K–$5K) |
+| `deductible` | high | All-perils deductible (flat dollar or percentage) |
+| `allOtherPerilsDeductible` | medium | Sometimes listed separately from wind/hail |
+| `windHailDeductible` | medium | Separate percentage deductible in coastal/wind states |
+| `dwelling.constructionType` | high | Frame, masonry, etc. |
+| `dwelling.yearBuilt` | high | Material to underwriting |
+| `dwelling.squareFootage` | medium | Not always on dec page |
+| `mortgagee.name` / `mortgagee.loanNumber` | high | Lender information required for mortgaged properties |
+
+### Coverage Structure
+
+- **Coverage A — Dwelling**: The dwelling structure and attached structures (attached garage, deck). Open perils — covers all causes of loss not specifically excluded. Replacement cost valuation standard.
+- **Coverage B — Other Structures**: Detached garage, fence, shed. Open perils, same as Coverage A. Default 10% of Coverage A; can be increased.
+- **Coverage C — Personal Property**: Furniture, clothing, electronics, appliances. Named perils only (16 perils listed in HO 00 03). Sub-limits apply to jewelry, firearms, silverware, cash, and securities. ACV valuation unless RC endorsement added.
+- **Coverage D — Loss of Use**: Pays additional living expenses (hotel, meals) if the home is uninhabitable after a covered loss. Also covers fair rental value if part of home is rented.
+- **Coverage E — Personal Liability**: Pays for BI or PD claims for which the insured is legally responsible arising from personal activities. Defense included outside limits.
+- **Coverage F — Medical Payments to Others**: No-fault medical payments for guests injured on insured premises. Per-person limit per accident.
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| **HO 04 90** | Personal Property Replacement Cost — upgrades Cov C from ACV to RC |
+| **HO 05 61** | Home Business Pursuits — limited coverage for home-based business activity |
+| **HO 17 33** | Scheduled Personal Property (Floater) — blanket or scheduled items, no deductible |
+| **HO 04 35** | Loss Assessment Coverage — covers assessments by HOA for shared property losses |
+| **HO 04 61** | Additional Insured — adds another person with insurable interest |
+| Water Backup / Sump Overflow | Very common endorsement; sewer/drain backup excluded in base form |
+| Earthquake | Always excluded in HO 00 03; added by endorsement (e.g., HO 04 54 or carrier form) |
+
+### Extraction Signals
+
+- Form number "HO 00 03" or "HO-3" in header or dec page
+- Section headings: "Coverage A — Dwelling," "Coverage B — Other Structures"
+- Named insured is an individual (not a business entity)
+- Mortgagee clause with lender name and loan number
+- "Replacement Cost" or "RC" valuation language
+- ISO edition year (e.g., "05 11" = 2011 edition)
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `coverageA` | `dwelling_coverage` | `coverage` |
+| `mortgagee.name` | `mortgage_lender` | `company_info` |
+| `dwelling.yearBuilt` | `year_built` | `premises` |
+| `dwelling.constructionType` | `construction_type` | `premises` |
+| `carrier` | `homeowners_carrier` | `coverage` |
+| `policy_number` | `homeowners_policy_number` | `coverage` |
+
+---
+
+## Profile 22: Homeowners (HO-5)
+
+### Overview
+
+The HO-5 Comprehensive Form provides open-perils coverage on both the dwelling (Coverage A/B) and personal property (Coverage C), making it the broadest standard homeowners policy. Unlike the HO-3, personal property losses are covered unless the cause of loss is specifically excluded. It is typically reserved for higher-value homes and preferred insureds.
+
+The HO-5 also offers higher default sub-limits for scheduled categories and is preferred by insureds with high-value personal property. The premium is higher than HO-3, and underwriters apply stricter eligibility requirements.
+
+**PolicyType enum value:** `"homeowners_ho5"`
+
+### Key Forms
+
+| Form | Purpose |
+|------|---------|
+| **HO 00 05** | Homeowners 5 — Comprehensive Form |
+| **HO DS 00** | Homeowners Declarations Page |
+| **HO 17 33** | Scheduled Personal Property |
+| **HO 04 61** | Additional Insured — Residence Premises |
+| **HO 04 35** | Loss Assessment Coverage |
+
+### Declarations Fields
+
+Identical structure to HO-3. See Profile 21 for the full field list. Key distinction:
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `formType` | high | Should be `ho5` |
+| `coverageA` | high | Open perils on dwelling |
+| `coverageC` | high | Open perils on personal property — key HO-5 distinguishing feature |
+| `deductible` | high | Single all-perils deductible |
+| `windHailDeductible` | medium | Separate in coastal states |
+| `mortgagee.name` / `mortgagee.loanNumber` | high | Typically present; high-value homes are usually mortgaged |
+
+### Coverage Structure
+
+Coverage structure mirrors HO-3 (Coverages A through F) with one critical difference:
+
+- **Coverage C — Personal Property**: Open perils (not named perils). Covers all causes of loss to personal property not specifically excluded. This is the defining feature of the HO-5.
+- **Coverage A/B — Dwelling/Other Structures**: Open perils, same as HO-3.
+- **Coverage D/E/F**: Identical to HO-3. Replacement cost on personal property is standard (no separate endorsement needed).
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| **HO 17 33** | Scheduled Personal Property — for jewelry, art, collectibles above sub-limits |
+| **HO 04 35** | Loss Assessment Coverage |
+| **HO 04 61** | Additional Insured |
+| Water Backup | Still excluded in base form; add separately |
+| Earthquake | Still excluded; add separately |
+| **HO 04 59** | Home Day Care — if insured operates a day care from home |
+
+### Extraction Signals
+
+- Form number "HO 00 05" or "HO-5" in header or dec page
+- "Open Perils" or "Special Form — Including Personal Property" language
+- Higher Coverage A amounts typically (often $500K+)
+- Same section headings as HO-3; distinguish by form number
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `coverageA` | `dwelling_coverage` | `coverage` |
+| `coverageC` | `personal_property_coverage` | `coverage` |
+| `mortgagee.name` | `mortgage_lender` | `company_info` |
+| `carrier` | `homeowners_carrier` | `coverage` |
+| `policy_number` | `homeowners_policy_number` | `coverage` |
+
+---
+
+## Profile 23: Renters (HO-4)
+
+### Overview
+
+The HO-4 Contents Broad Form covers tenants who do not own the dwelling they occupy. It provides named-perils coverage on personal property (Coverage C) and personal liability (Coverage E/F), but includes no Coverage A or B because the tenant has no insurable interest in the building itself. It is the most affordable homeowners-family policy.
+
+Renters insurance is widely purchased but often undervalued — tenants frequently underestimate the value of their personal property. Loss of use coverage (Coverage D) pays for temporary housing if the unit becomes uninhabitable after a covered loss.
+
+**PolicyType enum value:** `"homeowners_ho4"`
+
+### Key Forms
+
+| Form | Purpose |
+|------|---------|
+| **HO 00 04** | Homeowners 4 — Contents Broad Form |
+| **HO DS 00** | Declarations Page |
+| **HO 17 33** | Scheduled Personal Property |
+| **HO 04 35** | Loss Assessment Coverage |
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `formType` | high | Should be `ho4` |
+| `coverageC` | high | Personal property limit (named perils) |
+| `coverageD` | high | Loss of use / additional living expense |
+| `coverageE` | high | Personal liability |
+| `coverageF` | high | Medical payments to others |
+| `deductible` | high | |
+| `additionalInsuredNames` | medium | Landlord may be listed as additional interest |
+
+No Coverage A or B fields — tenant does not own the dwelling.
+
+### Coverage Structure
+
+- **Coverage C — Personal Property**: Named-perils coverage (same 16 perils as HO-3 Coverage C). Sub-limits apply to jewelry, firearms, cash, electronics. ACV valuation unless RC endorsement added.
+- **Coverage D — Loss of Use**: Pays additional living expenses when unit is uninhabitable due to a covered peril.
+- **Coverage E — Personal Liability**: Same as homeowners. Covers claims against the insured for BI/PD.
+- **Coverage F — Medical Payments**: Same as homeowners. No-fault medical payments for guests.
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| **HO 04 90** | Personal Property Replacement Cost |
+| **HO 17 33** | Scheduled Personal Property |
+| **HO 04 35** | Loss Assessment Coverage — relevant if tenant is in a condo association |
+| Water Backup | Sewer/drain backup excluded in base form |
+| Identity Theft | Common add-on from carriers |
+
+### Extraction Signals
+
+- Form number "HO 00 04" or "HO-4" in header
+- No Coverage A or Coverage B line items — absence is a positive signal for HO-4
+- "Renters Insurance" or "Tenant's Policy" header text
+- Residence type listed as apartment, rental, or leased premises
+- No mortgagee clause (tenant has no mortgage)
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `coverageC` | `personal_property_coverage` | `coverage` |
+| `coverageE` | `liability_limit` | `coverage` |
+| `carrier` | `renters_carrier` | `coverage` |
+| `policy_number` | `renters_policy_number` | `coverage` |
+
+---
+
+## Profile 24: Condo (HO-6)
+
+### Overview
+
+The HO-6 Unit Owners Form covers condominium unit owners. The condo association's master policy covers the building shell and common areas; the HO-6 fills the gap by covering interior improvements and betterments (Coverage A), personal property (Coverage C), loss assessment liability from HOA assessments (Coverage D), and personal liability (Coverage E/F).
+
+The critical complexity in condo insurance is understanding what the master policy covers (bare walls vs. all-in vs. single entity) to determine how much Coverage A the HO-6 needs. This gap analysis is essential for advising condo owners on adequate limits.
+
+**PolicyType enum value:** `"homeowners_ho6"`
+
+### Key Forms
+
+| Form | Purpose |
+|------|---------|
+| **HO 00 06** | Homeowners 6 — Unit Owners Form |
+| **HO DS 00** | Declarations Page |
+| **HO 17 33** | Scheduled Personal Property |
+| **HO 04 35** | Loss Assessment Coverage — especially important for condos |
+| **HO 04 61** | Additional Insured |
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `formType` | high | Should be `ho6` |
+| `coverageA` | high | Dwelling — improvements, betterments, and alterations inside the unit |
+| `coverageC` | high | Personal property |
+| `coverageD` | high | Loss of use |
+| `coverageE` | high | Personal liability |
+| `coverageF` | high | Medical payments |
+| `deductible` | high | |
+| `mortgagee.name` / `mortgagee.loanNumber` | medium | Present if unit is mortgaged |
+
+### Coverage Structure
+
+- **Coverage A — Dwelling**: Covers improvements and betterments inside the unit — walls, floors, ceilings, fixtures, cabinets. Does NOT cover the building shell (covered by HOA master). Limit should match the interior buildout value, not the purchase price.
+- **Coverage C — Personal Property**: Named perils, same as HO-3/HO-4.
+- **Coverage D — Loss of Use**: Additional living expense if unit is uninhabitable.
+- **Coverage E — Personal Liability**: Bodily injury and property damage liability.
+- **Coverage F — Medical Payments**: Guest medical payments.
+- **Loss Assessment (HO 04 35)**: Covers HOA assessments against unit owners for shared-area losses or liability claims. Default limit in base form is low ($1K); endorsement typically raises it to $25K–$50K.
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| **HO 04 35** | Loss Assessment Coverage — nearly always recommended; increase limit above base |
+| **HO 04 90** | Personal Property Replacement Cost |
+| **HO 17 33** | Scheduled Personal Property |
+| **HO 04 61** | Additional Insured — sometimes required by HOA |
+| Water Backup | Critical for upper-floor units where water damage from above is common |
+
+### Extraction Signals
+
+- Form number "HO 00 06" or "HO-6" in header
+- "Unit Owners," "Condominium," or "Condo" language in policy title
+- Coverage A labeled "Dwelling — Improvements and Betterments" or similar
+- HOA or condo association name may appear in named insured or additional interest
+- Loss Assessment coverage line on dec page
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `coverageA` | `condo_interior_coverage` | `coverage` |
+| `coverageC` | `personal_property_coverage` | `coverage` |
+| `mortgagee.name` | `mortgage_lender` | `company_info` |
+| `carrier` | `condo_carrier` | `coverage` |
+| `policy_number` | `condo_policy_number` | `coverage` |
+
+---
+
+## Profile 25: Mobile Home (HO-7)
+
+### Overview
+
+The HO-7 Mobile Home Form covers manufactured and mobile homes, which are not eligible for standard HO-3 forms due to their construction and title characteristics. It follows the HO-3 structure (open perils on dwelling, named perils on contents) adapted for homes that may be on leased land and may have been moved from their original installation site.
+
+Mobile home policies may be written on a primary residence or as vacation/seasonal use. Trip collision coverage is a unique endorsement available when the home is moved. Title for manufactured homes is handled through a certificate of title system, not real property records.
+
+**PolicyType enum value:** `"homeowners_ho7"`
+
+### Key Forms
+
+| Form | Purpose |
+|------|---------|
+| **HO 00 07** | Homeowners 7 — Mobile Home Form |
+| **MH DS 00** | Mobile Home Declarations (carrier-specific) |
+| Carrier-proprietary forms | Many carriers use proprietary mobile home forms |
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `formType` | high | Should be `ho7` |
+| `coverageA` | high | Dwelling (ACV or RC) |
+| `coverageB` | medium | Other structures |
+| `coverageC` | high | Personal property |
+| `coverageD` | high | Loss of use |
+| `coverageE` | high | Personal liability |
+| `coverageF` | high | Medical payments |
+| `deductible` | high | |
+| `dwelling.yearBuilt` | high | HUD code compliance year matters for underwriting |
+| `dwelling.constructionType` | high | Typically "manufactured" or "mobile" |
+| `mortgagee.name` | medium | Chattel mortgage (personal property lien, not real estate mortgage) |
+
+### Coverage Structure
+
+- **Coverage A — Dwelling**: The mobile/manufactured home and attached structures. May be ACV or RC. Actual cash value is common for older units; RC available for newer HUD-code homes.
+- **Coverages B, C, D, E, F**: Same structure as HO-3. Coverage B covers detached structures on the same premises.
+- **Trip Collision**: Optional endorsement covering physical damage while the home is being transported on public roads.
+- **Land**: Land is not covered — homeowner may lease or own the land separately.
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| Trip Collision | Covers damage while home is in transit |
+| Actual Cash Value | Common for homes 15+ years old |
+| Replacement Cost | Available for newer HUD-code homes |
+| Water Backup | Same as standard homeowners |
+| **HO 04 35** | Loss Assessment — relevant for mobile home parks with shared facilities |
+
+### Extraction Signals
+
+- Form number "HO 00 07" or "MH" prefix forms
+- "Mobile Home," "Manufactured Home," or "HUD Code" language
+- Year/make/model fields instead of street address description
+- Chattel lien holder instead of traditional mortgagee
+- Serial number or HUD certification label number in lieu of property description
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `coverageA` | `dwelling_coverage` | `coverage` |
+| `dwelling.yearBuilt` | `year_built` | `premises` |
+| `carrier` | `homeowners_carrier` | `coverage` |
+| `policy_number` | `homeowners_policy_number` | `coverage` |
+
+---
+
+## Profile 26: Personal Auto (PAP)
+
+### Overview
+
+The Personal Auto Policy (PAP) covers private passenger vehicles used for personal, family, or household purposes. It is structured in four parts: liability (Part A), medical payments or PIP (Part B), uninsured/underinsured motorists (Part C), and physical damage (Part D). The PAP is the most frequently placed personal lines policy; almost every licensed driver in the US is required to carry at least Part A liability coverage.
+
+State law mandates minimum liability limits and often requires UM/UIM coverage. PIP or no-fault coverage is mandatory in approximately a dozen states. The PAP is a named-driver/named-vehicle policy — all drivers and vehicles must be listed to be covered.
+
+**PolicyType enum value:** `"personal_auto"`
+
+### Key Forms
+
+| Form | Purpose |
+|------|---------|
+| **PP 00 01** | Personal Auto Policy (current ISO edition) |
+| **PP DS 01** | Personal Auto Declarations |
+| **PP 03 06** | Towing and Labor Costs Coverage |
+| **PP 03 03** | Extended Non-Owned Coverage |
+| **PP 04 02** | Limited Mexico Coverage |
+| **PP 04 01** | Miscellaneous Type Vehicle Endorsement |
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `drivers` | high | Each driver: name, date of birth, license number, relationship |
+| `vehicles` | high | Each vehicle: year, make, model, VIN, garaging ZIP |
+| `liabilityLimitPerPerson` | high | Part A BI per person |
+| `liabilityLimitPerAccident` | high | Part A BI per accident |
+| `propertyDamageLimit` | high | Part A PD per accident |
+| `combinedSingleLimit` | high | Alternative to split limits |
+| `medPayLimit` | medium | Part B medical payments |
+| `pipLimit` | medium | Part B PIP (no-fault states) |
+| `pipDeductible` | medium | PIP deductible (no-fault states) |
+| `umLimit` | high | Part C uninsured motorist BI |
+| `uimLimit` | high | Part C underinsured motorist BI |
+| Physical damage deductibles (comp, collision) | high | Per vehicle |
+| Lienholder / leinholder | high | Lender for financed vehicles |
+
+### Coverage Structure
+
+- **Part A — Liability**: Pays for BI and PD claims the insured is legally obligated to pay from an auto accident. Defense costs included. Split limits (BI/person / BI/accident / PD) or CSL.
+- **Part B — Medical Payments / PIP**: Medical payments is voluntary (all states); PIP is mandatory in no-fault states. PIP may include lost wages and funeral benefits in addition to medical.
+- **Part C — Uninsured/Underinsured Motorists**: UM covers the insured if hit by an at-fault driver with no insurance. UIM covers if the at-fault driver's limits are insufficient to cover the insured's losses. Stacking rules vary by state.
+- **Part D — Physical Damage**: Comprehensive (other than collision — fire, theft, hail, flood) and collision. ACV minus deductible. Agreed value available for collector vehicles.
+- **Part E — Duties After an Accident**: Notice, cooperation, proof of loss requirements.
+- **Part F — General Provisions**: Policy period, territory, fraud, liberalization.
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| **PP 03 06** | Towing and Labor Costs (roadside assistance) |
+| Rental Reimbursement | Pays for rental car during covered repair |
+| **PP 03 03** | Extended Non-Owned Coverage — covers insured while driving non-owned vehicles regularly |
+| **PP 04 02** | Mexico Coverage — limited liability coverage in Mexico |
+| Rideshare Endorsement | Covers gap when driving for TNC (Uber, Lyft) |
+| New Vehicle Replacement | Replaces totaled new vehicle with new (not ACV) |
+| Gap Coverage | Pays difference between ACV payout and loan balance |
+
+### Extraction Signals
+
+- Form number "PP 00 01" or "Personal Auto Policy" in header
+- Named insured is individual(s), not a business
+- Vehicle schedule with year/make/model/VIN
+- Driver schedule with birthdates
+- State-mandated minimum limit references
+- "Part A," "Part B," "Part C," "Part D" section headers
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `vehicles` (count) | `personal_vehicle_count` | `operations` |
+| `liabilityLimitPerPerson` | `auto_liability_limit` | `coverage` |
+| `drivers` | `listed_drivers` | `operations` |
+| `carrier` | `auto_carrier` | `coverage` |
+| `policy_number` | `auto_policy_number` | `coverage` |
+
+---
+
+## Profile 27: Dwelling Fire
+
+### Overview
+
+The Dwelling Fire policy (DP forms) covers residential dwellings that are not owner-occupied and therefore ineligible for standard homeowners policies — primarily rental properties. Three forms exist: DP-1 (Basic), DP-2 (Broad), and DP-3 (Special). DP-3 is the most common for investment properties, providing open-perils coverage on the dwelling and named-perils on contents (if any).
+
+Unlike homeowners policies, dwelling fire policies do not include personal liability coverage by default. Landlord liability must be added by endorsement or a separate policy. Coverage for tenants' personal property is excluded — each tenant should carry their own HO-4.
+
+**PolicyType enum value:** `"dwelling_fire"`
+
+### Key Forms
+
+| Form | Purpose |
+|------|---------|
+| **DP 00 01** | Dwelling Policy — Basic Form |
+| **DP 00 02** | Dwelling Policy — Broad Form |
+| **DP 00 03** | Dwelling Policy — Special Form (most common) |
+| **DP DS 00** | Dwelling Declarations |
+| **DP 04 72** | Personal Liability Supplement |
+| **DP 04 73** | Premises Liability |
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `formType` | high | `dp1`, `dp2`, or `dp3` |
+| `dwellingLimit` | high | Coverage A — dwelling RC or ACV |
+| `otherStructuresLimit` | medium | Coverage B — detached garage, fences |
+| `personalPropertyLimit` | medium | Coverage C — owner's property on premises; tenants' property excluded |
+| `fairRentalValueLimit` | medium | Coverage D — lost rent during restoration |
+| `liabilityLimit` | medium | If DP 04 72 added |
+| `medicalPaymentsLimit` | medium | If liability supplement added |
+| `deductible` | high | |
+| `dwelling.yearBuilt` | high | |
+| `dwelling.constructionType` | high | |
+| Mortgagee / loss payee | high | Lender clause — nearly always present for financed investment property |
+
+### Coverage Structure
+
+- **Coverage A — Dwelling**: The residential building. DP-1: named perils (fire, lightning, internal explosion only). DP-2: broad perils. DP-3: open perils.
+- **Coverage B — Other Structures**: Detached structures on the premises.
+- **Coverage C — Personal Property**: Owner's personal property kept on premises (tools, appliances). Tenants' property is excluded.
+- **Coverage D — Fair Rental Value**: Lost rental income if covered peril renders the dwelling uninhabitable during restoration. Equivalent to business income for rentals.
+- **Liability (DP 04 72)**: Personal liability endorsement; adds Coverage L (liability) and Coverage M (medical payments).
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| **DP 04 72** | Personal Liability Supplement — essential for landlords; adds premises liability |
+| **DP 04 73** | Premises Liability only (no med pay) |
+| Rent Loss / Rental Income | Extends fair rental value period |
+| Vandalism and Malicious Mischief | Excluded in DP-1; added by endorsement |
+| Water Backup | Sewer/drain backup excluded in base |
+| Inflation Guard | Annual automatic limit increases |
+
+### Extraction Signals
+
+- Form number "DP 00 01/02/03" in header
+- "Dwelling Fire," "Landlord Policy," or "Investment Property" in title
+- Named insured is an individual or LLC (not owner-occupant)
+- "Fair Rental Value" or "Loss of Rents" coverage line
+- No personal liability in base form unless DP 04 72 endorsement present
+- Loss payee or mortgagee clause for lender
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `dwellingLimit` | `dwelling_coverage` | `coverage` |
+| `fairRentalValueLimit` | `rental_income_coverage` | `coverage` |
+| `dwelling.yearBuilt` | `year_built` | `premises` |
+| `carrier` | `dwelling_fire_carrier` | `coverage` |
+| `policy_number` | `dwelling_fire_policy_number` | `coverage` |
+
+---
+
+## Profile 28: Personal Umbrella
+
+### Overview
+
+The personal umbrella provides excess liability coverage above the insured's underlying personal policies — typically homeowners (Coverage E) and personal auto (Part A). It also "drops down" for certain claims not covered by the underlying policies but subject to the umbrella's own terms. Personal umbrellas are priced affordably relative to their limit and are the most cost-effective way to increase personal liability protection.
+
+The umbrella requires the insured to maintain minimum underlying limits (typically $300K homeowners liability, $250/500K auto) as a condition of coverage. If the insured reduces underlying limits, the umbrella may not pay.
+
+**PolicyType enum value:** `"personal_umbrella"`
+
+### Key Forms
+
+All forms are carrier-proprietary. No ISO standard form for personal umbrella. The declarations and underlying schedule are the key extraction targets.
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `perOccurrenceLimit` | high | The umbrella's per-occurrence limit (commonly $1M–$5M) |
+| `aggregateLimit` | medium | Some umbrella policies have an annual aggregate; others are per-occurrence only |
+| `retainedLimit` | high | The insured's self-retained amount when no underlying policy applies |
+| `underlyingPolicies` | high | Each underlying: policy type, carrier, policy number, limit |
+
+### Coverage Structure
+
+- **Excess Liability**: Pays above the underlying homeowners liability, auto liability, watercraft liability, and other personal lines policies. No gap in coverage between underlying limit and umbrella.
+- **Drop-Down Coverage**: When a claim is not covered by any underlying policy (e.g., a personal injury offense not covered by homeowners), the umbrella may drop down and pay above the retained limit.
+- **Retained Limit**: The insured's self-insured retention for claims without an applicable underlying policy (commonly $250–$1,000).
+- **Worldwide Coverage**: Most personal umbrellas provide worldwide coverage, subject to exclusions for intentional acts, professional services, and business activities.
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| Personal Injury Coverage | Libel, slander, false arrest — some umbrellas include; others endorse |
+| Watercraft Schedule | Adding specific watercraft to underlying schedule |
+| Uninsured Motorists | Some umbrellas add UM at the umbrella layer |
+| Business Activity Exclusion Buyback | For side business activity that would otherwise be excluded |
+
+### Extraction Signals
+
+- "Personal Umbrella," "Family Umbrella," or "Personal Excess Liability" in title
+- Schedule of Underlying Insurance with homeowners and auto policy references
+- Single large limit ($1M, $2M, $5M, $10M)
+- "Retained Limit" or "Self-Insured Retention" language
+- Named insured is individual(s), not a business
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `perOccurrenceLimit` | `umbrella_limit` | `coverage` |
+| `underlyingPolicies` | `underlying_policies` | `coverage` |
+| `carrier` | `umbrella_carrier` | `coverage` |
+| `policy_number` | `umbrella_policy_number` | `coverage` |
+
+---
+
+## Profile 29: NFIP Flood
+
+### Overview
+
+The National Flood Insurance Program (NFIP) is a federal program administered by FEMA that provides flood insurance to properties in participating communities. NFIP policies are standardized — every participating carrier (Write Your Own program) issues the same Standard Flood Insurance Policy (SFIP) with identical terms, conditions, and limits. NFIP is the primary source of residential flood insurance in the United States.
+
+NFIP policies have strict waiting periods (30 days for most purchases), defined flood zones (Special Flood Hazard Areas require coverage for mortgaged properties), and fixed coverage limits: $250K building / $100K contents for residential.
+
+**PolicyType enum value:** `"flood_nfip"`
+
+### Key Forms
+
+| Form | Purpose |
+|------|---------|
+| **SFIP — Dwelling Form** | Standard Flood Insurance Policy — Dwelling Form (most common) |
+| **SFIP — General Property Form** | For non-residential buildings |
+| **SFIP — Residential Condominium Building Association Policy (RCBAP)** | For condo associations |
+| **FEMA Flood Insurance Application** | Required form for new policies |
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `programType` | high | Always `"nfip"` for SFIP policies |
+| `floodZone` | high | AE, VE, X, X500, etc. — extracted from dec page |
+| `communityNumber` | high | FEMA community ID and map panel number |
+| `buildingCoverage` | high | Building limit (max $250K for residential) |
+| `contentsCoverage` | high | Contents limit (max $100K for residential) |
+| `deductible` | high | Separate deductibles for building and contents |
+| `elevationCertificate` | medium | Whether an EC is on file |
+| `elevationDifference` | medium | Feet above/below Base Flood Elevation |
+| `waitingPeriodDays` | high | Typically 30 days; loan closing exception = 1 day |
+
+### Coverage Structure
+
+- **Building Coverage**: Covers the insured building and its foundation, electrical and plumbing systems, HVAC equipment, appliances, carpeting, and installed fixtures. ACV or RC depending on building type and occupancy.
+- **Contents Coverage**: Covers personal property including clothing, furniture, electronics, and appliances. ACV only for contents.
+- **No Additional Living Expense**: NFIP does not cover additional living expenses — a significant gap compared to homeowners coverage.
+- **Flood Definition**: Strictly defined — must be a general surface water flooding event affecting two or more acres or two or more properties. Sewer backup without surface flooding is excluded.
+
+### Common Endorsements
+
+NFIP policies are standardized — no carrier endorsements are available. The SFIP terms are set by FEMA and cannot be modified. Increased Coverage Endorsements are available only through FEMA-approved riders for specific items (e.g., basement contents, swimming pool equipment).
+
+Private flood endorsements to supplement NFIP are written as separate policies, not endorsements to the SFIP.
+
+### Extraction Signals
+
+- "Standard Flood Insurance Policy" or "SFIP" in header
+- "National Flood Insurance Program" or "NFIP" in text
+- FEMA policy number format (usually begins with carrier code + alphanumeric)
+- Flood zone designation (AE, VE, X, AH, AO) on dec page
+- Community number and map panel number
+- Building and contents coverage shown separately with NFIP maximum limits
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `floodZone` | `flood_zone` | `premises` |
+| `buildingCoverage` | `flood_building_coverage` | `coverage` |
+| `contentsCoverage` | `flood_contents_coverage` | `coverage` |
+| `elevationCertificate` | `elevation_certificate_on_file` | `premises` |
+| `carrier` | `flood_carrier` | `coverage` |
+| `policy_number` | `flood_policy_number` | `coverage` |
+
+---
+
+## Profile 30: Private Flood
+
+### Overview
+
+Private flood insurance is non-NFIP flood coverage written by surplus lines or admitted private carriers. It is increasingly available as an alternative to NFIP, often offering higher limits, additional living expense coverage, shorter waiting periods, and broader definitions of flood. Private flood is accepted by most mortgage lenders as NFIP-equivalent under the Biggert-Waters Act.
+
+Unlike NFIP, private flood forms are not standardized — each carrier has its own form, definitions, and exclusions. Coverage terms vary significantly and require careful extraction.
+
+**PolicyType enum value:** `"flood_private"`
+
+### Key Forms
+
+All forms are carrier-proprietary. No ISO or NFIP standard form. Common admitted carriers include Zurich, The Hartford, and various Lloyds syndicates through surplus lines.
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `programType` | high | Always `"private"` for private flood |
+| `floodZone` | high | FEMA flood zone from dec page |
+| `communityNumber` | medium | May be included for comparison to NFIP |
+| `buildingCoverage` | high | Higher limits available than NFIP ($250K+) |
+| `contentsCoverage` | high | |
+| `deductible` | high | Often higher than NFIP |
+| `elevationCertificate` | medium | May or may not be required depending on carrier |
+| `waitingPeriodDays` | medium | Often shorter than NFIP (14 days or less) |
+
+### Coverage Structure
+
+- **Building and Contents**: Similar to NFIP but with higher limits and, depending on the carrier, broader definitions of flood damage.
+- **Additional Living Expense / Loss of Use**: Available in many private flood policies — a key advantage over NFIP.
+- **Other Coverages**: Some carriers include pool repair, landscape, swimming pool equipment, and debris removal not available under NFIP.
+- **Replacement Cost**: Available for both building and contents, unlike NFIP contents which is ACV only.
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| Basement Coverage Buyback | Covers finished basements more broadly than NFIP |
+| Pool and Landscape | Carrier-specific add-ons |
+| Business Income / Loss of Rents | Available for rental properties |
+
+### Extraction Signals
+
+- "Private Flood," "Excess Flood," or carrier name without NFIP reference
+- Policy limits above NFIP maximums ($250K building / $100K contents)
+- Loss of use or additional living expense coverage line (absent in NFIP)
+- No FEMA policy number format
+- Carrier-proprietary form numbers
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `floodZone` | `flood_zone` | `premises` |
+| `buildingCoverage` | `flood_building_coverage` | `coverage` |
+| `contentsCoverage` | `flood_contents_coverage` | `coverage` |
+| `carrier` | `flood_carrier` | `coverage` |
+| `policy_number` | `flood_policy_number` | `coverage` |
+
+---
+
+## Profile 31: Residential Earthquake
+
+### Overview
+
+Residential earthquake insurance covers damage to the dwelling and personal property caused by seismic activity. It is separate from homeowners policies — earthquake is always excluded in standard HO and DP forms. Earthquake coverage is most commonly purchased in California (where the California Earthquake Authority, or CEA, dominates the market) and other seismically active states.
+
+The defining characteristic of earthquake policies is the percentage deductible — typically 10–15% of the dwelling coverage amount, not a flat dollar deductible. This means a $500K home with a 15% deductible has a $75K out-of-pocket before insurance pays.
+
+**PolicyType enum value:** `"earthquake"`
+
+### Key Forms
+
+| Form | Purpose |
+|------|---------|
+| **CEA Homeowners Choice Policy** | California Earthquake Authority standard form |
+| **ISO HO 04 54** | Earthquake Endorsement to homeowners policy |
+| Carrier-proprietary forms | Non-CEA carriers use proprietary forms |
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `dwellingCoverage` | high | Earthquake coverage A — typically same as homeowners Cov A |
+| `contentsCoverage` | medium | Personal property sublimit |
+| `lossOfUseCoverage` | medium | Additional living expense sublimit |
+| `deductiblePercent` | high | Percentage deductible (e.g., 10%, 15%, 25%) — most important field |
+| `retrofitDiscount` | medium | Discount for seismic retrofitting of older homes |
+| `masonryVeneerCoverage` | medium | Separate sublimit for masonry veneer common in CEA policies |
+
+### Coverage Structure
+
+- **Dwelling Coverage**: Pays for earthquake damage to the structure. Percentage deductible applies.
+- **Contents Coverage**: Personal property damaged by earthquake. Usually sublimited (e.g., $5K–$100K depending on carrier).
+- **Loss of Use / Additional Living Expense**: Pays for temporary housing if home is uninhabitable after earthquake. Usually sublimited.
+- **Masonry Veneer / Chimney**: CEA policies include a separate sublimit for masonry veneer and chimney collapse — a specific vulnerability of older California homes.
+- **Emergency Repairs / Debris Removal**: Typically included as an additional coverage.
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| Retrofit Discount | Seismic bolt/cripple wall retrofits reduce premium 5–20% |
+| Contents Increase | Raise personal property sublimit above base |
+| Loss of Use Increase | Raise ALE sublimit above base |
+| Pool/Spa Damage | Some carriers offer sublimit for pools |
+
+### Extraction Signals
+
+- "Earthquake Insurance," "Seismic Coverage," or "CEA" in header or title
+- Percentage deductible (not flat dollar) — strongest signal
+- "California Earthquake Authority" or CEA policy number format
+- Separate sublimits for masonry veneer, chimney, or building code upgrade
+- ISO HO 04 54 endorsement form number
+- Premium computed as rate per $1,000 of dwelling coverage
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `dwellingCoverage` | `earthquake_dwelling_coverage` | `coverage` |
+| `deductiblePercent` | `earthquake_deductible_percent` | `coverage` |
+| `carrier` | `earthquake_carrier` | `coverage` |
+| `policy_number` | `earthquake_policy_number` | `coverage` |
+
+---
+
+## Profile 32: Personal Articles Floater
+
+### Overview
+
+A Personal Articles Floater (PAF), also called a Scheduled Personal Property endorsement or inland marine floater, provides all-risk (open perils) coverage for high-value personal property items on a scheduled or blanket basis. Common categories include jewelry, fine arts, silverware, furs, cameras, musical instruments, golf equipment, and sports equipment.
+
+The PAF fills the gap left by homeowners sub-limits on valuable items (e.g., $1,500 for jewelry on most HO forms). Coverage is typically on an agreed value or appraised value basis with no deductible, and applies worldwide.
+
+**PolicyType enum value:** `"personal_articles"`
+
+### Key Forms
+
+| Form | Purpose |
+|------|---------|
+| **IM 7250** | ISO Personal Articles Floater |
+| **HO 17 33** | Scheduled Personal Property endorsement (when attached to homeowners) |
+| Carrier-proprietary inland marine forms | Common for standalone PAF |
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `scheduledItems` | high | Each item: category, description, value, deductible (often zero) |
+| `blanketCoverage` | medium | Blanket limit for unscheduled items within a category |
+| `deductible` | high | Usually $0 for scheduled items; may apply to blankets |
+| `worldwideCoverage` | high | Typically yes — worldwide is a key selling feature |
+| `breakageCoverage` | medium | Accidental breakage coverage for fragile items (art, cameras) |
+
+### Coverage Structure
+
+- **Scheduled Items**: Each item listed individually with its appraised or agreed value. Coverage is open perils — any cause of loss not specifically excluded. Mysterious disappearance covered (not covered in homeowners). No deductible for scheduled items in most policies.
+- **Blanket Coverage**: Some policies add a blanket category limit (e.g., $10K blanket for all jewelry) in addition to or instead of scheduled items.
+- **Agreed Value / Appraised Value**: No depreciation — the insured receives the scheduled value at the time of loss. Recent appraisals required for fine arts, jewelry, and collectibles.
+- **Worldwide Coverage**: Coverage applies globally, including international travel. Key advantage over homeowners.
+- **Breakage Coverage**: Some policies include accidental breakage for fragile items (porcelain, glass, fine arts). Often requires separate endorsement.
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| Breakage Coverage | For fine arts, cameras, collectibles |
+| Pairs and Sets Clause | Addresses partial loss of a paired item (one earring, partial china set) |
+| Newly Acquired Property | Automatic coverage for new acquisitions up to a limit for a grace period |
+| Inflation Guard | Annual value increases for art and jewelry |
+
+### Extraction Signals
+
+- "Personal Articles Floater," "Scheduled Personal Property," or "Inland Marine" in title
+- Item schedule with descriptions, values, and serial numbers
+- "No Deductible" on scheduled items
+- "All Risk" or "Open Perils" language
+- "Mysterious Disappearance" covered — specific language not found in homeowners
+- Per-item or per-category premium computations
+- Worldwide coverage clause
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `scheduledItems` (total value) | `scheduled_property_value` | `coverage` |
+| `worldwideCoverage` | `worldwide_coverage` | `coverage` |
+| `carrier` | `articles_carrier` | `coverage` |
+| `policy_number` | `articles_policy_number` | `coverage` |
+
+---
+
+## Profile 33: Watercraft
+
+### Overview
+
+Personal watercraft insurance covers pleasure boats, personal watercraft (Jet Ski, Sea-Doo), sailboats, and other recreational vessels. Coverage includes hull (physical damage), liability, and medical payments. Very small boats may have limited liability coverage under a homeowners policy; larger or higher-horsepower vessels require a standalone watercraft policy.
+
+Coverage is typically seasonal with a lay-up period (out of water / in storage) that reduces premium. Navigation limits define where the vessel may operate; hull coverage may be suspended during lay-up.
+
+**PolicyType enum value:** `"watercraft"`
+
+### Key Forms
+
+| Form | Purpose |
+|------|---------|
+| **IM 7230** | ISO Pleasure Craft Policy |
+| Carrier-proprietary forms | BoatUS, Progressive, Markel, and others use proprietary forms |
+| **HO 24 75** | Watercraft Endorsement to homeowners (small boats only) |
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `boatType` | high | `motorboat`, `sailboat`, `personal_watercraft`, `pontoon`, `houseboat`, `other` |
+| `year` | high | Model year |
+| `make` | high | Manufacturer |
+| `model` | high | Model name |
+| `length` | high | Length in feet |
+| `hullMaterial` | medium | Fiberglass, aluminum, wood |
+| `hullValue` | high | Agreed value or ACV |
+| `motorHorsepower` | medium | Total HP of motor(s) |
+| `motorType` | medium | Inboard, outboard, stern drive |
+| `liabilityLimit` | high | Per occurrence liability limit |
+| `medicalPaymentsLimit` | medium | Per person |
+| `physicalDamageDeductible` | high | Hull deductible |
+| `uninsuredBoaterLimit` | medium | UM coverage for boating accidents |
+| `trailerCovered` | medium | Whether trailer is on the policy |
+| `trailerValue` | medium | Trailer agreed value |
+| `navigationLimits` | medium | Geographic limits (coastal waters, lakes only, Great Loop, etc.) |
+| `layupPeriod` | medium | Dates when vessel is in storage |
+
+### Coverage Structure
+
+- **Hull / Physical Damage**: Covers physical damage to the boat, motor, trailer, and equipment. Agreed value or ACV. Deductible applies.
+- **Liability**: Pays for BI and PD claims the insured is legally liable for arising from boat operation. Typically includes defense costs.
+- **Medical Payments**: No-fault medical coverage for passengers and water-skiers. Per-person limit.
+- **Uninsured/Underinsured Boater**: Covers the insured if injured by an uninsured boat operator.
+- **Personal Property / Equipment**: Fishing gear, electronics, and personal effects on board (often sublimited).
+- **Lay-Up Credit**: Premium discount when vessel is not in use (typically October–April in northern states).
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| Agreed Value | Guarantees payment of scheduled value; no depreciation |
+| On-Water Towing | Emergency towing on the water (similar to roadside for autos) |
+| Personal Effects | Higher limits for gear, electronics, fishing equipment |
+| Fuel Spill Liability | Environmental liability for accidental fuel discharge |
+| Fishing Equipment Schedule | Scheduled high-value tackle and rods |
+
+### Extraction Signals
+
+- "Pleasure Craft," "Boat Policy," or "Watercraft" in title
+- Vessel described with hull ID (HIN — Hull Identification Number)
+- Year/make/model/length fields
+- "Navigation Limits" clause defining geographic coverage area
+- "Lay-Up Period" discount or exclusion
+- "Agreed Hull Value" or "Actual Cash Value" hull coverage language
+- Motor horsepower listed (affects rating)
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `hullValue` | `watercraft_value` | `coverage` |
+| `liabilityLimit` | `watercraft_liability_limit` | `coverage` |
+| `boatType` | `watercraft_type` | `operations` |
+| `carrier` | `watercraft_carrier` | `coverage` |
+| `policy_number` | `watercraft_policy_number` | `coverage` |
+
+---
+
+## Profile 34: Recreational Vehicle
+
+### Overview
+
+Recreational vehicle (RV) insurance covers motorhomes, travel trailers, fifth wheels, pop-up campers, and toy haulers. Full-timers (those who live in their RV year-round) have unique coverage needs that differ from occasional-use recreational campers. RV policies combine elements of auto insurance (liability, collision, comprehensive) with property insurance (personal effects, total loss replacement).
+
+State law requires at least minimum liability coverage for motorized RVs (Class A, B, C motorhomes) when operated on public roads. Towed units (travel trailers, fifth wheels) are covered under the towing vehicle's auto policy for liability but require a separate policy for physical damage and personal effects.
+
+**PolicyType enum value:** `"recreational_vehicle"`
+
+### Key Forms
+
+All forms are carrier-proprietary. Progressive, National General (Good Sam), and Foremost are major RV specialists. No ISO standard form for personal RV coverage.
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `vehicleType` | high | `motorhome_a`, `motorhome_b`, `motorhome_c`, `travel_trailer`, `fifth_wheel`, `pop_up`, `toy_hauler`, `other` |
+| `year` | high | |
+| `make` | high | |
+| `model` | high | |
+| `vin` | high | VIN for motorized units; serial number for trailers |
+| `value` | high | Agreed value or ACV |
+| `liabilityLimit` | high | Required for motorized units |
+| `collisionDeductible` | high | |
+| `comprehensiveDeductible` | high | |
+| `personalEffectsCoverage` | medium | Clothing, food, personal items inside the RV |
+| `fullTimerCoverage` | medium | Endorsement for full-time residents; adds liability and property protections |
+
+### Coverage Structure
+
+- **Liability**: Bodily injury and property damage liability arising from operating the motorhome. Required by state law for Class A/B/C motorhomes.
+- **Collision**: Physical damage from collision with another object or vehicle.
+- **Comprehensive**: Physical damage from non-collision causes (fire, theft, hail, flood).
+- **Personal Effects**: Clothing, portable electronics, food, and personal items inside the RV. Sublimited (typically $3K–$10K).
+- **Emergency Expense**: Temporary lodging if the RV is damaged on a trip and uninhabitable.
+- **Total Loss Replacement**: Replaces totaled RV with a new unit (not ACV) for units within a specified age.
+- **Full-Timer Coverage**: For those who live in their RV full-time, adds broader liability and loss of use similar to homeowners.
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| Full-Timer Coverage | Converts liability/property to homeowners-equivalent for full-timers |
+| Campsite/Vacation Liability | Extends liability while parked at a campsite |
+| Agreed Value | No depreciation on total loss |
+| Roadside Assistance | Specific to large RVs — standard roadside may not cover RVs |
+| Personal Effects Increase | Higher limits for full-timers with more possessions |
+
+### Extraction Signals
+
+- "Recreational Vehicle," "RV Insurance," "Motorhome," or "Travel Trailer" in title
+- Vehicle type designation (Class A/B/C, fifth wheel, etc.)
+- "Full-Timer" endorsement language
+- "Emergency Expense" or "Vacation Liability" coverages
+- "Agreed Value" language with no deduction for depreciation
+- VIN or serial number field labeled "trailer serial number"
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `value` | `rv_value` | `coverage` |
+| `vehicleType` | `rv_type` | `operations` |
+| `liabilityLimit` | `rv_liability_limit` | `coverage` |
+| `fullTimerCoverage` | `rv_full_timer` | `coverage` |
+| `carrier` | `rv_carrier` | `coverage` |
+| `policy_number` | `rv_policy_number` | `coverage` |
+
+---
+
+## Profile 35: Farm/Ranch
+
+### Overview
+
+Farm and ranch insurance is a hybrid policy that combines homeowners-style dwelling coverage with commercial-style property, liability, and sometimes auto coverage for agricultural operations. It is designed for properties where a personal residence coexists with farming or ranching operations. ISO farm forms are used by some carriers; others use proprietary forms.
+
+Farm policies are complex — the combination of residential, commercial, and specialty agricultural coverages in a single policy requires careful extraction of each coverage section. Livestock, farm equipment, and crop coverage are common additions not found in other personal lines policies.
+
+**PolicyType enum value:** `"farm_ranch"`
+
+### Key Forms
+
+| Form | Purpose |
+|------|---------|
+| **FP 00 10** | ISO Farmowners Coverage Form |
+| **FP DS 00** | Farm Declarations |
+| **FP 70 01** | Farm Liability Coverage Form |
+| Carrier-proprietary forms | Many major farm writers use proprietary forms |
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `dwellingCoverage` | high | Residential dwelling (similar to homeowners Coverage A) |
+| `farmPersonalPropertyCoverage` | high | Farm equipment, supplies, and crops at the farming location |
+| `farmLiabilityLimit` | high | Farm premises and operations liability |
+| `farmAutoIncluded` | medium | Whether farm auto coverage is part of the package |
+| `livestock` | medium | Livestock schedule with species, count, and values |
+| `equipmentSchedule` | medium | Scheduled farm equipment (tractors, combines, etc.) |
+| `acreage` | medium | Total farm/ranch acreage |
+| `dwelling` | high | Dwelling details (same as homeowners) |
+
+### Coverage Structure
+
+- **Coverage A — Dwelling and Other Private Structures**: The farmhouse and attached/detached residential structures.
+- **Coverage B — Household Personal Property**: The household contents of the farmhouse.
+- **Coverage C — Farm Personal Property**: Farm equipment, tools, stored crops, feed, and livestock (if endorsed). Blanket or scheduled.
+- **Coverage D — Other Farm Structures**: Barns, silos, outbuildings, grain bins.
+- **Farm Liability (FP 70 01)**: Covers bodily injury and property damage arising from farming operations, premises, and products (e.g., grain or produce sold). Medical payments included.
+- **Farm Auto**: Optional — covers vehicles used in farming operations, often including tractors and farm wagons.
+- **Livestock Coverage**: Covers death of livestock from covered causes. Typically scheduled by species and count.
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| Livestock Mortality | Scheduled coverage for death of named livestock |
+| Custom Farming Operations | Liability for contract farming services |
+| Crop Hail | Covers crop damage from hail only (not a full crop policy) |
+| Farm Employers' Liability | Seasonal workers — may not be covered under state WC for farm labor |
+| Refrigerated Products | Food spoilage coverage for stored products |
+
+### Extraction Signals
+
+- "Farmowners," "Farm Policy," or "Ranch" in title or header
+- Separate sections for dwelling and farm personal property
+- Livestock schedule with species (cattle, hogs, poultry) and counts
+- Farm equipment or machinery schedule
+- "Farm Operations" or "Farming" in liability description
+- Acreage reference on dec page
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `dwellingCoverage` | `dwelling_coverage` | `coverage` |
+| `farmPersonalPropertyCoverage` | `farm_property_coverage` | `coverage` |
+| `farmLiabilityLimit` | `farm_liability_limit` | `coverage` |
+| `acreage` | `farm_acreage` | `operations` |
+| `carrier` | `farm_carrier` | `coverage` |
+| `policy_number` | `farm_policy_number` | `coverage` |
+
+---
+
+## Profile 36: Pet
+
+### Overview
+
+Pet insurance reimburses the policyholder for veterinary expenses incurred for illness and injury to covered pets. Unlike most insurance lines, the insured pays the vet directly and then submits a claim for reimbursement. Coverage structures vary significantly by carrier — accident-only, accident-and-illness, and comprehensive wellness plans are the three tiers available in the market.
+
+Pet insurance is the fastest-growing personal lines segment by premium growth rate. Pre-existing conditions are universally excluded, and waiting periods apply to most illness coverages (typically 14 days for illness, immediately for accidents).
+
+**PolicyType enum value:** `"pet"`
+
+### Key Forms
+
+All forms are carrier-proprietary. No ISO standard form. NAPHIA (North American Pet Health Insurance Association) maintains industry standards but does not publish standard forms. Major carriers include Trupanion, Healthy Paws, Nationwide, and Embrace.
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `species` | high | `dog`, `cat`, `other` |
+| `breed` | high | Breed affects underwriting and eligibility |
+| `petName` | high | Individual pet identification |
+| `age` | high | Age at enrollment — material to coverage and premium |
+| `annualLimit` | high | Maximum reimbursement per year (or "unlimited" for some plans) |
+| `perIncidentLimit` | medium | Per-incident or per-condition limit (alternative to annual) |
+| `deductible` | high | Annual or per-incident deductible |
+| `reimbursementPercent` | high | Percentage of covered costs paid after deductible (70%, 80%, 90%) |
+| `waitingPeriodDays` | medium | Days before coverage becomes effective |
+| `preExistingConditionsExcluded` | high | Always excluded; note effective date of coverage to assess pre-existing status |
+| `wellnessCoverage` | medium | Preventive care add-on (vaccines, wellness exams) |
+
+### Coverage Structure
+
+- **Accident-Only**: Covers injuries from accidents (fractures, lacerations, foreign body ingestion). Lowest premium tier.
+- **Accident and Illness**: Covers both accidents and illnesses (cancer, diabetes, infections, hereditary conditions if not pre-existing). The most common tier.
+- **Wellness / Preventive Care**: Add-on covering routine vet visits, vaccines, flea/heartworm prevention, dental cleaning. Usually a flat dollar benefit schedule.
+- **Reimbursement Model**: Insured pays the vet and submits invoices for reimbursement. Reimbursement percent (70–90%) applies after the deductible.
+- **Annual vs Per-Incident Deductible**: Annual deductible is paid once per year; per-incident deductible is paid each time a new condition is treated. Annual deductible is generally more favorable for pets with chronic conditions.
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| Wellness Plan | Preventive care rider with fixed benefit schedule |
+| Exam Fee Coverage | Includes veterinary exam fees (excluded in some base plans) |
+| Alternative Therapy | Acupuncture, hydrotherapy, chiropractic coverage |
+| Prescription Food | Therapeutic diets prescribed for a covered condition |
+
+### Extraction Signals
+
+- "Pet Insurance," "Pet Health," or "Veterinary" in title
+- Pet name, species, and breed on dec page
+- "Reimbursement Percentage" (70%, 80%, 90%) — unique to pet insurance
+- "Annual Deductible" or "Per-Incident Deductible" language
+- "Pre-Existing Conditions Excluded" clause
+- "Waiting Period" for illness vs accident
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `petName` | `pet_name` | `custom` |
+| `species` | `pet_species` | `custom` |
+| `annualLimit` | `pet_annual_limit` | `coverage` |
+| `reimbursementPercent` | `pet_reimbursement_percent` | `coverage` |
+| `carrier` | `pet_carrier` | `coverage` |
+| `policy_number` | `pet_policy_number` | `coverage` |
+
+---
+
+## Profile 37: Travel
+
+### Overview
+
+Travel insurance provides coverage for trip cancellation, trip interruption, emergency medical, emergency evacuation, and baggage loss/delay for leisure and business travel. It is event-driven — most coverage is tied to specific trip dates and destinations listed at time of purchase. Cancel for any reason (CFAR) upgrades are available at higher premium but must be purchased within a short window after initial trip deposit.
+
+Travel insurance is the most time-sensitive personal lines purchase: many coverages (CFAR, pre-existing condition waivers) must be purchased within 10–21 days of the first trip deposit to be effective.
+
+**PolicyType enum value:** `"travel"`
+
+### Key Forms
+
+All forms are carrier-proprietary. No ISO standard form. Major travel insurance aggregators include Squaremouth, InsureMyTrip. Major carriers include Allianz, Travel Guard (AIG), and IMG.
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `tripDepartureDate` | high | Policy start date tied to departure |
+| `tripReturnDate` | high | Policy end date |
+| `destinations` | high | Countries or destinations covered |
+| `travelers` | high | Each traveler: name, date of birth |
+| `tripCost` | high | Total pre-paid, non-refundable trip cost insured |
+| `tripCancellationLimit` | high | Maximum reimbursement for trip cancellation (= tripCost) |
+| `medicalLimit` | high | Emergency medical coverage limit |
+| `evacuationLimit` | high | Emergency medical evacuation limit |
+| `baggageLimit` | medium | Baggage loss and delay limit |
+
+### Coverage Structure
+
+- **Trip Cancellation**: Reimburses pre-paid, non-refundable trip costs if the trip is cancelled for a covered reason (illness, injury, death of insured or immediate family member, weather, travel supplier default). Covered reasons are enumerated — this is named-perils coverage.
+- **Trip Interruption**: Covers return home early or joining a trip late due to covered reasons. Usually 150% of trip cost to account for last-minute transportation costs.
+- **Emergency Medical**: Primary or secondary medical coverage for illness or injury during the trip. Critical for international travel where domestic health insurance may not apply.
+- **Emergency Medical Evacuation**: Pays for medically necessary evacuation to a hospital or return home. Limits of $250K–$1M are common; air ambulance costs can exceed $100K.
+- **Baggage and Personal Effects**: Covers loss, theft, or damage to luggage and personal items. Per-item sub-limits apply.
+- **Baggage Delay**: Pays for essential purchases if baggage is delayed (typically 12+ hours).
+- **Travel Delay**: Pays for meals and lodging if trip is delayed due to covered reasons.
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| Cancel For Any Reason (CFAR) | Upgrades to 75% reimbursement for any cancellation reason; must purchase within 10–21 days of deposit |
+| Pre-Existing Condition Waiver | Waives pre-existing condition exclusion; must purchase within 10–21 days of deposit |
+| Flight Accident | Accidental death benefit on commercial flights |
+| Rental Car Coverage | Collision damage waiver for rental cars |
+
+### Extraction Signals
+
+- "Travel Insurance" or "Travel Protection" in title
+- Trip departure and return dates on dec page
+- Destination list (countries or "Worldwide")
+- "Trip Cost" or "Insured Trip Cost" field
+- "Cancel for Any Reason" upgrade language
+- Medical evacuation limit (often $250K–$1M)
+- Traveler schedule with names and birthdates
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `tripDepartureDate` | `travel_departure_date` | `custom` |
+| `tripReturnDate` | `travel_return_date` | `custom` |
+| `destinations` | `travel_destinations` | `custom` |
+| `medicalLimit` | `travel_medical_limit` | `coverage` |
+| `evacuationLimit` | `travel_evacuation_limit` | `coverage` |
+| `carrier` | `travel_carrier` | `coverage` |
+| `policy_number` | `travel_policy_number` | `coverage` |
+
+---
+
+## Profile 38: Identity Theft
+
+### Overview
+
+Identity theft insurance reimburses the policyholder for costs incurred in restoring their identity after a theft event — attorney fees, lost wages, notary and document costs, and credit monitoring. It does not cover direct financial losses (the stolen money itself) — that is covered by financial institution protections and fraud reimbursement programs, not insurance.
+
+Identity theft coverage is often bundled with homeowners policies as a low-cost endorsement or sold as a standalone product. Some carriers include a dedicated restoration specialist service.
+
+**PolicyType enum value:** `"identity_theft"`
+
+### Key Forms
+
+All forms are carrier-proprietary. No ISO standard form. Common as an endorsement to homeowners (e.g., carrier-specific) or as standalone from Zander Insurance, Identity Guard, or similar.
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `coverageLimit` | high | Maximum reimbursement for restoration costs |
+| `expenseReimbursement` | medium | Whether the policy reimburses out-of-pocket expenses |
+| `creditMonitoring` | medium | Whether credit monitoring service is included |
+| `restorationServices` | medium | Whether a case manager or restoration specialist is included |
+| `lostWagesLimit` | medium | Sublimit for lost wages during identity restoration process |
+
+### Coverage Structure
+
+- **Expense Reimbursement**: Covers attorney fees, notary fees, postage, phone costs, document replacement fees, and similar expenses incurred while restoring identity. Does not cover the stolen funds themselves.
+- **Lost Wages**: Pays for time off work required to deal with identity restoration (sublimited, e.g., $1K–$5K per week up to a maximum).
+- **Mental Health Counseling**: Some policies include a counseling benefit for stress caused by identity theft.
+- **Credit Monitoring**: Credit bureau monitoring services provided as a service benefit, not an insurance benefit.
+- **Restoration Services**: Many carriers provide a case manager to guide the insured through the restoration process — this is a service, not reimbursement.
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| Cyber Coverage / Data Breach | Broader cyber protection; overlaps with identity theft |
+| Elder Fraud Protection | Targeted at senior policyholders |
+
+### Extraction Signals
+
+- "Identity Theft," "Identity Fraud," or "ID Protection" in title
+- "Restoration Services" or "Case Manager" language
+- Low aggregate limit ($10K–$25K is common)
+- "Lost Wages" sublimit line
+- "Credit Monitoring" as a service benefit
+- Often appears as a dec page line on a homeowners policy
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `coverageLimit` | `identity_theft_limit` | `coverage` |
+| `restorationServices` | `restoration_services_included` | `coverage` |
+| `carrier` | `identity_theft_carrier` | `coverage` |
+| `policy_number` | `identity_theft_policy_number` | `coverage` |
+
+---
+
+## Profile 39: Title
+
+### Overview
+
+Title insurance protects against losses arising from defects in the title to real property — competing ownership claims, undisclosed liens, errors in public records, forgery, and boundary disputes. Unlike other insurance lines, the premium is a one-time charge paid at closing (not an annual premium), and coverage is permanent for as long as the insured or their heirs hold an interest in the property.
+
+Two policy types exist: the Owner's Policy (protects the buyer/owner) and the Lender's Policy (protects the mortgagee/lender). Lender's policies are required by virtually all mortgage lenders; owner's policies are optional but strongly recommended.
+
+**PolicyType enum value:** `"title"`
+
+### Key Forms
+
+| Form | Purpose |
+|------|---------|
+| **ALTA Owner's Policy (2021)** | American Land Title Association standard owner's policy |
+| **ALTA Loan Policy (2021)** | ALTA standard lender's policy |
+| **CLTA Standard Coverage Policy** | California Land Title Association (California-specific) |
+| State-specific endorsements | Numerous ALTA endorsements for specific title issues |
+
+### Declarations Fields
+
+| Field | Reliability | Notes |
+|-------|-------------|-------|
+| `policyType` | high | `owners`, `lenders`, or `leasehold` |
+| `policyAmount` | high | Coverage amount = purchase price (owner) or loan amount (lender) |
+| `legalDescription` | high | Full legal description of the property |
+| `propertyAddress` | high | Street address |
+| `effectiveDate` | high | Date and time of policy — simultaneous issue with closing |
+| `exceptions` | medium | Schedule B exceptions (liens, easements, restrictions not covered) |
+| `underwriter` | high | Title underwriter (Fidelity National, First American, Old Republic, Stewart) |
+
+### Coverage Structure
+
+- **Schedule A**: The insuring provisions — policy type, amount, insured name, legal description, effective date.
+- **Schedule B — Exceptions from Coverage**: The specific title defects, liens, encumbrances, and conditions that are NOT covered. Exceptions are negotiated at closing; review is critical.
+- **Covered Risks**: Defects in title existing as of the effective date, forgery, undisclosed heirs, errors in public records, encroachments, access rights. The insurer defends the insured's title and pays losses up to the policy amount.
+- **Lender's Policy**: Protects the lender's security interest in the property. Coverage decreases as the loan is paid down. Terminates when the loan is paid off.
+- **Owner's Policy**: Permanent coverage for the owner. Amount typically does not increase with property value appreciation (unlike homeowners). Enhanced ALTA policies offer some automatic increase.
+
+### Common Endorsements
+
+| Endorsement | Notes |
+|-------------|-------|
+| **ALTA 9** | Restrictions, Encroachments, Minerals — covers survey-type risks |
+| **ALTA 8.1** | Environmental Protection Lien |
+| **ALTA 22** | Location — insures that the improvements are on the insured land |
+| **ALTA 28** | Easement — damage from exercise of easement rights |
+| **ALTA 35** | Minerals and Other Subsurface Substances |
+| Enhanced Owner's Policy | Broader than standard; covers post-policy forgery, building permit violations |
+
+### Extraction Signals
+
+- "Title Insurance," "Owner's Policy," or "Loan Policy" in header
+- ALTA or CLTA policy number format
+- "Schedule A" and "Schedule B" section headings
+- One-time premium (no annual renewal)
+- Legal description of real property
+- Title underwriter name (Fidelity, First American, Old Republic, Stewart, etc.)
+- Effective date tied to a closing date with hour and minute
+
+### Business Context Mapping
+
+| Extracted Field | Context Key | Category |
+|----------------|-------------|----------|
+| `policyAmount` | `title_policy_amount` | `coverage` |
+| `propertyAddress` | `property_address` | `premises` |
+| `policyType` | `title_policy_type` | `coverage` |
+| `underwriter` | `title_underwriter` | `company_info` |
+| `policy_number` | `title_policy_number` | `coverage` |
+
+---
+
+## Cross-Line Reference: Personal Lines Trigger and Valuation Summary
+
+| Line | Trigger | Valuation | Deductible Type | Notes |
+|------|---------|-----------|----------------|-------|
+| HO-3 (Homeowners) | Occurrence | RC (Cov A/B), ACV (Cov C default) | Flat dollar or % | Wind/hail separate deductible coastal states |
+| HO-5 (Homeowners) | Occurrence | RC (all coverages) | Flat dollar or % | Open perils on Cov C |
+| HO-4 (Renters) | Occurrence | ACV default (RC by endorsement) | Flat dollar | No Coverage A/B |
+| HO-6 (Condo) | Occurrence | RC (Cov A/C by endorsement) | Flat dollar | Loss assessment endorsement critical |
+| HO-7 (Mobile Home) | Occurrence | ACV or RC | Flat dollar | Trip collision unique endorsement |
+| Personal Auto (PAP) | Occurrence | ACV (physical damage) | Per-occurrence | PIP mandatory in no-fault states |
+| Dwelling Fire | Occurrence | RC or ACV | Flat dollar | No personal liability in base form |
+| Personal Umbrella | Occurrence | N/A (liability) | Retained limit | Drop-down for uncovered claims |
+| NFIP Flood | Occurrence | RC (building) / ACV (contents) | Flat dollar (separate B/C) | No ALE coverage |
+| Private Flood | Occurrence | RC available | Flat dollar | ALE available |
+| Earthquake | Occurrence | RC (dwelling) | Percentage (10–25%) | CEA dominates CA market |
+| Personal Articles Floater | Occurrence | Agreed/scheduled value | Usually $0 | Worldwide; mysterious disappearance covered |
+| Watercraft | Occurrence | Agreed value or ACV | Per-occurrence | Navigation limits apply |
+| Recreational Vehicle | Occurrence | Agreed value or ACV | Per-occurrence | Full-timer endorsement critical |
+| Farm/Ranch | Occurrence | RC or ACV | Flat dollar | Hybrid residential/commercial |
+| Pet | Reimbursement | Actual vet cost × reimb % | Annual or per-incident | Pre-existing conditions excluded |
+| Travel | Event-triggered | Actual loss up to limit | Per-trip or per-event | CFAR must be purchased within 10–21 days |
+| Identity Theft | Discovery | Actual expenses | Per-event | Expenses only; not stolen funds |
+| Title | Pre-closing defect | Policy amount | None | One-time premium; permanent coverage |
