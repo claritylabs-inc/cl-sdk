@@ -1,4 +1,7 @@
 // Maps extracted policy fields → business context storage keys for application auto-fill
+// Keys: (contextKey, category) together form the unique identifier — contextKey alone is not unique
+// across commercial and personal lines (e.g., "construction_type" and "year_built" appear in both
+// "premises" (commercial) and "property_info" (personal lines) with different source field paths).
 
 export interface ContextKeyMapping {
   extractedField: string;
