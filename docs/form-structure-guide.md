@@ -647,3 +647,72 @@ Use these patterns in the pre-scan pass to detect and classify forms:
 **ISO edition date format:** The two-digit pairs after the form number are MM YY (month, year). For example, `CG 00 01 04 13` = Commercial General Liability Coverage Form, April 2013 edition. This matters because different editions have materially different terms (e.g., the 2004 CG 00 01 removed the "your work" exclusion exception for subcontractors).
 
 **Carrier-specific form numbers:** Carriers that file their own forms (non-ISO) typically use patterns like `[CARRIER CODE] GL 001 05/22` or `[STATE][LINE][SEQUENCE]`. These cannot be pre-identified from a form number catalog, but the section header structure is usually similar to ISO.
+
+---
+
+## Part 6: Personal Lines Form Catalog
+
+### ISO Homeowners Forms
+| Form Number | Edition | Title | Description |
+|---|---|---|---|
+| HO 00 02 | 10 00 | Broad Form | Named-perils dwelling, named-perils personal property |
+| HO 00 03 | 10 00 | Special Form | Open-perils dwelling, named-perils personal property (most common) |
+| HO 00 04 | 10 00 | Contents Broad Form | Renters/tenants — personal property only, named perils |
+| HO 00 05 | 10 00 | Comprehensive Form | Open-perils dwelling AND personal property (broadest) |
+| HO 00 06 | 10 00 | Unit-Owners Form | Condo owners — unit improvements, personal property, loss assessment |
+| HO 00 07 | 10 00 | Mobile Homeowners Form | Manufactured/mobile homes |
+| HO 00 08 | 10 00 | Modified Coverage Form | Older homes — repair cost basis, limited perils |
+
+### Key Homeowners Endorsements (HO 04 XX Series)
+| Form Number | Title | Effect |
+|---|---|---|
+| HO 04 10 | Additional Interests — Residence Premises | Adds interests (mortgagee, trust) |
+| HO 04 20 | Scheduled Personal Property | Schedules high-value items (jewelry, art) |
+| HO 04 41 | Special Personal Property Coverage | Upgrades Cov C to open perils |
+| HO 04 53 | Earthquake | Adds earthquake coverage |
+| HO 04 54 | Earthquake Loss Assessment | Earthquake for condo loss assessments |
+| HO 04 61 | Scheduled Personal Property | Alternative scheduled floater |
+| HO 04 90 | Personal Property Replacement Cost | Settles Cov C at replacement cost |
+| HO 04 94 | Permitted Incidental Occupancies | Allows limited business use |
+| HO 04 95 | Water Back-Up and Sump Discharge/Overflow | Adds sewer/drain backup |
+| HO 04 96 | Identity Fraud Expense | Identity theft expense coverage |
+
+### Personal Auto Policy (PAP)
+| Form Number | Edition | Title | Description |
+|---|---|---|---|
+| PP 00 01 | 01 05 | Personal Auto Policy | Base PAP — liability, med pay, UM/UIM, physical damage |
+| PP DS 01 | | Personal Auto Declarations | Declarations page listing vehicles, drivers, coverages |
+
+### Key PAP Endorsements (PP 03 XX Series)
+| Form Number | Title | Effect |
+|---|---|---|
+| PP 03 06 | Named Non-Owner Policy | Coverage for individuals without own vehicle |
+| PP 03 09 | Extended Non-Owned Coverage — Vehicles Furnished or Available | Extends to employer vehicles |
+| PP 03 13 | Extended Non-Owned Coverage for Named Individual | Broader non-owned extension |
+| PP 03 22 | Named Driver Exclusion | Excludes specific driver from coverage |
+| PP 03 23 | Miscellaneous Type Vehicle | Adds motorcycle, ATV, snowmobile |
+
+### NFIP Flood Forms
+| Form | Title | Description |
+|---|---|---|
+| SFIP Dwelling Form | Standard Flood Insurance Policy — Dwelling Form | 1-4 family residential — building + contents |
+| SFIP General Property Form | Standard Flood Insurance Policy — General Property | Non-residential and 5+ unit residential |
+| SFIP RCBAP | Residential Condo Building Association Policy | Condo association building coverage |
+
+### ALTA Title Forms
+| Form | Title | Description |
+|---|---|---|
+| ALTA Owner's Policy | Owner's Policy of Title Insurance | Protects property buyer against title defects |
+| ALTA Loan Policy | Loan Policy of Title Insurance | Protects mortgage lender against title defects |
+
+### ACORD Personal Lines Applications
+| Form Number | Title | Use |
+|---|---|---|
+| ACORD 80 | Homeowners Application | Used to apply for HO policies |
+| ACORD 90 | Personal Automobile Application | Used to apply for PAP policies |
+
+### Chunking Guidance for Personal Lines
+- **Homeowners**: Declarations + Coverage A-F typically 2-3 pages. Endorsements follow. Total usually 30-60 pages.
+- **Personal Auto**: Declarations + vehicle/driver schedule 2-5 pages. State-specific endorsements can add 10-30 pages.
+- **Flood (NFIP)**: Compact — usually 15-25 pages total. Declarations + conditions + definitions.
+- **Title**: Very different structure — Commitment (before closing) vs Policy (after closing). Schedule A (covered land), Schedule B (exceptions). Usually 5-15 pages.
