@@ -1,3 +1,23 @@
+# [2.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.4.0...v2.0.0) (2026-04-07)
+
+
+* feat!: remove hardcoded Anthropic models — make SDK fully provider-agnostic ([77c45c2](https://github.com/claritylabs-inc/cl-sdk/commit/77c45c259cc6c3b3bf03207fd3476085bf857891))
+
+
+### Features
+
+* support continuous (until-cancelled) policy terms ([5ef4eb5](https://github.com/claritylabs-inc/cl-sdk/commit/5ef4eb5e25ef46ac7377497e4bd5a76efee8f5dc))
+
+
+### BREAKING CHANGES
+
+* `models` is now required on ExtractOptions, ExtractSectionsOptions,
+ClassifyOptions, and enrichSupplementaryFields(). Removed createDefaultModelConfig(),
+SONNET_MODEL, and HAIKU_MODEL constants. Consumers must explicitly provide a ModelConfig
+via createUniformModelConfig(model) or a custom ModelConfig object.
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+
 # [1.4.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.0...v1.4.0) (2026-04-03)
 
 
