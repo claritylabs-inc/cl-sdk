@@ -33,12 +33,9 @@ Separate flows exist for policies (`extractFromPdf`) vs quotes (`extractQuoteFro
 
 Provider-agnostic via Vercel AI SDK. The pipeline accepts `ModelConfig` with `LanguageModel` instances for each role (classification, metadata, sections, sectionsFallback, enrichment). Consumers bring their own provider package (`@ai-sdk/anthropic`, `@ai-sdk/openai`, etc.).
 
-- `createDefaultModelConfig()` — Anthropic defaults (requires `@ai-sdk/anthropic`, lazy-imported)
 - `createUniformModelConfig(model)` — same model for all roles
 - `MODEL_TOKEN_LIMITS` — per-role token limits (task-determined, not provider-determined)
-- `HAIKU_MODEL` / `SONNET_MODEL` — string constants for default model IDs
-
-Public functions use options objects (`ExtractOptions`, `ClassifyOptions`, `ExtractSectionsOptions`) with optional `models` field. Provider-specific config (e.g. Anthropic thinking) goes through `providerOptions`. Options also include `concurrency` (parallel chunk limit, default 2) and `onTokenUsage` callback for tracking cumulative token usage.
+Public functions use options objects (`ExtractOptions`, `ClassifyOptions`, `ExtractSectionsOptions`) with required `models` field — no default provider is assumed. Provider-specific config (e.g. Anthropic thinking) goes through `providerOptions`. Options also include `concurrency` (parallel chunk limit, default 2) and `onTokenUsage` callback for tracking cumulative token usage.
 
 ### PDF Operations (`src/extraction/pdf.ts`)
 

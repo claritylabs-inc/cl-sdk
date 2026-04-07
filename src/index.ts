@@ -20,6 +20,7 @@ export type {
   PolicySectionType,
   QuoteSectionType,
   CoverageForm,
+  PolicyTermType,
   CoverageTrigger,
   LimitType,
   DeductibleType,
@@ -147,7 +148,7 @@ export { PLATFORM_CONFIGS } from "./types/platform";
 
 // Types - Models
 export type { ModelConfig } from "./types/models";
-export { createUniformModelConfig, createDefaultModelConfig, MODEL_TOKEN_LIMITS } from "./types/models";
+export { createUniformModelConfig, MODEL_TOKEN_LIMITS } from "./types/models";
 
 // Extraction Prompts
 export {
@@ -216,8 +217,6 @@ export {
 
 // Extraction Pipeline
 export {
-  SONNET_MODEL,
-  HAIKU_MODEL,
   stripFences,
   sanitizeNulls,
   applyExtracted,

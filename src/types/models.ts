@@ -32,22 +32,3 @@ export const MODEL_TOKEN_LIMITS = {
   sectionsFallback: 16384,
   enrichment: 4096,
 } as const;
-
-/**
- * Create a ModelConfig using the default Anthropic models.
- *
- * Requires `@ai-sdk/anthropic` to be installed — lazy-imported so consumers
- * who bring their own provider never need it.
- */
-export function createDefaultModelConfig(): ModelConfig {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { createAnthropic } = require("@ai-sdk/anthropic");
-  const anthropic = createAnthropic();
-  return {
-    classification: anthropic("claude-haiku-4-5-20251001"),
-    metadata: anthropic("claude-sonnet-4-6"),
-    sections: anthropic("claude-haiku-4-5-20251001"),
-    sectionsFallback: anthropic("claude-sonnet-4-6"),
-    enrichment: anthropic("claude-haiku-4-5-20251001"),
-  };
-}

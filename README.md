@@ -19,7 +19,7 @@ npm install ai pdf-lib
 Then install a provider package for your model of choice:
 
 ```bash
-# Anthropic (default)
+# Anthropic
 npm install @ai-sdk/anthropic
 
 # OpenAI
@@ -31,33 +31,19 @@ npm install @ai-sdk/google
 
 ## Quick Start
 
-### Default (Anthropic)
-
-```typescript
-import { classifyDocumentType, extractFromPdf, applyExtracted } from "@claritylabs/cl-sdk";
-
-const pdfBase64 = "..."; // base64-encoded PDF
-
-// Classify + extract with default Anthropic models
-const { documentType } = await classifyDocumentType(pdfBase64);
-const { extracted } = await extractFromPdf(pdfBase64);
-const fields = applyExtracted(extracted);
-```
-
-No model configuration needed — `createDefaultModelConfig()` is called automatically, using `@ai-sdk/anthropic` under the hood.
-
-### Custom Models
+### Uniform Model (same model for all passes)
 
 ```typescript
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { extractFromPdf, createUniformModelConfig } from "@claritylabs/cl-sdk";
+import { extractFromPdf, createUniformModelConfig, applyExtracted } from "@claritylabs/cl-sdk";
 
 const anthropic = createAnthropic();
+const pdfBase64 = "..."; // base64-encoded PDF
 
-// Use the same model for every pipeline pass
 const { extracted } = await extractFromPdf(pdfBase64, {
   models: createUniformModelConfig(anthropic("claude-sonnet-4-6")),
 });
+const fields = applyExtracted(extracted);
 ```
 
 ### Any Provider
@@ -69,11 +55,12 @@ import { extractFromPdf, createUniformModelConfig } from "@claritylabs/cl-sdk";
 const openai = createOpenAI();
 const { extracted } = await extractFromPdf(pdfBase64, {
   models: createUniformModelConfig(openai("gpt-4o")),
-  metadataProviderOptions: {},  // disable Anthropic-specific thinking
 });
 ```
 
 ### Fine-Grained Model Config
+
+Assign different models per pipeline role — use a fast model for classification/sections and a capable model for metadata/fallback:
 
 ```typescript
 import { createAnthropic } from "@ai-sdk/anthropic";
@@ -81,11 +68,32 @@ import { extractFromPdf, type ModelConfig } from "@claritylabs/cl-sdk";
 
 const anthropic = createAnthropic();
 const models: ModelConfig = {
-  classification: anthropic("claude-haiku-4-5-20251001"),
+  classification: anthropic("claude-haiku-4-5-20251001"),  // fast, cheap
+  metadata: anthropic("claude-sonnet-4-6"),                // capable
+  sections: anthropic("claude-haiku-4-5-20251001"),        // fast, cheap
+  sectionsFallback: anthropic("claude-sonnet-4-6"),        // capable (fallback)
+  enrichment: anthropic("claude-haiku-4-5-20251001"),      // fast, cheap
+};
+
+const { extracted } = await extractFromPdf(pdfBase64, { models });
+```
+
+### Mixed Providers
+
+```typescript
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createOpenAI } from "@ai-sdk/openai";
+import { extractFromPdf, type ModelConfig } from "@claritylabs/cl-sdk";
+
+const anthropic = createAnthropic();
+const openai = createOpenAI();
+
+const models: ModelConfig = {
+  classification: openai("gpt-4o-mini"),
   metadata: anthropic("claude-sonnet-4-6"),
-  sections: anthropic("claude-haiku-4-5-20251001"),
+  sections: openai("gpt-4o-mini"),
   sectionsFallback: anthropic("claude-sonnet-4-6"),
-  enrichment: anthropic("claude-haiku-4-5-20251001"),
+  enrichment: openai("gpt-4o-mini"),
 };
 
 const { extracted } = await extractFromPdf(pdfBase64, { models });
@@ -136,7 +144,7 @@ Comprehensive TypeScript type system for the insurance domain:
 
 - **Document types** — `PolicyDocument`, `QuoteDocument`, and `InsuranceDocument` discriminated union
 - **Platform types** — `Platform`, `CommunicationIntent`, `PlatformConfig`, `AgentContext`
-- **Model types** — `ModelConfig`, `createUniformModelConfig`, `createDefaultModelConfig`
+- **Model types** — `ModelConfig`, `createUniformModelConfig`
 
 ## API Reference
 
@@ -144,10 +152,10 @@ Comprehensive TypeScript type system for the insurance domain:
 
 | Function | Description |
 |----------|-------------|
-| `classifyDocumentType(pdf, options?)` | Classify document as policy or quote |
-| `extractFromPdf(pdf, options?)` | Full policy extraction (passes 1-3) |
-| `extractQuoteFromPdf(pdf, options?)` | Full quote extraction (passes 1-2) |
-| `extractSectionsOnly(pdf, metadata, options?)` | Retry pass 2 using saved metadata |
+| `classifyDocumentType(pdf, options)` | Classify document as policy or quote |
+| `extractFromPdf(pdf, options)` | Full policy extraction (passes 1-3) |
+| `extractQuoteFromPdf(pdf, options)` | Full quote extraction (passes 1-2) |
+| `extractSectionsOnly(pdf, metadata, options)` | Retry pass 2 using saved metadata |
 | `applyExtracted(extracted)` | Map extraction JSON to persistence fields |
 | `applyExtractedQuote(extracted)` | Map quote extraction JSON to persistence fields |
 
@@ -157,25 +165,25 @@ Comprehensive TypeScript type system for the insurance domain:
 interface ExtractOptions {
   log?: LogFn;
   onMetadata?: (raw: string) => Promise<void>;
-  models?: ModelConfig;
+  models: ModelConfig;             // required — bring your own models
   metadataProviderOptions?: ProviderOptions;
   fallbackProviderOptions?: ProviderOptions;
-  concurrency?: number;          // parallel chunk limit (default: 2)
+  concurrency?: number;            // parallel chunk limit (default: 2)
   onTokenUsage?: (usage: TokenUsage) => void;
 }
 
 interface ExtractSectionsOptions {
   log?: LogFn;
   promptBuilder?: PromptBuilder;
-  models?: ModelConfig;
+  models: ModelConfig;             // required — bring your own models
   fallbackProviderOptions?: ProviderOptions;
-  concurrency?: number;          // parallel chunk limit (default: 2)
+  concurrency?: number;            // parallel chunk limit (default: 2)
   onTokenUsage?: (usage: TokenUsage) => void;
 }
 
 interface ClassifyOptions {
   log?: LogFn;
-  models?: ModelConfig;
+  models: ModelConfig;             // required — bring your own models
   onTokenUsage?: (usage: TokenUsage) => void;
 }
 
@@ -198,6 +206,7 @@ Pass 2 section extraction processes page chunks in parallel with a configurable 
 let totalInput = 0, totalOutput = 0;
 
 const { extracted } = await extractFromPdf(pdfBase64, {
+  models: createUniformModelConfig(yourModel),
   concurrency: 3,
   onTokenUsage: ({ inputTokens, outputTokens }) => {
     totalInput += inputTokens;
@@ -233,4 +242,4 @@ npm run dev        # Watch mode
 npm run typecheck  # Type check (tsc --noEmit)
 ```
 
-Pure TypeScript — no framework dependencies. Peer dependencies on `ai` (Vercel AI SDK) and `pdf-lib`. The `@ai-sdk/anthropic` provider is optional (needed only for `createDefaultModelConfig()`).
+Pure TypeScript — no framework dependencies. Peer dependencies on `ai` (Vercel AI SDK) and `pdf-lib`. Model-agnostic — bring any provider (`@ai-sdk/anthropic`, `@ai-sdk/openai`, `@ai-sdk/google`, etc.).

@@ -18,30 +18,17 @@
  * saved metadata from a prior pass 1.
  *
  * Provider-agnostic: accepts `ModelConfig` with Vercel AI SDK `LanguageModel` instances.
- * Defaults to Anthropic models via `createDefaultModelConfig()`.
+ * Consumers must provide their own models — no default provider is assumed.
  */
 
 import { generateText, type LanguageModel } from "ai";
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { ModelConfig } from "../types/models";
-import { createDefaultModelConfig, MODEL_TOKEN_LIMITS } from "../types/models";
+import { MODEL_TOKEN_LIMITS } from "../types/models";
 import { METADATA_PROMPT, QUOTE_METADATA_PROMPT, CLASSIFY_DOCUMENT_PROMPT, buildSectionsPrompt, buildQuoteSectionsPrompt, buildSupplementaryEnrichmentPrompt, buildPersonalLinesHint } from "../prompts/extraction";
 import { extractPageRange, getPdfPageCount } from "./pdf";
 
-export const SONNET_MODEL = "claude-sonnet-4.6";
-export const HAIKU_MODEL = "claude-haiku-4.5.20251001";
-
 export type LogFn = (message: string) => Promise<void>;
-
-/** Default provider options for metadata calls (Anthropic thinking). */
-const DEFAULT_METADATA_PROVIDER_OPTIONS = {
-  anthropic: { thinking: { type: "enabled", budgetTokens: 4096 } },
-};
-
-/** Default provider options for fallback calls (Anthropic thinking). */
-const DEFAULT_FALLBACK_PROVIDER_OPTIONS = {
-  anthropic: { thinking: { type: "enabled", budgetTokens: 4096 } },
-};
 
 /** Maximum number of retries for rate-limited requests. */
 const MAX_RETRIES = 5;
@@ -476,7 +463,9 @@ export function applyExtracted(extracted: any) {
     documentType: (meta.documentType === "quote" ? "quote" : "policy") as "policy" | "quote",
     policyYear: meta.policyYear || new Date().getFullYear(),
     effectiveDate: meta.effectiveDate || "Unknown",
-    expirationDate: meta.expirationDate || "Unknown",
+    expirationDate: meta.expirationDate ?? undefined,
+    policyTermType: meta.policyTermType ?? (meta.expirationDate ? "fixed" : "continuous"),
+    nextReviewDate: meta.nextReviewDate ?? undefined,
     isRenewal: meta.isRenewal ?? false,
     coverages: sanitizeNulls(extracted.coverages || meta.coverages || []),
     premium: meta.premium ?? undefined,
@@ -677,10 +666,6 @@ async function callModelText(
   return text || "{}";
 }
 
-/** Resolve models, lazily creating defaults if not provided. */
-function resolveModels(models?: ModelConfig): ModelConfig {
-  return models ?? createDefaultModelConfig();
-}
 
 /**
  * Pass 3: Enrich supplementary fields with structured data.
@@ -688,7 +673,7 @@ function resolveModels(models?: ModelConfig): ModelConfig {
  */
 export async function enrichSupplementaryFields(
   document: any,
-  models?: ModelConfig,
+  models: ModelConfig,
   log?: LogFn,
   onTokenUsage?: (usage: TokenUsage) => void,
 ): Promise<any> {
@@ -714,9 +699,8 @@ export async function enrichSupplementaryFields(
   await log?.(`Pass 3: Enriching ${Object.keys(fields).length} supplementary field(s)...`);
 
   try {
-    const resolved = resolveModels(models);
     const prompt = buildSupplementaryEnrichmentPrompt(fields);
-    const raw = await callModelText(resolved.enrichment, prompt, MODEL_TOKEN_LIMITS.enrichment, log, onTokenUsage);
+    const raw = await callModelText(models.enrichment, prompt, MODEL_TOKEN_LIMITS.enrichment, log, onTokenUsage);
     const parsed = JSON.parse(stripFences(raw));
 
     const enriched = { ...document };
@@ -756,7 +740,7 @@ export async function enrichSupplementaryFields(
 
 export interface ClassifyOptions {
   log?: LogFn;
-  models?: ModelConfig;
+  models: ModelConfig;
   /** Called after each model call with token usage for tracking. */
   onTokenUsage?: (usage: TokenUsage) => void;
 }
@@ -766,13 +750,12 @@ export interface ClassifyOptions {
  */
 export async function classifyDocumentType(
   pdfBase64: string,
-  options?: ClassifyOptions,
+  options: ClassifyOptions,
 ): Promise<{ documentType: "policy" | "quote"; confidence: number; signals: string[] }> {
-  const { log, models, onTokenUsage } = options ?? {};
-  const resolved = resolveModels(models);
+  const { log, models, onTokenUsage } = options;
   await log?.("Pass 0: Classifying document type...");
   const raw = await callModel(
-    resolved.classification, pdfBase64, CLASSIFY_DOCUMENT_PROMPT,
+    models.classification, pdfBase64, CLASSIFY_DOCUMENT_PROMPT,
     MODEL_TOKEN_LIMITS.classification, undefined, log, onTokenUsage,
     [1, 3], // Only need first 3 pages for classification
   );
@@ -1029,10 +1012,10 @@ export interface TokenUsage {
 export interface ExtractOptions {
   log?: LogFn;
   onMetadata?: (raw: string) => Promise<void>;
-  models?: ModelConfig;
-  /** Provider-specific options for metadata calls (e.g. Anthropic thinking). Defaults to Anthropic thinking enabled. */
+  models: ModelConfig;
+  /** Provider-specific options for metadata calls (e.g. Anthropic thinking). */
   metadataProviderOptions?: ProviderOptions;
-  /** Provider-specific options for fallback calls. Defaults to Anthropic thinking enabled. */
+  /** Provider-specific options for fallback calls. */
   fallbackProviderOptions?: ProviderOptions;
   /** Maximum number of chunk extractions to run in parallel (default: 2). */
   concurrency?: number;
@@ -1052,18 +1035,17 @@ export interface ExtractOptions {
  */
 export async function extractFromPdf(
   pdfBase64: string,
-  options?: ExtractOptions,
+  options: ExtractOptions,
 ) {
   const {
     log,
     onMetadata,
     models,
-    metadataProviderOptions = DEFAULT_METADATA_PROVIDER_OPTIONS,
-    fallbackProviderOptions = DEFAULT_FALLBACK_PROVIDER_OPTIONS,
+    metadataProviderOptions,
+    fallbackProviderOptions,
     concurrency = 2,
     onTokenUsage,
-  } = options ?? {};
-  const resolved = resolveModels(models);
+  } = options;
 
   // Get actual page count for smart page trimming
   const actualPageCount = await getPdfPageCount(pdfBase64);
@@ -1072,7 +1054,7 @@ export async function extractFromPdf(
   await log?.("Pass 1: Extracting metadata...");
   const metadataPageRange: [number, number] = [1, Math.min(10, actualPageCount)];
   const metadataRaw = await callModel(
-    resolved.metadata, pdfBase64, METADATA_PROMPT,
+    models.metadata, pdfBase64, METADATA_PROMPT,
     MODEL_TOKEN_LIMITS.metadata, metadataProviderOptions, log, onTokenUsage,
     metadataPageRange,
   );
@@ -1095,7 +1077,7 @@ export async function extractFromPdf(
 
   // Pass 2: Sections (chunked, with fallback)
   const sectionChunks = await extractSectionChunks(
-    resolved, pdfBase64, pageCount, buildSectionsPrompt,
+    models, pdfBase64, pageCount, buildSectionsPrompt,
     fallbackProviderOptions, log, onTokenUsage, concurrency,
   );
 
@@ -1104,7 +1086,7 @@ export async function extractFromPdf(
 
   // Pass 3: Enrich supplementary fields (non-fatal)
   if (merged.document) {
-    merged.document = await enrichSupplementaryFields(merged.document, resolved, log, onTokenUsage);
+    merged.document = await enrichSupplementaryFields(merged.document, models, log, onTokenUsage);
   }
 
   const mergedRaw = JSON.stringify(merged);
@@ -1114,7 +1096,7 @@ export async function extractFromPdf(
 export interface ExtractSectionsOptions {
   log?: LogFn;
   promptBuilder?: PromptBuilder;
-  models?: ModelConfig;
+  models: ModelConfig;
   /** Provider-specific options for fallback calls. */
   fallbackProviderOptions?: ProviderOptions;
   /** Maximum number of chunk extractions to run in parallel (default: 2). */
@@ -1130,17 +1112,16 @@ export interface ExtractSectionsOptions {
 export async function extractSectionsOnly(
   pdfBase64: string,
   metadataRaw: string,
-  options?: ExtractSectionsOptions,
+  options: ExtractSectionsOptions,
 ) {
   const {
     log,
     promptBuilder = buildSectionsPrompt,
     models,
-    fallbackProviderOptions = DEFAULT_FALLBACK_PROVIDER_OPTIONS,
+    fallbackProviderOptions,
     concurrency = 2,
     onTokenUsage,
-  } = options ?? {};
-  const resolved = resolveModels(models);
+  } = options;
 
   await log?.("Using saved metadata, skipping pass 1...");
   let metadataResult: any;
@@ -1154,7 +1135,7 @@ export async function extractSectionsOnly(
   await log?.(`Document: ${pageCount} page(s)`);
 
   const sectionChunks = await extractSectionChunks(
-    resolved, pdfBase64, pageCount, promptBuilder,
+    models, pdfBase64, pageCount, promptBuilder,
     fallbackProviderOptions, log, onTokenUsage, concurrency,
   );
 
@@ -1163,7 +1144,7 @@ export async function extractSectionsOnly(
 
   // Pass 3: Enrich supplementary fields (non-fatal)
   if (merged.document) {
-    merged.document = await enrichSupplementaryFields(merged.document, resolved, log, onTokenUsage);
+    merged.document = await enrichSupplementaryFields(merged.document, models, log, onTokenUsage);
   }
 
   const mergedRaw = JSON.stringify(merged);
@@ -1184,18 +1165,17 @@ export async function extractSectionsOnly(
  */
 export async function extractQuoteFromPdf(
   pdfBase64: string,
-  options?: ExtractOptions,
+  options: ExtractOptions,
 ) {
   const {
     log,
     onMetadata,
     models,
-    metadataProviderOptions = DEFAULT_METADATA_PROVIDER_OPTIONS,
-    fallbackProviderOptions = DEFAULT_FALLBACK_PROVIDER_OPTIONS,
+    metadataProviderOptions,
+    fallbackProviderOptions,
     concurrency = 2,
     onTokenUsage,
-  } = options ?? {};
-  const resolved = resolveModels(models);
+  } = options;
 
   // Get actual page count for smart page trimming
   const actualPageCount = await getPdfPageCount(pdfBase64);
@@ -1204,7 +1184,7 @@ export async function extractQuoteFromPdf(
   await log?.("Pass 1: Extracting quote metadata...");
   const metadataPageRange: [number, number] = [1, Math.min(10, actualPageCount)];
   const metadataRaw = await callModel(
-    resolved.metadata, pdfBase64, QUOTE_METADATA_PROMPT,
+    models.metadata, pdfBase64, QUOTE_METADATA_PROMPT,
     MODEL_TOKEN_LIMITS.metadata, metadataProviderOptions, log, onTokenUsage,
     metadataPageRange,
   );
@@ -1227,7 +1207,7 @@ export async function extractQuoteFromPdf(
 
   // Pass 2: Quote sections (chunked)
   const sectionChunks = await extractSectionChunks(
-    resolved, pdfBase64, pageCount, buildQuoteSectionsPrompt,
+    models, pdfBase64, pageCount, buildQuoteSectionsPrompt,
     fallbackProviderOptions, log, onTokenUsage, concurrency,
   );
 
