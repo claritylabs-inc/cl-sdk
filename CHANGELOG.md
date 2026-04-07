@@ -1,3 +1,15 @@
+# [3.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v2.0.0...v3.0.0) (2026-04-07)
+
+
+### Features
+
+* provider-agnostic PDF content format support ([98388e9](https://github.com/claritylabs-inc/cl-sdk/commit/98388e94de1b3a4eb0d795987ae0381d8a3c3601))
+
+
+### BREAKING CHANGES
+
+* None - defaults to auto which maintains existing behavior
+
 # [2.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.4.0...v2.0.0) (2026-04-07)
 
 
