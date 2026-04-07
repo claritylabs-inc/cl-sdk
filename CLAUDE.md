@@ -35,7 +35,25 @@ Provider-agnostic via Vercel AI SDK. The pipeline accepts `ModelConfig` with `La
 
 - `createUniformModelConfig(model)` — same model for all roles
 - `MODEL_TOKEN_LIMITS` — per-role token limits (task-determined, not provider-determined)
+- `isAnthropicModel(model)` — detect if model is from Anthropic for format auto-detection
+
 Public functions use options objects (`ExtractOptions`, `ClassifyOptions`, `ExtractSectionsOptions`) with required `models` field — no default provider is assumed. Provider-specific config (e.g. Anthropic thinking) goes through `providerOptions`. Options also include `concurrency` (parallel chunk limit, default 2) and `onTokenUsage` callback for tracking cumulative token usage.
+
+#### PDF Content Format (`PdfContentFormat`)
+
+The SDK supports multiple PDF input formats to work across different providers:
+
+- `auto` (default): Auto-detects provider. Uses `anthropic-file` for Anthropic models, falls back to `image` (if `convertPdfToImages` provided) or `text`
+- `anthropic-file`: Native Anthropic PDF format `{ type: "file", data, mediaType }` — most efficient, but Anthropic-only
+- `image`: Converts PDF pages to base64 images — works with any vision-capable model (OpenAI, Kimi, DeepSeek, etc.)
+- `text`: Sends text-only — universal fallback but loses visual layout
+
+Use `convertPdfToImages` callback when using `image` format with non-Anthropic providers. The callback receives `(pdfBase64, startPage, endPage)` and returns an array of `{ imageBase64, mimeType }` for each page.
+
+**Implementation details** (`src/extraction/pipeline.ts`):
+- `getEffectivePdfFormat()` — determines format based on setting + model provider
+- `buildPdfContentParts()` — constructs Vercel AI SDK content parts for the selected format
+- `callModel()` — accepts `pdfContentFormat` and `convertPdfToImages` params
 
 ### PDF Operations (`src/extraction/pdf.ts`)
 

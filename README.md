@@ -48,6 +48,9 @@ const fields = applyExtracted(extracted);
 
 ### Any Provider
 
+CL-0 SDK is provider-agnostic and works with any Vercel AI SDK-compatible provider (OpenAI, Anthropic, Google, Mistral, MoonshotAI/Kimi, DeepSeek, etc.).
+
+**Auto-detection (recommended):**
 ```typescript
 import { createOpenAI } from "@ai-sdk/openai";
 import { extractFromPdf, createUniformModelConfig } from "@claritylabs/cl-sdk";
@@ -55,6 +58,37 @@ import { extractFromPdf, createUniformModelConfig } from "@claritylabs/cl-sdk";
 const openai = createOpenAI();
 const { extracted } = await extractFromPdf(pdfBase64, {
   models: createUniformModelConfig(openai("gpt-4o")),
+  // pdfContentFormat defaults to "auto" — detects provider and chooses best format
+});
+```
+
+**With PDF-to-image conversion (for providers without native PDF support):**
+
+Most providers (OpenAI, Kimi, DeepSeek, etc.) don't support native PDF input but do support image inputs. Provide a `convertPdfToImages` callback:
+
+```typescript
+import { extractFromPdf, createUniformModelConfig } from "@claritylabs/cl-sdk";
+import { fromBuffer } from "pdf2pic"; // or any conversion library
+
+const convertPdfToImages = async (pdfBase64: string, startPage: number, endPage: number) => {
+  const buffer = Buffer.from(pdfBase64, "base64");
+  const converter = fromBuffer(buffer, {
+    density: 150,
+    format: "png",
+    width: 1200,
+  });
+
+  const images = [];
+  for (let page = startPage; page <= endPage; page++) {
+    const result = await converter(page, { responseType: "base64" });
+    images.push({ imageBase64: result.base64, mimeType: "image/png" });
+  }
+  return images;
+};
+
+const { extracted } = await extractFromPdf(pdfBase64, {
+  models: createUniformModelConfig(kimiModel), // or openai, deepseek, etc.
+  convertPdfToImages, // Required for non-Anthropic providers
 });
 ```
 
@@ -170,6 +204,8 @@ interface ExtractOptions {
   fallbackProviderOptions?: ProviderOptions;
   concurrency?: number;            // parallel chunk limit (default: 2)
   onTokenUsage?: (usage: TokenUsage) => void;
+  pdfContentFormat?: "auto" | "anthropic-file" | "image" | "text"; // default: "auto"
+  convertPdfToImages?: ConvertPdfToImagesFn; // required for "image" format
 }
 
 interface ExtractSectionsOptions {
@@ -179,19 +215,40 @@ interface ExtractSectionsOptions {
   fallbackProviderOptions?: ProviderOptions;
   concurrency?: number;            // parallel chunk limit (default: 2)
   onTokenUsage?: (usage: TokenUsage) => void;
+  pdfContentFormat?: "auto" | "anthropic-file" | "image" | "text"; // default: "auto"
+  convertPdfToImages?: ConvertPdfToImagesFn; // required for "image" format
 }
 
 interface ClassifyOptions {
   log?: LogFn;
   models: ModelConfig;             // required — bring your own models
   onTokenUsage?: (usage: TokenUsage) => void;
+  pdfContentFormat?: "auto" | "anthropic-file" | "image" | "text"; // default: "auto"
+  convertPdfToImages?: ConvertPdfToImagesFn; // required for "image" format
 }
 
 interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
 }
+
+type ConvertPdfToImagesFn = (
+  pdfBase64: string,
+  startPage: number,
+  endPage: number,
+) => Promise<Array<{ imageBase64: string; mimeType: string }>>;
 ```
+
+### PDF Content Formats
+
+The SDK supports multiple ways to send PDF content to models:
+
+| Format | Description | Best For |
+|--------|-------------|----------|
+| `auto` (default) | Auto-detect based on model provider. Uses native PDF for Anthropic, images for others (if converter provided), else text. | Most use cases |
+| `anthropic-file` | Native Anthropic PDF format. Most efficient and accurate. | Claude models only |
+| `image` | Converts PDF pages to base64 images. Universal compatibility with vision-capable models. | OpenAI, Kimi, DeepSeek, etc. |
+| `text` | Sends extracted text only. Loses visual layout but works everywhere. | Fallback only |
 
 ### Rate-Limit Resilience
 

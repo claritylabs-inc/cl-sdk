@@ -23,7 +23,7 @@
 
 import { generateText, type LanguageModel } from "ai";
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
-import type { ModelConfig } from "../types/models";
+import type { ModelConfig, PdfContentFormat, ConvertPdfToImagesFn } from "../types/models";
 import { MODEL_TOKEN_LIMITS } from "../types/models";
 import { METADATA_PROMPT, QUOTE_METADATA_PROMPT, CLASSIFY_DOCUMENT_PROMPT, buildSectionsPrompt, buildQuoteSectionsPrompt, buildSupplementaryEnrichmentPrompt, buildPersonalLinesHint } from "../prompts/extraction";
 import { extractPageRange, getPdfPageCount } from "./pdf";
@@ -581,6 +581,64 @@ export function getPageChunks(totalPages: number, chunkSize: number = 30): Array
 }
 
 /**
+ * Determine the effective PDF content format based on format setting and model.
+ */
+function getEffectivePdfFormat(
+  format: PdfContentFormat,
+  model: LanguageModel,
+  hasImageConverter: boolean,
+): Exclude<PdfContentFormat, "auto"> {
+  if (format !== "auto") return format;
+
+  // Auto-detect: Anthropic models support native PDF files
+  const provider = ((model as any).provider || (model as any).providerId || "").toLowerCase();
+  if (provider.includes("anthropic")) {
+    return "anthropic-file";
+  }
+
+  // For non-Anthropic models, prefer images if converter available, else text
+  return hasImageConverter ? "image" : "text";
+}
+
+/**
+ * Build content parts for the model message based on PDF format.
+ */
+async function buildPdfContentParts(
+  pdfBase64: string,
+  format: Exclude<PdfContentFormat, "auto">,
+  convertPdfToImages: ConvertPdfToImagesFn | undefined,
+  pageRange: [number, number] | undefined,
+): Promise<Array<{ type: "file"; data: string; mediaType: string } | { type: "image"; image: string; mimeType?: string } | { type: "text"; text: string }>> {
+  // Trim PDF to page range if specified
+  const pdfToSend = pageRange
+    ? await extractPageRange(pdfBase64, pageRange[0], pageRange[1])
+    : pdfBase64;
+
+  if (format === "anthropic-file") {
+    return [{ type: "file" as const, data: pdfToSend, mediaType: "application/pdf" }];
+  }
+
+  if (format === "image") {
+    if (!convertPdfToImages) {
+      throw new Error("convertPdfToImages callback is required when pdfContentFormat is 'image'");
+    }
+    const startPage = pageRange?.[0] ?? 1;
+    const endPage = pageRange?.[1] ?? (await getPdfPageCount(pdfBase64));
+    const images = await convertPdfToImages(pdfBase64, startPage, endPage);
+    return images.map(img => ({
+      type: "image" as const,
+      image: img.imageBase64,
+      mimeType: img.mimeType,
+    }));
+  }
+
+  // format === "text" - extract text (placeholder, would need actual text extraction)
+  // For now, this is a fallback that won't work well but won't crash
+  // TODO: Implement actual PDF text extraction
+  return [{ type: "text" as const, text: "[PDF text extraction not yet implemented for this provider. Use 'anthropic-file' or provide convertPdfToImages.]" }];
+}
+
+/**
  * Call a model with a PDF document and prompt via Vercel AI SDK.
  * Retries automatically on rate limit errors with exponential backoff.
  *
@@ -596,15 +654,17 @@ async function callModel(
   log?: LogFn,
   onTokenUsage?: (usage: TokenUsage) => void,
   pageRange?: [number, number],
+  pdfContentFormat: PdfContentFormat = "auto",
+  convertPdfToImages?: ConvertPdfToImagesFn,
 ): Promise<string> {
-  // Trim PDF to page range if specified
-  const pdfToSend = pageRange
-    ? await extractPageRange(pdfBase64, pageRange[0], pageRange[1])
-    : pdfBase64;
-
   const rangeLabel = pageRange ? ` [pages ${pageRange[0]}–${pageRange[1]}]` : "";
   await log?.(`Calling model (max ${maxTokens} tokens)${rangeLabel}...`);
   const start = Date.now();
+
+  const effectiveFormat = getEffectivePdfFormat(pdfContentFormat, model, !!convertPdfToImages);
+  await log?.(`Using PDF format: ${effectiveFormat}`);
+
+  const pdfParts = await buildPdfContentParts(pdfBase64, effectiveFormat, convertPdfToImages, pageRange);
 
   const { text, usage } = await withRetry(
     () => generateText({
@@ -613,7 +673,7 @@ async function callModel(
       messages: [{
         role: "user",
         content: [
-          { type: "file", data: pdfToSend, mediaType: "application/pdf" },
+          ...pdfParts,
           { type: "text", text: prompt },
         ],
       }],
@@ -743,6 +803,10 @@ export interface ClassifyOptions {
   models: ModelConfig;
   /** Called after each model call with token usage for tracking. */
   onTokenUsage?: (usage: TokenUsage) => void;
+  /** PDF content format. "auto" detects Anthropic models and uses native PDF, falls back to image/text for others. */
+  pdfContentFormat?: PdfContentFormat;
+  /** Required when pdfContentFormat is "image". Converts PDF pages to base64 images. */
+  convertPdfToImages?: ConvertPdfToImagesFn;
 }
 
 /**
@@ -752,12 +816,13 @@ export async function classifyDocumentType(
   pdfBase64: string,
   options: ClassifyOptions,
 ): Promise<{ documentType: "policy" | "quote"; confidence: number; signals: string[] }> {
-  const { log, models, onTokenUsage } = options;
+  const { log, models, onTokenUsage, pdfContentFormat, convertPdfToImages } = options;
   await log?.("Pass 0: Classifying document type...");
   const raw = await callModel(
     models.classification, pdfBase64, CLASSIFY_DOCUMENT_PROMPT,
     MODEL_TOKEN_LIMITS.classification, undefined, log, onTokenUsage,
     [1, 3], // Only need first 3 pages for classification
+    pdfContentFormat, convertPdfToImages,
   );
   try {
     const parsed = JSON.parse(stripFences(raw));
@@ -925,12 +990,15 @@ async function extractChunkWithRetry(
   log?: LogFn,
   onTokenUsage?: (usage: TokenUsage) => void,
   concurrency: number = 2,
+  pdfContentFormat: PdfContentFormat = "auto",
+  convertPdfToImages?: ConvertPdfToImagesFn,
 ): Promise<any[]> {
   await log?.(`Pass 2: Extracting sections pages ${start}–${end}...`);
   const chunkRaw = await callModel(
     models.sections, pdfBase64, promptBuilder(start, end),
     MODEL_TOKEN_LIMITS.sections, undefined, log, onTokenUsage,
     [start, end], // Only send this chunk's pages
+    pdfContentFormat, convertPdfToImages,
   );
   try {
     return [JSON.parse(stripFences(chunkRaw))];
@@ -951,6 +1019,7 @@ async function extractChunkWithRetry(
             limit(() => extractChunkWithRetry(
               models, pdfBase64, subStart, subEnd, nextSizeIndex,
               promptBuilder, fallbackProviderOptions, log, onTokenUsage, concurrency,
+              pdfContentFormat, convertPdfToImages,
             ))
           ),
         );
@@ -964,6 +1033,7 @@ async function extractChunkWithRetry(
       models.sectionsFallback, pdfBase64, promptBuilder(start, end),
       MODEL_TOKEN_LIMITS.sectionsFallback, fallbackProviderOptions, log, onTokenUsage,
       [start, end], // Only send this chunk's pages
+      pdfContentFormat, convertPdfToImages,
     );
     try {
       return [JSON.parse(stripFences(fallbackRaw))];
@@ -987,6 +1057,8 @@ async function extractSectionChunks(
   log?: LogFn,
   onTokenUsage?: (usage: TokenUsage) => void,
   concurrency: number = 2,
+  pdfContentFormat: PdfContentFormat = "auto",
+  convertPdfToImages?: ConvertPdfToImagesFn,
 ): Promise<any[]> {
   const chunks = getPageChunks(pageCount, CHUNK_SIZES[0]);
   const limit = pLimit(concurrency);
@@ -996,6 +1068,7 @@ async function extractSectionChunks(
       limit(() => extractChunkWithRetry(
         models, pdfBase64, start, end, 0, promptBuilder,
         fallbackProviderOptions, log, onTokenUsage, concurrency,
+        pdfContentFormat, convertPdfToImages,
       ))
     ),
   );
@@ -1021,6 +1094,10 @@ export interface ExtractOptions {
   concurrency?: number;
   /** Called after each model call with token usage for tracking. */
   onTokenUsage?: (usage: TokenUsage) => void;
+  /** PDF content format. "auto" detects Anthropic models and uses native PDF, falls back to image/text for others. */
+  pdfContentFormat?: PdfContentFormat;
+  /** Required when pdfContentFormat is "image". Converts PDF pages to base64 images. */
+  convertPdfToImages?: ConvertPdfToImagesFn;
 }
 
 /**
@@ -1045,6 +1122,8 @@ export async function extractFromPdf(
     fallbackProviderOptions,
     concurrency = 2,
     onTokenUsage,
+    pdfContentFormat = "auto",
+    convertPdfToImages,
   } = options;
 
   // Get actual page count for smart page trimming
@@ -1056,7 +1135,7 @@ export async function extractFromPdf(
   const metadataRaw = await callModel(
     models.metadata, pdfBase64, METADATA_PROMPT,
     MODEL_TOKEN_LIMITS.metadata, metadataProviderOptions, log, onTokenUsage,
-    metadataPageRange,
+    metadataPageRange, pdfContentFormat, convertPdfToImages,
   );
 
   let metadataResult: any;
@@ -1079,6 +1158,7 @@ export async function extractFromPdf(
   const sectionChunks = await extractSectionChunks(
     models, pdfBase64, pageCount, buildSectionsPrompt,
     fallbackProviderOptions, log, onTokenUsage, concurrency,
+    pdfContentFormat, convertPdfToImages,
   );
 
   await log?.("Merging extraction results...");
@@ -1103,6 +1183,10 @@ export interface ExtractSectionsOptions {
   concurrency?: number;
   /** Called after each model call with token usage for tracking. */
   onTokenUsage?: (usage: TokenUsage) => void;
+  /** PDF content format. "auto" detects Anthropic models and uses native PDF, falls back to image/text for others. */
+  pdfContentFormat?: PdfContentFormat;
+  /** Required when pdfContentFormat is "image". Converts PDF pages to base64 images. */
+  convertPdfToImages?: ConvertPdfToImagesFn;
 }
 
 /**
@@ -1121,6 +1205,8 @@ export async function extractSectionsOnly(
     fallbackProviderOptions,
     concurrency = 2,
     onTokenUsage,
+    pdfContentFormat = "auto",
+    convertPdfToImages,
   } = options;
 
   await log?.("Using saved metadata, skipping pass 1...");
@@ -1137,6 +1223,7 @@ export async function extractSectionsOnly(
   const sectionChunks = await extractSectionChunks(
     models, pdfBase64, pageCount, promptBuilder,
     fallbackProviderOptions, log, onTokenUsage, concurrency,
+    pdfContentFormat, convertPdfToImages,
   );
 
   await log?.("Merging extraction results...");
@@ -1175,6 +1262,8 @@ export async function extractQuoteFromPdf(
     fallbackProviderOptions,
     concurrency = 2,
     onTokenUsage,
+    pdfContentFormat = "auto",
+    convertPdfToImages,
   } = options;
 
   // Get actual page count for smart page trimming
@@ -1186,7 +1275,7 @@ export async function extractQuoteFromPdf(
   const metadataRaw = await callModel(
     models.metadata, pdfBase64, QUOTE_METADATA_PROMPT,
     MODEL_TOKEN_LIMITS.metadata, metadataProviderOptions, log, onTokenUsage,
-    metadataPageRange,
+    metadataPageRange, pdfContentFormat, convertPdfToImages,
   );
 
   let metadataResult: any;
@@ -1209,6 +1298,7 @@ export async function extractQuoteFromPdf(
   const sectionChunks = await extractSectionChunks(
     models, pdfBase64, pageCount, buildQuoteSectionsPrompt,
     fallbackProviderOptions, log, onTokenUsage, concurrency,
+    pdfContentFormat, convertPdfToImages,
   );
 
   await log?.("Merging quote extraction results...");
