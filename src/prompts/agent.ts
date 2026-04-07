@@ -75,7 +75,8 @@ export function buildDocumentContext(
     const sectionTitles = p.sections
       ?.map((s) => s.title)
       .join(", ") ?? "none";
-    return `[${i + 1}] ID:${p.id} | ${carrier} | #${p.policyNumber} | Types: ${types} | ${p.effectiveDate} to ${p.expirationDate} | Insured: ${p.insuredName} | Premium: ${p.premium ?? "N/A"} | Coverages: ${coverageSummary} | Sections: ${sectionTitles}`;
+    const termEnd = p.expirationDate ?? (p.nextReviewDate ? `review ${p.nextReviewDate}` : "continuous");
+    return `[${i + 1}] ID:${p.id} | ${carrier} | #${p.policyNumber} | Types: ${types} | ${p.effectiveDate} to ${termEnd} | Insured: ${p.insuredName} | Premium: ${p.premium ?? "N/A"} | Coverages: ${coverageSummary} | Sections: ${sectionTitles}`;
   });
 
   // Build quote index

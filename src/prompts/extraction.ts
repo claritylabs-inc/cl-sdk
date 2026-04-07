@@ -142,7 +142,9 @@ Respond with JSON only:
     "coverageForm": "occurrence" or "claims_made" or "accident" or null,
     "policyYear": number,
     "effectiveDate": "MM/DD/YYYY",
-    "expirationDate": "MM/DD/YYYY",
+    "expirationDate": "MM/DD/YYYY, or null if continuous/open-ended policy",
+    "policyTermType": "fixed" or "continuous",
+    "nextReviewDate": "MM/DD/YYYY — next annual review or renewal date, or null",
     "effectiveTime": "e.g. 12:01 AM, or null",
     "retroactiveDate": "MM/DD/YYYY for claims-made policies, or null",
     "isRenewal": boolean,
@@ -227,7 +229,8 @@ IMPORTANT:
 - For homeowners policies (HO forms), extract Coverage A through F limits if visible on declarations
 - For personal auto (PAP), extract per-vehicle coverages and driver list if visible
 - For flood (NFIP), extract flood zone, community number, building/contents coverage
-- For personal articles, extract scheduled items list if visible`;
+- For personal articles, extract scheduled items list if visible
+- CONTINUOUS POLICIES: If the policy term says "until cancelled", "until cancelled or replaced", or has no fixed expiration date, set policyTermType to "continuous" and expirationDate to null. Extract the "next policy review date" or "renewal date" into nextReviewDate if present. Otherwise set policyTermType to "fixed"`;
 
 /**
  * Quote-specific metadata prompt (Sonnet).

@@ -157,6 +157,8 @@ export type QuoteSectionType =
 
 export type CoverageForm = "occurrence" | "claims_made" | "accident";
 
+export type PolicyTermType = "fixed" | "continuous";
+
 export type CoverageTrigger = "occurrence" | "claims_made" | "accident";
 
 export type LimitType =

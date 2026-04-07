@@ -1,6 +1,6 @@
 // Framework-agnostic document interfaces for the insurance intelligence engine
 
-import type { PolicyType, EntityType, CoverageForm, AuditType } from "./enums";
+import type { PolicyType, EntityType, CoverageForm, PolicyTermType, AuditType } from "./enums";
 import type { Address, Contact, FormReference, TaxFeeItem, RatingBasis, NamedInsured, ExtendedReportingPeriod } from "./shared";
 import type { EnrichedCoverage } from "./coverage";
 import type { Endorsement, EndorsementParty } from "./endorsement";
@@ -195,7 +195,12 @@ export interface PolicyDocument extends BaseDocument {
   type: "policy";
   policyNumber: string;
   effectiveDate: string;
-  expirationDate: string;
+  /** Expiration date — absent for continuous ("until cancelled") policies */
+  expirationDate?: string;
+  /** "fixed" = standard term policy, "continuous" = until cancelled or replaced */
+  policyTermType?: PolicyTermType;
+  /** Next annual review/renewal date (primarily for continuous policies) */
+  nextReviewDate?: string;
   /** Time of day coverage begins */
   effectiveTime?: string;
 }
