@@ -1,3 +1,10 @@
+## [3.0.1](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.0...v3.0.1) (2026-04-09)
+
+
+### Bug Fixes
+
+* increase metadata token limit from 4096 to 16384 ([98a7631](https://github.com/claritylabs-inc/cl-sdk/commit/98a7631c00ad455e3b08ee0339911bd2679d1a3c))
+
 # [3.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v2.0.0...v3.0.0) (2026-04-07)
 
 
