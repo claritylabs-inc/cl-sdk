@@ -1,3 +1,10 @@
+## [3.1.1](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.0...v3.1.1) (2026-04-09)
+
+
+### Bug Fixes
+
+* fix CI publish pipeline and update docs for v2-v3 changes ([c003d6f](https://github.com/claritylabs-inc/cl-sdk/commit/c003d6f4b11dcb7522777d53fe9beb4af7742644))
+
 # [3.1.0](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.1...v3.1.0) (2026-04-09)
 
 
