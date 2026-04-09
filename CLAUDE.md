@@ -44,12 +44,11 @@ Public functions use options objects (`ExtractOptions`, `ClassifyOptions`, `Extr
 
 The SDK supports multiple PDF input formats to work across different providers:
 
-- `auto` (default): Auto-detects provider. Uses `anthropic-file` for Anthropic models, falls back to `image` (if `convertPdfToImages` provided) or `text`
+- `auto` (default): Auto-detects provider. Uses `anthropic-file` for Anthropic models, `image` for all others (requires `convertPdfToImages`)
 - `anthropic-file`: Native Anthropic PDF format `{ type: "file", data, mediaType }` — most efficient, but Anthropic-only
-- `image`: Converts PDF pages to base64 images — works with any vision-capable model (OpenAI, Kimi, DeepSeek, etc.)
-- `text`: Sends text-only — universal fallback but loses visual layout
+- `image`: Converts PDF pages to base64 images via `convertPdfToImages` callback — works with any vision-capable model (OpenAI, Kimi, DeepSeek, etc.)
 
-Use `convertPdfToImages` callback when using `image` format with non-Anthropic providers. The callback receives `(pdfBase64, startPage, endPage)` and returns an array of `{ imageBase64, mimeType }` for each page.
+Non-Anthropic models **require** `convertPdfToImages` — the SDK throws if it's missing rather than silently falling back to text extraction (which would lose the visual layout critical for insurance documents). The callback receives `(pdfBase64, startPage, endPage)` and returns an array of `{ imageBase64, mimeType }` for each page.
 
 **Implementation details** (`src/extraction/pipeline.ts`):
 - `getEffectivePdfFormat()` — determines format based on setting + model provider

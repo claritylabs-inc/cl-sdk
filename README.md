@@ -205,8 +205,8 @@ interface ExtractOptions {
   concurrency?: number;            // parallel chunk limit (default: 2)
   tokenLimits?: TokenLimits;       // override default maxTokens per role
   onTokenUsage?: (usage: TokenUsage) => void;
-  pdfContentFormat?: "auto" | "anthropic-file" | "image" | "text"; // default: "auto"
-  convertPdfToImages?: ConvertPdfToImagesFn; // required for "image" format
+  pdfContentFormat?: "auto" | "anthropic-file" | "image"; // default: "auto"
+  convertPdfToImages?: ConvertPdfToImagesFn; // required for non-Anthropic models
 }
 
 interface ExtractSectionsOptions {
@@ -217,8 +217,8 @@ interface ExtractSectionsOptions {
   concurrency?: number;            // parallel chunk limit (default: 2)
   tokenLimits?: TokenLimits;       // override default maxTokens per role
   onTokenUsage?: (usage: TokenUsage) => void;
-  pdfContentFormat?: "auto" | "anthropic-file" | "image" | "text"; // default: "auto"
-  convertPdfToImages?: ConvertPdfToImagesFn; // required for "image" format
+  pdfContentFormat?: "auto" | "anthropic-file" | "image"; // default: "auto"
+  convertPdfToImages?: ConvertPdfToImagesFn; // required for non-Anthropic models
 }
 
 interface ClassifyOptions {
@@ -226,8 +226,8 @@ interface ClassifyOptions {
   models: ModelConfig;             // required — bring your own models
   tokenLimits?: TokenLimits;       // override default maxTokens per role
   onTokenUsage?: (usage: TokenUsage) => void;
-  pdfContentFormat?: "auto" | "anthropic-file" | "image" | "text"; // default: "auto"
-  convertPdfToImages?: ConvertPdfToImagesFn; // required for "image" format
+  pdfContentFormat?: "auto" | "anthropic-file" | "image"; // default: "auto"
+  convertPdfToImages?: ConvertPdfToImagesFn; // required for non-Anthropic models
 }
 
 // Override default token limits per role (all fields optional)
@@ -257,10 +257,11 @@ The SDK supports multiple ways to send PDF content to models:
 
 | Format | Description | Best For |
 |--------|-------------|----------|
-| `auto` (default) | Auto-detect based on model provider. Uses native PDF for Anthropic, images for others (if converter provided), else text. | Most use cases |
+| `auto` (default) | Auto-detect based on model provider. Uses native PDF for Anthropic, image conversion for others. | Most use cases |
 | `anthropic-file` | Native Anthropic PDF format. Most efficient and accurate. | Claude models only |
-| `image` | Converts PDF pages to base64 images. Universal compatibility with vision-capable models. | OpenAI, Kimi, DeepSeek, etc. |
-| `text` | Sends extracted text only. Loses visual layout but works everywhere. | Fallback only |
+| `image` | Converts PDF pages to base64 images via `convertPdfToImages` callback. | OpenAI, Kimi, DeepSeek, etc. |
+
+Non-Anthropic models **require** a `convertPdfToImages` callback — the SDK does not silently fall back to text extraction, which would lose the visual layout information critical for insurance document parsing.
 
 ### Rate-Limit Resilience
 

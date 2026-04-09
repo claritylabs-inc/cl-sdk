@@ -596,8 +596,15 @@ function getEffectivePdfFormat(
     return "anthropic-file";
   }
 
-  // For non-Anthropic models, prefer images if converter available, else text
-  return hasImageConverter ? "image" : "text";
+  // Non-Anthropic models require image conversion — text fallback loses layout
+  if (!hasImageConverter) {
+    throw new Error(
+      "Non-Anthropic models require a convertPdfToImages callback for PDF extraction. " +
+      "Provide convertPdfToImages in options to convert PDF pages to images, " +
+      "or use an Anthropic model which supports native PDF input."
+    );
+  }
+  return "image";
 }
 
 /**
@@ -632,10 +639,11 @@ async function buildPdfContentParts(
     }));
   }
 
-  // format === "text" - extract text (placeholder, would need actual text extraction)
-  // For now, this is a fallback that won't work well but won't crash
-  // TODO: Implement actual PDF text extraction
-  return [{ type: "text" as const, text: "[PDF text extraction not yet implemented for this provider. Use 'anthropic-file' or provide convertPdfToImages.]" }];
+  // format === "text" — not recommended, loses visual layout
+  throw new Error(
+    "Text-only PDF format is not supported. Use 'anthropic-file' (Anthropic models) " +
+    "or 'image' with a convertPdfToImages callback (all other providers)."
+  );
 }
 
 /**

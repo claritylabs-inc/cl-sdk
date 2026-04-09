@@ -25,7 +25,8 @@ export interface ModelConfig {
  * Format for sending PDF content to the model.
  *
  * - `auto` (default): Auto-detect based on model provider. Uses `anthropic-file` for
- *   Anthropic models, `image` for others (if convertPdfToImages provided), else `text`.
+ *   Anthropic models, `image` for others. Non-Anthropic models require a
+ *   `convertPdfToImages` callback.
  *
  * - `anthropic-file`: Anthropic's native PDF file format `{ type: "file", data, mediaType }`.
  *   Only works with Anthropic/Claude models. Best quality and most efficient.
@@ -33,11 +34,8 @@ export interface ModelConfig {
  * - `image`: Convert PDF pages to base64-encoded images. Works with most providers
  *   (OpenAI, Kimi, DeepSeek, etc.) that support vision/image inputs. Requires
  *   providing `convertPdfToImages` callback.
- *
- * - `text`: Extract text from PDF and send as text content. Universal compatibility
- *   but loses visual layout information (tables, formatting).
  */
-export type PdfContentFormat = "auto" | "anthropic-file" | "image" | "text";
+export type PdfContentFormat = "auto" | "anthropic-file" | "image";
 
 /**
  * Callback function to convert PDF pages to base64-encoded images.
