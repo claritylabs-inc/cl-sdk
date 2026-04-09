@@ -1,3 +1,10 @@
+# [3.1.0](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.1...v3.1.0) (2026-04-09)
+
+
+### Features
+
+* overridable token limits via tokenLimits option on all extraction functions ([44491b7](https://github.com/claritylabs-inc/cl-sdk/commit/44491b7f3276f143c84f9270e5c5393d154da594))
+
 ## [3.0.1](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.0...v3.0.1) (2026-04-09)
 
 
