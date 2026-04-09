@@ -1,3 +1,19 @@
+# [5.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v4.0.0...v5.0.0) (2026-04-09)
+
+
+* feat!: generalize native PDF support detection and rename format options ([52b567c](https://github.com/claritylabs-inc/cl-sdk/commit/52b567cbaebe2b87011d56e1cf085dbbb7f58eb1))
+
+
+### BREAKING CHANGES
+
+* `PdfContentFormat` value "anthropic-file" renamed to "file".
+`isAnthropicModel()` deprecated in favor of `supportsNativePdf()` which checks
+a vetted provider list (Anthropic, Google). The "text" format has been removed.
+Providers without native PDF support require a convertPdfToImages callback —
+the SDK does not bundle a converter.
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+
 # [4.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.1...v4.0.0) (2026-04-09)
 
 
