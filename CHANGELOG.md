@@ -1,3 +1,19 @@
+# [6.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v5.0.0...v6.0.0) (2026-04-09)
+
+
+* feat!: simplify PDF format — default to native file for all providers ([85ca1d2](https://github.com/claritylabs-inc/cl-sdk/commit/85ca1d2969ddda22ef38d85c55709dff4763ffa6))
+
+
+### BREAKING CHANGES
+
+* Removed "auto" from PdfContentFormat. Default is now "file"
+(native PDF) for all providers since most support it. Removed supportsNativePdf(),
+isAnthropicModel(), and NATIVE_PDF_PROVIDERS — no provider detection needed.
+Use pdfContentFormat: "image" with convertPdfToImages for models that don't
+support native PDF input.
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+
 # [5.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v4.0.0...v5.0.0) (2026-04-09)
 
 
