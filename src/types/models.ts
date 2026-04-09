@@ -1,11 +1,25 @@
 import type { LanguageModel } from "ai";
 
 /**
- * Detect if a LanguageModel is from Anthropic based on its provider ID.
+ * Providers vetted for native PDF file input support.
+ * These providers accept `{ type: "file", data, mediaType: "application/pdf" }`
+ * directly without needing image conversion.
+ */
+const NATIVE_PDF_PROVIDERS = ["anthropic", "google"];
+
+/**
+ * Check if a LanguageModel is from a provider with vetted native PDF support.
+ */
+export function supportsNativePdf(model: LanguageModel): boolean {
+  const provider = ((model as any).provider || (model as any).providerId || "").toLowerCase();
+  return NATIVE_PDF_PROVIDERS.some(p => provider.includes(p));
+}
+
+/**
+ * @deprecated Use supportsNativePdf instead.
  */
 export function isAnthropicModel(model: LanguageModel): boolean {
-  const provider = (model as any).provider || (model as any).providerId || "";
-  return provider.toLowerCase().includes("anthropic");
+  return supportsNativePdf(model);
 }
 
 export interface ModelConfig {
@@ -24,18 +38,18 @@ export interface ModelConfig {
 /**
  * Format for sending PDF content to the model.
  *
- * - `auto` (default): Auto-detect based on model provider. Uses `anthropic-file` for
- *   Anthropic models, `image` for others. Non-Anthropic models require a
- *   `convertPdfToImages` callback.
+ * - `auto` (default): Auto-detect based on model provider. Uses `file` for providers
+ *   with vetted native PDF support (Anthropic, Google), `image` for all others.
+ *   Models without native PDF support require a `convertPdfToImages` callback.
  *
- * - `anthropic-file`: Anthropic's native PDF file format `{ type: "file", data, mediaType }`.
- *   Only works with Anthropic/Claude models. Best quality and most efficient.
+ * - `file`: Native PDF file input `{ type: "file", data, mediaType }`. Works with
+ *   providers that support direct PDF uploads (Anthropic, Google). Most efficient.
  *
- * - `image`: Convert PDF pages to base64-encoded images. Works with most providers
- *   (OpenAI, Kimi, DeepSeek, etc.) that support vision/image inputs. Requires
+ * - `image`: Convert PDF pages to base64-encoded images. Works with any provider
+ *   that supports vision/image inputs (OpenAI, Kimi, DeepSeek, etc.). Requires
  *   providing `convertPdfToImages` callback.
  */
-export type PdfContentFormat = "auto" | "anthropic-file" | "image";
+export type PdfContentFormat = "auto" | "file" | "image";
 
 /**
  * Callback function to convert PDF pages to base64-encoded images.

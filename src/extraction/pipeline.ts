@@ -24,7 +24,7 @@
 import { generateText, type LanguageModel } from "ai";
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { ModelConfig, PdfContentFormat, ConvertPdfToImagesFn } from "../types/models";
-import { resolveTokenLimits, type TokenLimits } from "../types/models";
+import { resolveTokenLimits, supportsNativePdf, type TokenLimits } from "../types/models";
 import { METADATA_PROMPT, QUOTE_METADATA_PROMPT, CLASSIFY_DOCUMENT_PROMPT, buildSectionsPrompt, buildQuoteSectionsPrompt, buildSupplementaryEnrichmentPrompt, buildPersonalLinesHint } from "../prompts/extraction";
 import { extractPageRange, getPdfPageCount } from "./pdf";
 
@@ -590,18 +590,17 @@ function getEffectivePdfFormat(
 ): Exclude<PdfContentFormat, "auto"> {
   if (format !== "auto") return format;
 
-  // Auto-detect: Anthropic models support native PDF files
-  const provider = ((model as any).provider || (model as any).providerId || "").toLowerCase();
-  if (provider.includes("anthropic")) {
-    return "anthropic-file";
+  // Auto-detect: check if provider has vetted native PDF support
+  if (supportsNativePdf(model)) {
+    return "file";
   }
 
-  // Non-Anthropic models require image conversion — text fallback loses layout
+  // All other providers require image conversion
   if (!hasImageConverter) {
     throw new Error(
-      "Non-Anthropic models require a convertPdfToImages callback for PDF extraction. " +
-      "Provide convertPdfToImages in options to convert PDF pages to images, " +
-      "or use an Anthropic model which supports native PDF input."
+      "This model's provider does not have vetted native PDF support. " +
+      "Provide a convertPdfToImages callback to convert PDF pages to images, " +
+      "or use a provider with native PDF support (Anthropic, Google)."
     );
   }
   return "image";
@@ -621,7 +620,7 @@ async function buildPdfContentParts(
     ? await extractPageRange(pdfBase64, pageRange[0], pageRange[1])
     : pdfBase64;
 
-  if (format === "anthropic-file") {
+  if (format === "file") {
     return [{ type: "file" as const, data: pdfToSend, mediaType: "application/pdf" }];
   }
 

@@ -48,47 +48,33 @@ const fields = applyExtracted(extracted);
 
 ### Any Provider
 
-CL-0 SDK is provider-agnostic and works with any Vercel AI SDK-compatible provider (OpenAI, Anthropic, Google, Mistral, MoonshotAI/Kimi, DeepSeek, etc.).
+CL-0 SDK is provider-agnostic and works with any Vercel AI SDK-compatible provider.
 
-**Auto-detection (recommended):**
+**Providers with native PDF support** (Anthropic, Google) work out of the box — the SDK sends PDFs directly via `{ type: "file" }`:
+
 ```typescript
-import { createOpenAI } from "@ai-sdk/openai";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { extractFromPdf, createUniformModelConfig } from "@claritylabs/cl-sdk";
 
-const openai = createOpenAI();
+const google = createGoogleGenerativeAI();
 const { extracted } = await extractFromPdf(pdfBase64, {
-  models: createUniformModelConfig(openai("gpt-4o")),
-  // pdfContentFormat defaults to "auto" — detects provider and chooses best format
+  models: createUniformModelConfig(google("gemini-2.0-flash")),
+  // pdfContentFormat defaults to "auto" — native PDF detected automatically
 });
 ```
 
-**With PDF-to-image conversion (for providers without native PDF support):**
-
-Most providers (OpenAI, Kimi, DeepSeek, etc.) don't support native PDF input but do support image inputs. Provide a `convertPdfToImages` callback:
+**All other providers** (OpenAI, Kimi, DeepSeek, etc.) require a `convertPdfToImages` callback to convert PDF pages to images before sending. The SDK does not bundle a PDF-to-image converter — you provide your own using whatever library works in your runtime:
 
 ```typescript
 import { extractFromPdf, createUniformModelConfig } from "@claritylabs/cl-sdk";
-import { fromBuffer } from "pdf2pic"; // or any conversion library
-
-const convertPdfToImages = async (pdfBase64: string, startPage: number, endPage: number) => {
-  const buffer = Buffer.from(pdfBase64, "base64");
-  const converter = fromBuffer(buffer, {
-    density: 150,
-    format: "png",
-    width: 1200,
-  });
-
-  const images = [];
-  for (let page = startPage; page <= endPage; page++) {
-    const result = await converter(page, { responseType: "base64" });
-    images.push({ imageBase64: result.base64, mimeType: "image/png" });
-  }
-  return images;
-};
 
 const { extracted } = await extractFromPdf(pdfBase64, {
-  models: createUniformModelConfig(kimiModel), // or openai, deepseek, etc.
-  convertPdfToImages, // Required for non-Anthropic providers
+  models: createUniformModelConfig(yourModel),
+  convertPdfToImages: async (pdfBase64, startPage, endPage) => {
+    // Use any PDF-to-image library (pdf2pic, mupdf, pdfjs-dist, etc.)
+    // Return one { imageBase64, mimeType } per page
+    return pages;
+  },
 });
 ```
 
@@ -205,8 +191,8 @@ interface ExtractOptions {
   concurrency?: number;            // parallel chunk limit (default: 2)
   tokenLimits?: TokenLimits;       // override default maxTokens per role
   onTokenUsage?: (usage: TokenUsage) => void;
-  pdfContentFormat?: "auto" | "anthropic-file" | "image"; // default: "auto"
-  convertPdfToImages?: ConvertPdfToImagesFn; // required for non-Anthropic models
+  pdfContentFormat?: "auto" | "file" | "image";  // default: "auto"
+  convertPdfToImages?: ConvertPdfToImagesFn;     // required if provider lacks native PDF support
 }
 
 interface ExtractSectionsOptions {
@@ -217,8 +203,8 @@ interface ExtractSectionsOptions {
   concurrency?: number;            // parallel chunk limit (default: 2)
   tokenLimits?: TokenLimits;       // override default maxTokens per role
   onTokenUsage?: (usage: TokenUsage) => void;
-  pdfContentFormat?: "auto" | "anthropic-file" | "image"; // default: "auto"
-  convertPdfToImages?: ConvertPdfToImagesFn; // required for non-Anthropic models
+  pdfContentFormat?: "auto" | "file" | "image";  // default: "auto"
+  convertPdfToImages?: ConvertPdfToImagesFn;     // required if provider lacks native PDF support
 }
 
 interface ClassifyOptions {
@@ -226,8 +212,8 @@ interface ClassifyOptions {
   models: ModelConfig;             // required — bring your own models
   tokenLimits?: TokenLimits;       // override default maxTokens per role
   onTokenUsage?: (usage: TokenUsage) => void;
-  pdfContentFormat?: "auto" | "anthropic-file" | "image"; // default: "auto"
-  convertPdfToImages?: ConvertPdfToImagesFn; // required for non-Anthropic models
+  pdfContentFormat?: "auto" | "file" | "image";  // default: "auto"
+  convertPdfToImages?: ConvertPdfToImagesFn;     // required if provider lacks native PDF support
 }
 
 // Override default token limits per role (all fields optional)
@@ -257,11 +243,13 @@ The SDK supports multiple ways to send PDF content to models:
 
 | Format | Description | Best For |
 |--------|-------------|----------|
-| `auto` (default) | Auto-detect based on model provider. Uses native PDF for Anthropic, image conversion for others. | Most use cases |
-| `anthropic-file` | Native Anthropic PDF format. Most efficient and accurate. | Claude models only |
+| `auto` (default) | Auto-detect based on model provider. Uses `file` for vetted providers, `image` for others. | Most use cases |
+| `file` | Native PDF file input. Most efficient and accurate. | Anthropic, Google |
 | `image` | Converts PDF pages to base64 images via `convertPdfToImages` callback. | OpenAI, Kimi, DeepSeek, etc. |
 
-Non-Anthropic models **require** a `convertPdfToImages` callback — the SDK does not silently fall back to text extraction, which would lose the visual layout information critical for insurance document parsing.
+**Vetted native PDF providers:** Anthropic (Claude), Google (Gemini). These accept PDF files directly without conversion.
+
+**All other providers** require a `convertPdfToImages` callback to convert PDF pages to images. The SDK will throw a clear error if the callback is missing — it does not silently degrade to text extraction, which would lose the visual layout critical for insurance document parsing. Use any PDF-to-image library that works in your runtime (pdf2pic, mupdf, pdfjs-dist, etc.).
 
 ### Rate-Limit Resilience
 
