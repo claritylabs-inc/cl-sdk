@@ -67,7 +67,7 @@ export function createUniformModelConfig(model: LanguageModel): ModelConfig {
 /** Token limits per role — determined by the task, not the provider. */
 export const MODEL_TOKEN_LIMITS = {
   classification: 512,
-  metadata: 4096,
+  metadata: 16384,
   sections: 8192,
   sectionsFallback: 16384,
   enrichment: 4096,
