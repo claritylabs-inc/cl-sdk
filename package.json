@@ -1,6 +1,6 @@
 {
   "name": "@claritylabs/cl-sdk",
-  "version": "3.1.1",
+  "version": "4.0.0",
   "description": "CL-0 SDK — open infrastructure for building AI agents that work with insurance",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

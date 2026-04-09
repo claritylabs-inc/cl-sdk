@@ -1,3 +1,19 @@
+# [4.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.1...v4.0.0) (2026-04-09)
+
+
+* feat!: require convertPdfToImages for non-Anthropic models ([bd97645](https://github.com/claritylabs-inc/cl-sdk/commit/bd97645aabbd66ecd6e197870ed6346ec32ed04c))
+
+
+### BREAKING CHANGES
+
+* Non-Anthropic models now require a convertPdfToImages
+callback — the SDK throws instead of silently falling back to text
+extraction, which would lose visual layout information critical for
+insurance document parsing. The "text" PdfContentFormat option has been
+removed.
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+
 ## [3.1.1](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.0...v3.1.1) (2026-04-09)
 
 
