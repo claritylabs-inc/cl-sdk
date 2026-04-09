@@ -34,7 +34,8 @@ Separate flows exist for policies (`extractFromPdf`) vs quotes (`extractQuoteFro
 Provider-agnostic via Vercel AI SDK. The pipeline accepts `ModelConfig` with `LanguageModel` instances for each role (classification, metadata, sections, sectionsFallback, enrichment). Consumers bring their own provider package (`@ai-sdk/anthropic`, `@ai-sdk/openai`, etc.).
 
 - `createUniformModelConfig(model)` — same model for all roles
-- `MODEL_TOKEN_LIMITS` — per-role token limits (task-determined, not provider-determined)
+- `DEFAULT_TOKEN_LIMITS` — default per-role token limits; `MODEL_TOKEN_LIMITS` is a deprecated alias
+- `TokenLimits` / `resolveTokenLimits(overrides?)` — override maxTokens per role via options
 - `isAnthropicModel(model)` — detect if model is from Anthropic for format auto-detection
 
 Public functions use options objects (`ExtractOptions`, `ClassifyOptions`, `ExtractSectionsOptions`) with required `models` field — no default provider is assumed. Provider-specific config (e.g. Anthropic thinking) goes through `providerOptions`. Options also include `concurrency` (parallel chunk limit, default 2) and `onTokenUsage` callback for tracking cumulative token usage.
@@ -74,7 +75,7 @@ Two modes using pdf-lib:
 
 - `document.ts` — `BaseDocument`, `PolicyDocument`, `QuoteDocument`, `InsuranceDocument` (discriminated union), `Coverage`, `Section`, `Subsection`, `Subjectivity`, `UnderwritingCondition`, `PremiumLine`
 - `platform.ts` — `Platform`, `CommunicationIntent`, `PlatformConfig`, `AgentContext`, `PLATFORM_CONFIGS`
-- `models.ts` — `ModelConfig`, `createUniformModelConfig`, `createDefaultModelConfig`, `MODEL_TOKEN_LIMITS`
+- `models.ts` — `ModelConfig`, `createUniformModelConfig`, `DEFAULT_TOKEN_LIMITS`, `TokenLimits`, `resolveTokenLimits`, `PdfContentFormat`, `ConvertPdfToImagesFn`, `isAnthropicModel`
 
 ### Tool Definitions (`src/tools/`)
 
@@ -98,8 +99,9 @@ Versioning and publishing are fully automated via [semantic-release](https://git
 1. Analyzes commit messages (conventional commits) to determine the semver bump
 2. Updates `CHANGELOG.md`, `package.json`, and `package-lock.json`
 3. Creates a GitHub release with auto-generated release notes
-4. Publishes to GitHub Packages (`npm.pkg.github.com`)
-5. Commits the updated files back to `master`
+4. Commits the updated files back to `master`
+5. Publishes to npm (`registry.npmjs.org`)
+6. Triggers `cl-sdk-docs` rebuild
 
 **Commit message format** (determines version bump):
 - `fix: ...` → patch (0.0.x)

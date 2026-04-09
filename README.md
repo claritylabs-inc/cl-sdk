@@ -178,7 +178,7 @@ Comprehensive TypeScript type system for the insurance domain:
 
 - **Document types** — `PolicyDocument`, `QuoteDocument`, and `InsuranceDocument` discriminated union
 - **Platform types** — `Platform`, `CommunicationIntent`, `PlatformConfig`, `AgentContext`
-- **Model types** — `ModelConfig`, `createUniformModelConfig`
+- **Model types** — `ModelConfig`, `createUniformModelConfig`, `TokenLimits`, `DEFAULT_TOKEN_LIMITS`
 
 ## API Reference
 
@@ -203,6 +203,7 @@ interface ExtractOptions {
   metadataProviderOptions?: ProviderOptions;
   fallbackProviderOptions?: ProviderOptions;
   concurrency?: number;            // parallel chunk limit (default: 2)
+  tokenLimits?: TokenLimits;       // override default maxTokens per role
   onTokenUsage?: (usage: TokenUsage) => void;
   pdfContentFormat?: "auto" | "anthropic-file" | "image" | "text"; // default: "auto"
   convertPdfToImages?: ConvertPdfToImagesFn; // required for "image" format
@@ -214,6 +215,7 @@ interface ExtractSectionsOptions {
   models: ModelConfig;             // required — bring your own models
   fallbackProviderOptions?: ProviderOptions;
   concurrency?: number;            // parallel chunk limit (default: 2)
+  tokenLimits?: TokenLimits;       // override default maxTokens per role
   onTokenUsage?: (usage: TokenUsage) => void;
   pdfContentFormat?: "auto" | "anthropic-file" | "image" | "text"; // default: "auto"
   convertPdfToImages?: ConvertPdfToImagesFn; // required for "image" format
@@ -222,9 +224,19 @@ interface ExtractSectionsOptions {
 interface ClassifyOptions {
   log?: LogFn;
   models: ModelConfig;             // required — bring your own models
+  tokenLimits?: TokenLimits;       // override default maxTokens per role
   onTokenUsage?: (usage: TokenUsage) => void;
   pdfContentFormat?: "auto" | "anthropic-file" | "image" | "text"; // default: "auto"
   convertPdfToImages?: ConvertPdfToImagesFn; // required for "image" format
+}
+
+// Override default token limits per role (all fields optional)
+interface TokenLimits {
+  classification?: number;  // default: 512
+  metadata?: number;        // default: 16384
+  sections?: number;        // default: 8192
+  sectionsFallback?: number; // default: 16384
+  enrichment?: number;      // default: 4096
 }
 
 interface TokenUsage {
