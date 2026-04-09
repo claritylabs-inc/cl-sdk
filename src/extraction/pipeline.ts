@@ -24,7 +24,7 @@
 import { generateText, type LanguageModel } from "ai";
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { ModelConfig, PdfContentFormat, ConvertPdfToImagesFn } from "../types/models";
-import { MODEL_TOKEN_LIMITS } from "../types/models";
+import { resolveTokenLimits, type TokenLimits } from "../types/models";
 import { METADATA_PROMPT, QUOTE_METADATA_PROMPT, CLASSIFY_DOCUMENT_PROMPT, buildSectionsPrompt, buildQuoteSectionsPrompt, buildSupplementaryEnrichmentPrompt, buildPersonalLinesHint } from "../prompts/extraction";
 import { extractPageRange, getPdfPageCount } from "./pdf";
 
@@ -736,7 +736,9 @@ export async function enrichSupplementaryFields(
   models: ModelConfig,
   log?: LogFn,
   onTokenUsage?: (usage: TokenUsage) => void,
+  tokenLimits?: TokenLimits,
 ): Promise<any> {
+  const limits = resolveTokenLimits(tokenLimits);
   const fields: Record<string, string> = {};
   if (document.regulatoryContext?.content) {
     fields.regulatoryContext = document.regulatoryContext.content;
@@ -760,7 +762,7 @@ export async function enrichSupplementaryFields(
 
   try {
     const prompt = buildSupplementaryEnrichmentPrompt(fields);
-    const raw = await callModelText(models.enrichment, prompt, MODEL_TOKEN_LIMITS.enrichment, log, onTokenUsage);
+    const raw = await callModelText(models.enrichment, prompt, limits.enrichment, log, onTokenUsage);
     const parsed = JSON.parse(stripFences(raw));
 
     const enriched = { ...document };
@@ -807,6 +809,8 @@ export interface ClassifyOptions {
   pdfContentFormat?: PdfContentFormat;
   /** Required when pdfContentFormat is "image". Converts PDF pages to base64 images. */
   convertPdfToImages?: ConvertPdfToImagesFn;
+  /** Override default token limits per role. */
+  tokenLimits?: TokenLimits;
 }
 
 /**
@@ -816,11 +820,12 @@ export async function classifyDocumentType(
   pdfBase64: string,
   options: ClassifyOptions,
 ): Promise<{ documentType: "policy" | "quote"; confidence: number; signals: string[] }> {
-  const { log, models, onTokenUsage, pdfContentFormat, convertPdfToImages } = options;
+  const { log, models, onTokenUsage, pdfContentFormat, convertPdfToImages, tokenLimits } = options;
+  const limits = resolveTokenLimits(tokenLimits);
   await log?.("Pass 0: Classifying document type...");
   const raw = await callModel(
     models.classification, pdfBase64, CLASSIFY_DOCUMENT_PROMPT,
-    MODEL_TOKEN_LIMITS.classification, undefined, log, onTokenUsage,
+    limits.classification, undefined, log, onTokenUsage,
     [1, 3], // Only need first 3 pages for classification
     pdfContentFormat, convertPdfToImages,
   );
@@ -992,11 +997,12 @@ async function extractChunkWithRetry(
   concurrency: number = 2,
   pdfContentFormat: PdfContentFormat = "auto",
   convertPdfToImages?: ConvertPdfToImagesFn,
+  limits: Required<TokenLimits> = resolveTokenLimits(),
 ): Promise<any[]> {
   await log?.(`Pass 2: Extracting sections pages ${start}–${end}...`);
   const chunkRaw = await callModel(
     models.sections, pdfBase64, promptBuilder(start, end),
-    MODEL_TOKEN_LIMITS.sections, undefined, log, onTokenUsage,
+    limits.sections, undefined, log, onTokenUsage,
     [start, end], // Only send this chunk's pages
     pdfContentFormat, convertPdfToImages,
   );
@@ -1019,7 +1025,7 @@ async function extractChunkWithRetry(
             limit(() => extractChunkWithRetry(
               models, pdfBase64, subStart, subEnd, nextSizeIndex,
               promptBuilder, fallbackProviderOptions, log, onTokenUsage, concurrency,
-              pdfContentFormat, convertPdfToImages,
+              pdfContentFormat, convertPdfToImages, limits,
             ))
           ),
         );
@@ -1031,7 +1037,7 @@ async function extractChunkWithRetry(
     await log?.(`Sections model exhausted for pages ${start}–${end}, falling back...`);
     const fallbackRaw = await callModel(
       models.sectionsFallback, pdfBase64, promptBuilder(start, end),
-      MODEL_TOKEN_LIMITS.sectionsFallback, fallbackProviderOptions, log, onTokenUsage,
+      limits.sectionsFallback, fallbackProviderOptions, log, onTokenUsage,
       [start, end], // Only send this chunk's pages
       pdfContentFormat, convertPdfToImages,
     );
@@ -1059,7 +1065,9 @@ async function extractSectionChunks(
   concurrency: number = 2,
   pdfContentFormat: PdfContentFormat = "auto",
   convertPdfToImages?: ConvertPdfToImagesFn,
+  tokenLimits?: TokenLimits,
 ): Promise<any[]> {
+  const limits = resolveTokenLimits(tokenLimits);
   const chunks = getPageChunks(pageCount, CHUNK_SIZES[0]);
   const limit = pLimit(concurrency);
 
@@ -1068,7 +1076,7 @@ async function extractSectionChunks(
       limit(() => extractChunkWithRetry(
         models, pdfBase64, start, end, 0, promptBuilder,
         fallbackProviderOptions, log, onTokenUsage, concurrency,
-        pdfContentFormat, convertPdfToImages,
+        pdfContentFormat, convertPdfToImages, limits,
       ))
     ),
   );
@@ -1098,6 +1106,8 @@ export interface ExtractOptions {
   pdfContentFormat?: PdfContentFormat;
   /** Required when pdfContentFormat is "image". Converts PDF pages to base64 images. */
   convertPdfToImages?: ConvertPdfToImagesFn;
+  /** Override default token limits per role. */
+  tokenLimits?: TokenLimits;
 }
 
 /**
@@ -1124,7 +1134,9 @@ export async function extractFromPdf(
     onTokenUsage,
     pdfContentFormat = "auto",
     convertPdfToImages,
+    tokenLimits,
   } = options;
+  const limits = resolveTokenLimits(tokenLimits);
 
   // Get actual page count for smart page trimming
   const actualPageCount = await getPdfPageCount(pdfBase64);
@@ -1134,7 +1146,7 @@ export async function extractFromPdf(
   const metadataPageRange: [number, number] = [1, Math.min(10, actualPageCount)];
   const metadataRaw = await callModel(
     models.metadata, pdfBase64, METADATA_PROMPT,
-    MODEL_TOKEN_LIMITS.metadata, metadataProviderOptions, log, onTokenUsage,
+    limits.metadata, metadataProviderOptions, log, onTokenUsage,
     metadataPageRange, pdfContentFormat, convertPdfToImages,
   );
 
@@ -1158,7 +1170,7 @@ export async function extractFromPdf(
   const sectionChunks = await extractSectionChunks(
     models, pdfBase64, pageCount, buildSectionsPrompt,
     fallbackProviderOptions, log, onTokenUsage, concurrency,
-    pdfContentFormat, convertPdfToImages,
+    pdfContentFormat, convertPdfToImages, tokenLimits,
   );
 
   await log?.("Merging extraction results...");
@@ -1166,7 +1178,7 @@ export async function extractFromPdf(
 
   // Pass 3: Enrich supplementary fields (non-fatal)
   if (merged.document) {
-    merged.document = await enrichSupplementaryFields(merged.document, models, log, onTokenUsage);
+    merged.document = await enrichSupplementaryFields(merged.document, models, log, onTokenUsage, tokenLimits);
   }
 
   const mergedRaw = JSON.stringify(merged);
@@ -1187,6 +1199,8 @@ export interface ExtractSectionsOptions {
   pdfContentFormat?: PdfContentFormat;
   /** Required when pdfContentFormat is "image". Converts PDF pages to base64 images. */
   convertPdfToImages?: ConvertPdfToImagesFn;
+  /** Override default token limits per role. */
+  tokenLimits?: TokenLimits;
 }
 
 /**
@@ -1207,6 +1221,7 @@ export async function extractSectionsOnly(
     onTokenUsage,
     pdfContentFormat = "auto",
     convertPdfToImages,
+    tokenLimits,
   } = options;
 
   await log?.("Using saved metadata, skipping pass 1...");
@@ -1223,7 +1238,7 @@ export async function extractSectionsOnly(
   const sectionChunks = await extractSectionChunks(
     models, pdfBase64, pageCount, promptBuilder,
     fallbackProviderOptions, log, onTokenUsage, concurrency,
-    pdfContentFormat, convertPdfToImages,
+    pdfContentFormat, convertPdfToImages, tokenLimits,
   );
 
   await log?.("Merging extraction results...");
@@ -1231,7 +1246,7 @@ export async function extractSectionsOnly(
 
   // Pass 3: Enrich supplementary fields (non-fatal)
   if (merged.document) {
-    merged.document = await enrichSupplementaryFields(merged.document, models, log, onTokenUsage);
+    merged.document = await enrichSupplementaryFields(merged.document, models, log, onTokenUsage, tokenLimits);
   }
 
   const mergedRaw = JSON.stringify(merged);
@@ -1264,7 +1279,9 @@ export async function extractQuoteFromPdf(
     onTokenUsage,
     pdfContentFormat = "auto",
     convertPdfToImages,
+    tokenLimits,
   } = options;
+  const limits = resolveTokenLimits(tokenLimits);
 
   // Get actual page count for smart page trimming
   const actualPageCount = await getPdfPageCount(pdfBase64);
@@ -1274,7 +1291,7 @@ export async function extractQuoteFromPdf(
   const metadataPageRange: [number, number] = [1, Math.min(10, actualPageCount)];
   const metadataRaw = await callModel(
     models.metadata, pdfBase64, QUOTE_METADATA_PROMPT,
-    MODEL_TOKEN_LIMITS.metadata, metadataProviderOptions, log, onTokenUsage,
+    limits.metadata, metadataProviderOptions, log, onTokenUsage,
     metadataPageRange, pdfContentFormat, convertPdfToImages,
   );
 
@@ -1298,7 +1315,7 @@ export async function extractQuoteFromPdf(
   const sectionChunks = await extractSectionChunks(
     models, pdfBase64, pageCount, buildQuoteSectionsPrompt,
     fallbackProviderOptions, log, onTokenUsage, concurrency,
-    pdfContentFormat, convertPdfToImages,
+    pdfContentFormat, convertPdfToImages, tokenLimits,
   );
 
   await log?.("Merging quote extraction results...");

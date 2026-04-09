@@ -64,11 +64,36 @@ export function createUniformModelConfig(model: LanguageModel): ModelConfig {
   };
 }
 
-/** Token limits per role — determined by the task, not the provider. */
-export const MODEL_TOKEN_LIMITS = {
+/** Token limits per extraction role. All fields optional — defaults applied by resolveTokenLimits. */
+export type TokenLimits = {
+  classification?: number;
+  metadata?: number;
+  sections?: number;
+  sectionsFallback?: number;
+  enrichment?: number;
+};
+
+/** Default token limits per role. Override via ExtractOptions.tokenLimits. */
+export const DEFAULT_TOKEN_LIMITS: Required<TokenLimits> = {
   classification: 512,
   metadata: 16384,
   sections: 8192,
   sectionsFallback: 16384,
   enrichment: 4096,
-} as const;
+};
+
+/** Resolve token limits with overrides merged over defaults. */
+export function resolveTokenLimits(overrides?: TokenLimits): Required<TokenLimits> {
+  return {
+    classification: overrides?.classification ?? 512,
+    metadata: overrides?.metadata ?? 16384,
+    sections: overrides?.sections ?? 8192,
+    sectionsFallback: overrides?.sectionsFallback ?? 16384,
+    enrichment: overrides?.enrichment ?? 4096,
+  };
+}
+
+/**
+ * @deprecated Use DEFAULT_TOKEN_LIMITS instead. Kept for backward compatibility.
+ */
+export const MODEL_TOKEN_LIMITS = DEFAULT_TOKEN_LIMITS;

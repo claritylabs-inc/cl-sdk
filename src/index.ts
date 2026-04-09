@@ -147,8 +147,8 @@ export type {
 export { PLATFORM_CONFIGS } from "./types/platform";
 
 // Types - Models
-export type { ModelConfig, PdfContentFormat, ConvertPdfToImagesFn } from "./types/models";
-export { createUniformModelConfig, MODEL_TOKEN_LIMITS, isAnthropicModel } from "./types/models";
+export type { ModelConfig, PdfContentFormat, ConvertPdfToImagesFn, TokenLimits } from "./types/models";
+export { createUniformModelConfig, MODEL_TOKEN_LIMITS, DEFAULT_TOKEN_LIMITS, resolveTokenLimits, isAnthropicModel } from "./types/models";
 
 // Extraction Prompts
 export {
