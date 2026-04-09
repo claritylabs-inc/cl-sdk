@@ -1,27 +1,5 @@
 import type { LanguageModel } from "ai";
 
-/**
- * Providers vetted for native PDF file input support.
- * These providers accept `{ type: "file", data, mediaType: "application/pdf" }`
- * directly without needing image conversion.
- */
-const NATIVE_PDF_PROVIDERS = ["anthropic", "google"];
-
-/**
- * Check if a LanguageModel is from a provider with vetted native PDF support.
- */
-export function supportsNativePdf(model: LanguageModel): boolean {
-  const provider = ((model as any).provider || (model as any).providerId || "").toLowerCase();
-  return NATIVE_PDF_PROVIDERS.some(p => provider.includes(p));
-}
-
-/**
- * @deprecated Use supportsNativePdf instead.
- */
-export function isAnthropicModel(model: LanguageModel): boolean {
-  return supportsNativePdf(model);
-}
-
 export interface ModelConfig {
   /** Pass 0: document type classification (fast, cheap model) */
   classification: LanguageModel;
@@ -38,18 +16,14 @@ export interface ModelConfig {
 /**
  * Format for sending PDF content to the model.
  *
- * - `auto` (default): Auto-detect based on model provider. Uses `file` for providers
- *   with vetted native PDF support (Anthropic, Google), `image` for all others.
- *   Models without native PDF support require a `convertPdfToImages` callback.
+ * - `file` (default): Send PDF as a native file `{ type: "file", data, mediaType }`.
+ *   Most providers support this (Anthropic, Google, OpenAI, Mistral, Bedrock, etc.).
+ *   Most efficient — no conversion needed.
  *
- * - `file`: Native PDF file input `{ type: "file", data, mediaType }`. Works with
- *   providers that support direct PDF uploads (Anthropic, Google). Most efficient.
- *
- * - `image`: Convert PDF pages to base64-encoded images. Works with any provider
- *   that supports vision/image inputs (OpenAI, Kimi, DeepSeek, etc.). Requires
- *   providing `convertPdfToImages` callback.
+ * - `image`: Convert PDF pages to base64-encoded images. Fallback for models that
+ *   don't support native PDF file input. Requires providing `convertPdfToImages` callback.
  */
-export type PdfContentFormat = "auto" | "file" | "image";
+export type PdfContentFormat = "file" | "image";
 
 /**
  * Callback function to convert PDF pages to base64-encoded images.

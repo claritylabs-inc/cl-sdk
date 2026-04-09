@@ -48,30 +48,25 @@ const fields = applyExtracted(extracted);
 
 ### Any Provider
 
-CL-0 SDK is provider-agnostic and works with any Vercel AI SDK-compatible provider.
-
-**Providers with native PDF support** (Anthropic, Google) work out of the box — the SDK sends PDFs directly via `{ type: "file" }`:
+CL-0 SDK is provider-agnostic — PDFs are sent as native files by default, which most providers support (Anthropic, Google, OpenAI, Mistral, Bedrock, Azure):
 
 ```typescript
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createOpenAI } from "@ai-sdk/openai";
 import { extractFromPdf, createUniformModelConfig } from "@claritylabs/cl-sdk";
 
-const google = createGoogleGenerativeAI();
+const openai = createOpenAI();
 const { extracted } = await extractFromPdf(pdfBase64, {
-  models: createUniformModelConfig(google("gemini-2.0-flash")),
-  // pdfContentFormat defaults to "auto" — native PDF detected automatically
+  models: createUniformModelConfig(openai("gpt-4o")),
 });
 ```
 
-**All other providers** (OpenAI, Kimi, DeepSeek, etc.) require a `convertPdfToImages` callback to convert PDF pages to images before sending. The SDK does not bundle a PDF-to-image converter — you provide your own using whatever library works in your runtime:
+If your model doesn't support native PDF input, set `pdfContentFormat: "image"` and provide a `convertPdfToImages` callback. The SDK does not bundle a converter — use whatever library works in your runtime (pdf2pic, mupdf, pdfjs-dist, etc.):
 
 ```typescript
-import { extractFromPdf, createUniformModelConfig } from "@claritylabs/cl-sdk";
-
 const { extracted } = await extractFromPdf(pdfBase64, {
   models: createUniformModelConfig(yourModel),
+  pdfContentFormat: "image",
   convertPdfToImages: async (pdfBase64, startPage, endPage) => {
-    // Use any PDF-to-image library (pdf2pic, mupdf, pdfjs-dist, etc.)
     // Return one { imageBase64, mimeType } per page
     return pages;
   },
@@ -191,8 +186,8 @@ interface ExtractOptions {
   concurrency?: number;            // parallel chunk limit (default: 2)
   tokenLimits?: TokenLimits;       // override default maxTokens per role
   onTokenUsage?: (usage: TokenUsage) => void;
-  pdfContentFormat?: "auto" | "file" | "image";  // default: "auto"
-  convertPdfToImages?: ConvertPdfToImagesFn;     // required if provider lacks native PDF support
+  pdfContentFormat?: "file" | "image";             // default: "file"
+  convertPdfToImages?: ConvertPdfToImagesFn;       // required when pdfContentFormat is "image"
 }
 
 interface ExtractSectionsOptions {
@@ -203,8 +198,8 @@ interface ExtractSectionsOptions {
   concurrency?: number;            // parallel chunk limit (default: 2)
   tokenLimits?: TokenLimits;       // override default maxTokens per role
   onTokenUsage?: (usage: TokenUsage) => void;
-  pdfContentFormat?: "auto" | "file" | "image";  // default: "auto"
-  convertPdfToImages?: ConvertPdfToImagesFn;     // required if provider lacks native PDF support
+  pdfContentFormat?: "file" | "image";             // default: "file"
+  convertPdfToImages?: ConvertPdfToImagesFn;       // required when pdfContentFormat is "image"
 }
 
 interface ClassifyOptions {
@@ -212,8 +207,8 @@ interface ClassifyOptions {
   models: ModelConfig;             // required — bring your own models
   tokenLimits?: TokenLimits;       // override default maxTokens per role
   onTokenUsage?: (usage: TokenUsage) => void;
-  pdfContentFormat?: "auto" | "file" | "image";  // default: "auto"
-  convertPdfToImages?: ConvertPdfToImagesFn;     // required if provider lacks native PDF support
+  pdfContentFormat?: "file" | "image";             // default: "file"
+  convertPdfToImages?: ConvertPdfToImagesFn;       // required when pdfContentFormat is "image"
 }
 
 // Override default token limits per role (all fields optional)
@@ -239,17 +234,12 @@ type ConvertPdfToImagesFn = (
 
 ### PDF Content Formats
 
-The SDK supports multiple ways to send PDF content to models:
+| Format | Description | When to use |
+|--------|-------------|-------------|
+| `file` (default) | Send PDF as a native file. Most efficient — no conversion needed. | Most models (Anthropic, Google, OpenAI, Mistral, Bedrock, Azure) |
+| `image` | Convert PDF pages to images via `convertPdfToImages` callback. | Models that don't support native PDF file input |
 
-| Format | Description | Best For |
-|--------|-------------|----------|
-| `auto` (default) | Auto-detect based on model provider. Uses `file` for vetted providers, `image` for others. | Most use cases |
-| `file` | Native PDF file input. Most efficient and accurate. | Anthropic, Google |
-| `image` | Converts PDF pages to base64 images via `convertPdfToImages` callback. | OpenAI, Kimi, DeepSeek, etc. |
-
-**Vetted native PDF providers:** Anthropic (Claude), Google (Gemini). These accept PDF files directly without conversion.
-
-**All other providers** require a `convertPdfToImages` callback to convert PDF pages to images. The SDK will throw a clear error if the callback is missing — it does not silently degrade to text extraction, which would lose the visual layout critical for insurance document parsing. Use any PDF-to-image library that works in your runtime (pdf2pic, mupdf, pdfjs-dist, etc.).
+The SDK defaults to `"file"` — most modern models support native PDF input. If your model doesn't, set `pdfContentFormat: "image"` and provide a `convertPdfToImages` callback. The SDK does not bundle a converter — use whatever library works in your runtime (pdf2pic, mupdf, pdfjs-dist, etc.).
 
 ### Rate-Limit Resilience
 

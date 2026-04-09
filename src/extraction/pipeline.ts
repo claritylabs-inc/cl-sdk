@@ -24,7 +24,7 @@
 import { generateText, type LanguageModel } from "ai";
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { ModelConfig, PdfContentFormat, ConvertPdfToImagesFn } from "../types/models";
-import { resolveTokenLimits, supportsNativePdf, type TokenLimits } from "../types/models";
+import { resolveTokenLimits, type TokenLimits } from "../types/models";
 import { METADATA_PROMPT, QUOTE_METADATA_PROMPT, CLASSIFY_DOCUMENT_PROMPT, buildSectionsPrompt, buildQuoteSectionsPrompt, buildSupplementaryEnrichmentPrompt, buildPersonalLinesHint } from "../prompts/extraction";
 import { extractPageRange, getPdfPageCount } from "./pdf";
 
@@ -585,25 +585,16 @@ export function getPageChunks(totalPages: number, chunkSize: number = 30): Array
  */
 function getEffectivePdfFormat(
   format: PdfContentFormat,
-  model: LanguageModel,
   hasImageConverter: boolean,
-): Exclude<PdfContentFormat, "auto"> {
-  if (format !== "auto") return format;
-
-  // Auto-detect: check if provider has vetted native PDF support
-  if (supportsNativePdf(model)) {
-    return "file";
-  }
-
-  // All other providers require image conversion
-  if (!hasImageConverter) {
+): PdfContentFormat {
+  if (format === "image" && !hasImageConverter) {
     throw new Error(
-      "This model's provider does not have vetted native PDF support. " +
-      "Provide a convertPdfToImages callback to convert PDF pages to images, " +
-      "or use a provider with native PDF support (Anthropic, Google)."
+      "convertPdfToImages callback is required when pdfContentFormat is 'image'. " +
+      "Provide a convertPdfToImages callback, or use 'file' format (default) " +
+      "if your model supports native PDF input."
     );
   }
-  return "image";
+  return format;
 }
 
 /**
@@ -638,11 +629,7 @@ async function buildPdfContentParts(
     }));
   }
 
-  // format === "text" — not recommended, loses visual layout
-  throw new Error(
-    "Text-only PDF format is not supported. Use 'anthropic-file' (Anthropic models) " +
-    "or 'image' with a convertPdfToImages callback (all other providers)."
-  );
+  throw new Error(`Unsupported PDF format: ${format}`);
 }
 
 /**
@@ -661,14 +648,14 @@ async function callModel(
   log?: LogFn,
   onTokenUsage?: (usage: TokenUsage) => void,
   pageRange?: [number, number],
-  pdfContentFormat: PdfContentFormat = "auto",
+  pdfContentFormat: PdfContentFormat = "file",
   convertPdfToImages?: ConvertPdfToImagesFn,
 ): Promise<string> {
   const rangeLabel = pageRange ? ` [pages ${pageRange[0]}–${pageRange[1]}]` : "";
   await log?.(`Calling model (max ${maxTokens} tokens)${rangeLabel}...`);
   const start = Date.now();
 
-  const effectiveFormat = getEffectivePdfFormat(pdfContentFormat, model, !!convertPdfToImages);
+  const effectiveFormat = getEffectivePdfFormat(pdfContentFormat, !!convertPdfToImages);
   await log?.(`Using PDF format: ${effectiveFormat}`);
 
   const pdfParts = await buildPdfContentParts(pdfBase64, effectiveFormat, convertPdfToImages, pageRange);
@@ -1002,7 +989,7 @@ async function extractChunkWithRetry(
   log?: LogFn,
   onTokenUsage?: (usage: TokenUsage) => void,
   concurrency: number = 2,
-  pdfContentFormat: PdfContentFormat = "auto",
+  pdfContentFormat: PdfContentFormat = "file",
   convertPdfToImages?: ConvertPdfToImagesFn,
   limits: Required<TokenLimits> = resolveTokenLimits(),
 ): Promise<any[]> {
@@ -1070,7 +1057,7 @@ async function extractSectionChunks(
   log?: LogFn,
   onTokenUsage?: (usage: TokenUsage) => void,
   concurrency: number = 2,
-  pdfContentFormat: PdfContentFormat = "auto",
+  pdfContentFormat: PdfContentFormat = "file",
   convertPdfToImages?: ConvertPdfToImagesFn,
   tokenLimits?: TokenLimits,
 ): Promise<any[]> {
@@ -1139,7 +1126,7 @@ export async function extractFromPdf(
     fallbackProviderOptions,
     concurrency = 2,
     onTokenUsage,
-    pdfContentFormat = "auto",
+    pdfContentFormat = "file",
     convertPdfToImages,
     tokenLimits,
   } = options;
@@ -1226,7 +1213,7 @@ export async function extractSectionsOnly(
     fallbackProviderOptions,
     concurrency = 2,
     onTokenUsage,
-    pdfContentFormat = "auto",
+    pdfContentFormat = "file",
     convertPdfToImages,
     tokenLimits,
   } = options;
@@ -1284,7 +1271,7 @@ export async function extractQuoteFromPdf(
     fallbackProviderOptions,
     concurrency = 2,
     onTokenUsage,
-    pdfContentFormat = "auto",
+    pdfContentFormat = "file",
     convertPdfToImages,
     tokenLimits,
   } = options;

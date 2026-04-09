@@ -36,8 +36,6 @@ Provider-agnostic via Vercel AI SDK. The pipeline accepts `ModelConfig` with `La
 - `createUniformModelConfig(model)` — same model for all roles
 - `DEFAULT_TOKEN_LIMITS` — default per-role token limits; `MODEL_TOKEN_LIMITS` is a deprecated alias
 - `TokenLimits` / `resolveTokenLimits(overrides?)` — override maxTokens per role via options
-- `supportsNativePdf(model)` — check if model's provider has vetted native PDF support (Anthropic, Google)
-- `isAnthropicModel(model)` — deprecated alias for `supportsNativePdf`
 
 Public functions use options objects (`ExtractOptions`, `ClassifyOptions`, `ExtractSectionsOptions`) with required `models` field — no default provider is assumed. Provider-specific config (e.g. Anthropic thinking) goes through `providerOptions`. Options also include `concurrency` (parallel chunk limit, default 2) and `onTokenUsage` callback for tracking cumulative token usage.
 
@@ -45,11 +43,10 @@ Public functions use options objects (`ExtractOptions`, `ClassifyOptions`, `Extr
 
 The SDK supports multiple PDF input formats to work across different providers:
 
-- `auto` (default): Auto-detects provider. Uses `file` for vetted providers (Anthropic, Google), `image` for all others
-- `file`: Native PDF file input `{ type: "file", data, mediaType }` — most efficient, works with providers that accept PDFs directly
-- `image`: Converts PDF pages to base64 images via `convertPdfToImages` callback — works with any vision-capable model (OpenAI, Kimi, DeepSeek, etc.)
+- `file` (default): Send PDF as native file `{ type: "file", data, mediaType }` — most efficient, works with most providers (Anthropic, Google, OpenAI, Mistral, Bedrock, Azure)
+- `image`: Convert PDF pages to base64 images via `convertPdfToImages` callback — fallback for models that don't support native PDF input
 
-Providers without vetted native PDF support **require** `convertPdfToImages` — the SDK throws if it's missing rather than silently falling back to text extraction (which would lose the visual layout critical for insurance documents). The callback receives `(pdfBase64, startPage, endPage)` and returns an array of `{ imageBase64, mimeType }` for each page. The SDK does not bundle a converter — consumers use whatever library works in their runtime.
+No provider detection or sniffing — defaults to `file` for all providers. If a model doesn't support native PDF input, the consumer sets `pdfContentFormat: "image"` and provides a `convertPdfToImages` callback. The callback receives `(pdfBase64, startPage, endPage)` and returns an array of `{ imageBase64, mimeType }` per page. The SDK does not bundle a converter — consumers use whatever library works in their runtime.
 
 **Implementation details** (`src/extraction/pipeline.ts`):
 - `getEffectivePdfFormat()` — determines format based on setting + model provider
