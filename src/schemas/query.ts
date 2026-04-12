@@ -51,7 +51,7 @@ export const EvidenceItemSchema = z.object({
   turnId: z.string().optional(),
   text: z.string().describe("Text excerpt from the source"),
   relevance: z.number().min(0).max(1),
-  metadata: z.record(z.string(), z.string()).optional(),
+  metadata: z.array(z.object({ key: z.string(), value: z.string() })).optional(),
 });
 export type EvidenceItem = z.infer<typeof EvidenceItemSchema>;
 

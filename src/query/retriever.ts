@@ -3,6 +3,10 @@ import type { SubQuestion, EvidenceItem, RetrievalResult } from "../schemas/quer
 import type { ChunkFilter, DocumentFilters } from "../storage/chunk-types";
 import type { LogFn } from "../core/types";
 
+function recordToKVArray(record: Record<string, string>): Array<{ key: string; value: string }> {
+  return Object.entries(record).map(([key, value]) => ({ key, value }));
+}
+
 export interface RetrieverConfig {
   documentStore: DocumentStore;
   memoryStore: MemoryStore;
@@ -47,7 +51,7 @@ export async function retrieve(
                 documentId: chunk.documentId,
                 text: chunk.text,
                 relevance: 0.8, // Default — store doesn't expose scores directly
-                metadata: chunk.metadata,
+                metadata: recordToKVArray(chunk.metadata),
               });
             }
           }
@@ -62,7 +66,7 @@ export async function retrieve(
               documentId: chunk.documentId,
               text: chunk.text,
               relevance: 0.8,
-              metadata: chunk.metadata,
+              metadata: recordToKVArray(chunk.metadata),
             });
           }
         }
@@ -93,11 +97,11 @@ export async function retrieve(
               documentId: doc.id,
               text: summary,
               relevance: 0.9, // Direct lookup is high relevance
-              metadata: {
-                type: doc.type,
-                carrier: doc.carrier ?? "",
-                insuredName: doc.insuredName ?? "",
-              },
+              metadata: [
+                { key: "type", value: doc.type },
+                { key: "carrier", value: doc.carrier ?? "" },
+                { key: "insuredName", value: doc.insuredName ?? "" },
+              ],
             });
           }
         } catch (e) {

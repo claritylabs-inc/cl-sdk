@@ -7,9 +7,14 @@ export const ExtractionTaskSchema = z.object({
   description: z.string(),
 });
 
+export const PageMapEntrySchema = z.object({
+  section: z.string(),
+  pages: z.string(),
+});
+
 export const ExtractionPlanSchema = z.object({
   tasks: z.array(ExtractionTaskSchema),
-  pageMap: z.record(z.string(), z.string()).optional(),
+  pageMap: z.array(PageMapEntrySchema).optional(),
 });
 export type ExtractionPlan = z.infer<typeof ExtractionPlanSchema>;
 
@@ -40,7 +45,10 @@ Return JSON:
     { "extractorName": "carrier_info", "startPage": 1, "endPage": 2, "description": "Extract carrier details from declarations page" },
     ...
   ],
-  "pageMap": { "declarations": "pages 1-3", "endorsements": "pages 15-22", ... }
+  "pageMap": [
+    { "section": "declarations", "pages": "pages 1-3" },
+    { "section": "endorsements", "pages": "pages 15-22" }
+  ]
 }
 
 Create tasks that cover the entire document. Prefer specific extractors over generic "sections" where possible. Keep page ranges tight — only include pages relevant to each extractor.
