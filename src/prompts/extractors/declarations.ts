@@ -1,10 +1,16 @@
 import { z } from "zod";
 
-export const DeclarationsExtractSchema = z
-  .record(z.string(), z.unknown())
-  .describe(
-    "Flexible declarations data — structure varies by line of business. Keys are descriptive field names, values are the extracted data.",
-  );
+export const DeclarationsFieldSchema = z.object({
+  field: z.string().describe("Descriptive field name (e.g. 'policyNumber', 'effectiveDate', 'coverageALimit')"),
+  value: z.string().describe("Extracted value exactly as it appears in the document"),
+  section: z.string().optional().describe("Section or grouping this field belongs to (e.g. 'Coverage Limits', 'Vehicle Schedule')"),
+});
+
+export const DeclarationsExtractSchema = z.object({
+  fields: z
+    .array(DeclarationsFieldSchema)
+    .describe("All declarations page fields extracted as key-value pairs. Structure varies by line of business."),
+});
 
 export type DeclarationsExtractResult = z.infer<typeof DeclarationsExtractSchema>;
 
@@ -31,7 +37,16 @@ For PERSONAL LINES declarations:
 - Flood (NFIP): flood zone, community number, building/contents coverage
 - Personal Articles: scheduled items list with appraised values
 
-Use descriptive field names as keys. Preserve original values exactly as they appear.
+Return each field as an object with "field" (descriptive name), "value" (exact text from document), and optional "section" (grouping).
 
-Return JSON only.`;
+Example output:
+{
+  "fields": [
+    { "field": "policyNumber", "value": "GL-2025-78432", "section": "Policy Info" },
+    { "field": "effectiveDate", "value": "04/10/2025", "section": "Policy Info" },
+    { "field": "eachOccurrenceLimit", "value": "$1,000,000", "section": "Coverage Limits" }
+  ]
+}
+
+Preserve original values exactly as they appear. Return JSON only.`;
 }
