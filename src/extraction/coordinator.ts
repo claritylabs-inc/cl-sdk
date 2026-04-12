@@ -121,13 +121,19 @@ export function createExtractor(config: ExtractorConfig) {
         },
         {
           fallback: { documentType: "policy" as const, policyTypes: ["other" as const], confidence: 0 },
+          maxRetries: 3,
           log,
           onError: (err, attempt) =>
-            log?.(`Classify attempt ${attempt + 1} failed: ${err}`),
+            log?.(`Classify attempt ${attempt + 1} failed: ${err instanceof Error ? err.message : String(err)}`),
         },
       );
       trackUsage(classifyResponse.usage);
       classifyResult = classifyResponse.object;
+
+      if (classifyResult.confidence === 0) {
+        await log?.(`WARNING: classify returned fallback (policyTypes: ["other"]). This usually means the generateObject callback failed — check that the document content is accessible to the model.`);
+      }
+
       memory.set("classify", classifyResult);
 
       await pipelineCtx.save("classify", {
