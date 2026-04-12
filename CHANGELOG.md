@@ -1,3 +1,17 @@
+# [0.8.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.7.5...v0.8.0) (2026-04-12)
+
+
+* fix!: pass PDF content to model via providerOptions ([0dcac5c](https://github.com/claritylabs-inc/cl-sdk/commit/0dcac5c4c82d566467be42aecf2efae87a284b3a))
+
+
+### BREAKING CHANGES
+
+* Consumer generateObject callbacks must now handle
+providerOptions.pdfBase64 and/or providerOptions.images by including
+them as multi-part message content when calling the AI provider.
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+
 ## [0.7.5](https://github.com/claritylabs-inc/cl-sdk/compare/v0.7.4...v0.7.5) (2026-04-12)
 
 
