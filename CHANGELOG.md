@@ -1,3 +1,10 @@
+## [0.7.2](https://github.com/claritylabs-inc/cl-sdk/compare/v0.7.1...v0.7.2) (2026-04-12)
+
+
+### Bug Fixes
+
+* retry on transient provider errors (grammar timeout, 5xx, overloaded) ([104ef3f](https://github.com/claritylabs-inc/cl-sdk/commit/104ef3fc7db41b1f12b7ff4739a814c430b5cdf8))
+
 ## [0.7.1](https://github.com/claritylabs-inc/cl-sdk/compare/v0.7.0...v0.7.1) (2026-04-12)
 
 
