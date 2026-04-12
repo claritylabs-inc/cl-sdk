@@ -199,8 +199,7 @@ Replace the current peer/dev dependencies:
   },
   "license": "Apache-2.0",
   "publishConfig": {
-    "registry": "https://registry.npmjs.org",
-    "access": "public"
+    "registry": "https://npm.pkg.github.com"
   }
 }
 ```
