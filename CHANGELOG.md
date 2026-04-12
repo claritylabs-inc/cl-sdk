@@ -1,3 +1,10 @@
+# [0.6.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.5.0...v0.6.0) (2026-04-12)
+
+
+### Features
+
+* add post-extraction markdown formatting pass ([964c1d1](https://github.com/claritylabs-inc/cl-sdk/commit/964c1d1db33e667e01c2a78a6598f7d2fa2f1c60))
+
 # [0.5.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.4.0...v0.5.0) (2026-04-12)
 
 
