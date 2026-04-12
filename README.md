@@ -1,6 +1,6 @@
-[Clarity Labs](https://claritylabs.inc) is an applied AI research lab building the infrastructure for AI to work safely with insurance.
+[Clarity Labs](https://claritylabs.inc) allows insurers to understand their clients as well as they know themselves. Having a better understanding of clients means insurers can automate servicing to reduce costs and identify coverage gaps to cross-sell products.
 
-AI agents are already executing complex tasks autonomously across industries, but insurance requires context, safeguards, and systems that don't exist yet. CL-0 SDK fills that gap: a shared intelligence layer that any product or agent can import to understand, reason about, and act on insurance.
+CL-0 SDK is the open infrastructure layer that makes this possible: a shared intelligence system that any product or agent can import to understand, reason about, and act on insurance documents and workflows.
 
 ## Installation
 
