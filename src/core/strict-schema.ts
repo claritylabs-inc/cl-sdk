@@ -26,12 +26,19 @@ export function toStrictSchema(schema: ZodTypeAny): ZodTypeAny {
 
       if (fieldType === "optional") {
         // Convert .optional() → .nullable() (required but accepts null)
+        // Preserve .describe() metadata — it lives on the optional wrapper, not the inner type
         const innerType: ZodTypeAny | undefined = fieldDef?.innerType;
+        const description: string | undefined =
+          (field as any).description ?? fieldDef?.description ?? (field as any)._zod?.def?.description;
         if (innerType) {
           const transformed = toStrictSchema(innerType);
-          newShape[key] = z.nullable(transformed);
+          let nullable = z.nullable(transformed);
+          if (description) nullable = nullable.describe(description) as typeof nullable;
+          newShape[key] = nullable;
         } else {
-          newShape[key] = z.nullable(field);
+          let nullable = z.nullable(field);
+          if (description) nullable = nullable.describe(description) as typeof nullable;
+          newShape[key] = nullable;
         }
       } else {
         // Recurse into non-optional fields
@@ -39,13 +46,19 @@ export function toStrictSchema(schema: ZodTypeAny): ZodTypeAny {
       }
     }
 
-    return z.object(newShape);
+    const objDesc: string | undefined =
+      (schema as any).description ?? def?.description ?? (schema as any)._zod?.def?.description;
+    const result = z.object(newShape);
+    return objDesc ? result.describe(objDesc) : result;
   }
 
   if (typeName === "array") {
     const element: ZodTypeAny | undefined = def?.element ?? (schema as any).element;
     if (element) {
-      return z.array(toStrictSchema(element));
+      const arrDesc: string | undefined =
+        (schema as any).description ?? def?.description ?? (schema as any)._zod?.def?.description;
+      const result = z.array(toStrictSchema(element));
+      return arrDesc ? result.describe(arrDesc) : result;
     }
     return schema;
   }
@@ -53,7 +66,10 @@ export function toStrictSchema(schema: ZodTypeAny): ZodTypeAny {
   if (typeName === "nullable") {
     const innerType: ZodTypeAny | undefined = def?.innerType;
     if (innerType) {
-      return z.nullable(toStrictSchema(innerType));
+      const nullDesc: string | undefined =
+        (schema as any).description ?? def?.description ?? (schema as any)._zod?.def?.description;
+      const result = z.nullable(toStrictSchema(innerType));
+      return nullDesc ? result.describe(nullDesc) : result;
     }
     return schema;
   }
