@@ -1,3 +1,15 @@
+# [0.7.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.6.0...v0.7.0) (2026-04-12)
+
+
+### Bug Fixes
+
+* replace z.record() with array schemas for structured output compatibility ([e2f9828](https://github.com/claritylabs-inc/cl-sdk/commit/e2f9828fac8df5ccda3447cb9cf858ec4dc10179))
+
+
+### Features
+
+* add safeGenerateObject wrapper and pipeline checkpoint system ([206c766](https://github.com/claritylabs-inc/cl-sdk/commit/206c766989bdbbf9fd44451d289b62b25a0e77f9))
+
 # [0.6.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.5.0...v0.6.0) (2026-04-12)
 
 
