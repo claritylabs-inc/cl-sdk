@@ -1,6 +1,7 @@
 import type { GenerateObject, TokenUsage } from "../core/types";
 import { pLimit } from "../core/concurrency";
-import { withRetry } from "../core/retry";
+import { safeGenerateObject } from "../core/safe-generate";
+import { createPipelineContext, type PipelineCheckpoint } from "../core/pipeline";
 import { buildQueryClassifyPrompt } from "../prompts/query/classify";
 import { buildRespondPrompt } from "../prompts/query/respond";
 import {
@@ -16,6 +17,13 @@ import { retrieve, type RetrieverConfig } from "./retriever";
 import { reason, type ReasonerConfig } from "./reasoner";
 import { verify, type VerifierConfig } from "./verifier";
 import type { QueryConfig, QueryInput, QueryOutput } from "./types";
+
+/** Internal state checkpointed between query phases. */
+export interface QueryState {
+  classification?: QueryClassifyResult;
+  evidence?: EvidenceItem[];
+  subAnswers?: SubAnswer[];
+}
 
 export function createQueryAgent(config: QueryConfig) {
   const {
@@ -47,11 +55,16 @@ export function createQueryAgent(config: QueryConfig) {
     totalUsage = { inputTokens: 0, outputTokens: 0 };
     const { question, conversationId, context } = input;
 
-    // ── Phase 1: Classify ──
+    const pipelineCtx = createPipelineContext<QueryState>({
+      id: `query-${Date.now()}`,
+    });
+
+    // -- Phase 1: Classify --
     onProgress?.("Classifying query...");
     const classification = await classify(question, conversationId);
+    await pipelineCtx.save("classify", { classification });
 
-    // ── Phase 2: Retrieve (parallel) ──
+    // -- Phase 2: Retrieve (parallel) --
     onProgress?.(`Retrieving evidence for ${classification.subQuestions.length} sub-question(s)...`);
     const retrieverConfig: RetrieverConfig = {
       documentStore,
@@ -66,14 +79,15 @@ export function createQueryAgent(config: QueryConfig) {
       ),
     );
 
-    // Collect all evidence for verification
     const allEvidence: EvidenceItem[] = retrievalResults.flatMap((r) => r.evidence);
+    await pipelineCtx.save("retrieve", { classification, evidence: allEvidence });
 
-    // ── Phase 3: Reason (parallel) ──
+    // -- Phase 3: Reason (parallel, with isolation) --
     onProgress?.("Reasoning over evidence...");
     const reasonerConfig: ReasonerConfig = { generateObject, providerOptions };
 
-    let subAnswers: SubAnswer[] = await Promise.all(
+    // Use Promise.allSettled so one failing sub-question doesn't kill the rest
+    const reasonResults = await Promise.allSettled(
       classification.subQuestions.map((sq, i) =>
         limit(async () => {
           const { subAnswer, usage } = await reason(
@@ -88,12 +102,32 @@ export function createQueryAgent(config: QueryConfig) {
       ),
     );
 
-    // ── Phase 4: Verify (with retry loop) ──
+    let subAnswers: SubAnswer[] = [];
+    for (let i = 0; i < reasonResults.length; i++) {
+      const result = reasonResults[i];
+      if (result.status === "fulfilled") {
+        subAnswers.push(result.value);
+      } else {
+        await log?.(`Reasoner failed for sub-question "${classification.subQuestions[i].question}": ${result.reason}`);
+        // Insert a degraded sub-answer so downstream phases have something to work with
+        subAnswers.push({
+          subQuestion: classification.subQuestions[i].question,
+          answer: "Unable to answer this part of the question due to a processing error.",
+          citations: [],
+          confidence: 0,
+          needsMoreContext: true,
+        });
+      }
+    }
+
+    await pipelineCtx.save("reason", { classification, evidence: allEvidence, subAnswers });
+
+    // -- Phase 4: Verify (with retry loop) --
     onProgress?.("Verifying answer grounding...");
     const verifierConfig: VerifierConfig = { generateObject, providerOptions };
 
     for (let round = 0; round < maxVerifyRounds; round++) {
-      const { result: verifyResult, usage } = await verify(
+      const { result: verifyResult, usage } = await safeVerify(
         question,
         subAnswers,
         allEvidence,
@@ -121,18 +155,17 @@ export function createQueryAgent(config: QueryConfig) {
               limit(() =>
                 retrieve(sq, conversationId, {
                   ...retrieverConfig,
-                  retrievalLimit: retrievalLimit * 2, // Broader retrieval on retry
+                  retrievalLimit: retrievalLimit * 2,
                 }),
               ),
             ),
           );
 
-          // Add new evidence to the pool
           for (const r of retryRetrievals) {
             allEvidence.push(...r.evidence);
           }
 
-          const retrySubAnswers = await Promise.all(
+          const retrySettled = await Promise.allSettled(
             retryQuestions.map((sq, i) =>
               limit(async () => {
                 const { subAnswer, usage: u } = await reason(
@@ -147,7 +180,10 @@ export function createQueryAgent(config: QueryConfig) {
             ),
           );
 
-          // Replace old sub-answers with retried ones
+          const retrySubAnswers: SubAnswer[] = retrySettled
+            .filter((r): r is PromiseFulfilledResult<SubAnswer> => r.status === "fulfilled")
+            .map((r) => r.value);
+
           const retryQSet = new Set(retryQuestions.map((sq) => sq.question));
           subAnswers = subAnswers.map((sa) => {
             if (retryQSet.has(sa.subQuestion)) {
@@ -160,7 +196,7 @@ export function createQueryAgent(config: QueryConfig) {
       }
     }
 
-    // ── Phase 5: Respond ──
+    // -- Phase 5: Respond --
     onProgress?.("Composing final answer...");
     const queryResult = await respond(
       question,
@@ -198,7 +234,6 @@ export function createQueryAgent(config: QueryConfig) {
     question: string,
     conversationId?: string,
   ): Promise<QueryClassifyResult> {
-    // Fetch recent conversation context if available
     let conversationContext: string | undefined;
     if (conversationId) {
       try {
@@ -209,23 +244,56 @@ export function createQueryAgent(config: QueryConfig) {
             .join("\n");
         }
       } catch {
-        // Non-fatal — proceed without history
+        // Non-fatal -- proceed without history
       }
     }
 
     const prompt = buildQueryClassifyPrompt(question, conversationContext);
 
-    const { object, usage } = await withRetry(() =>
-      generateObject({
+    const { object, usage } = await safeGenerateObject(
+      generateObject as GenerateObject<QueryClassifyResult>,
+      {
         prompt,
         schema: QueryClassifyResultSchema,
         maxTokens: 2048,
         providerOptions,
-      }),
+      },
+      {
+        fallback: {
+          intent: "general_knowledge",
+          subQuestions: [
+            {
+              question,
+              intent: "general_knowledge",
+            },
+          ],
+          requiresDocumentLookup: true,
+          requiresChunkSearch: true,
+          requiresConversationHistory: !!conversationId,
+        },
+        log,
+        onError: (err, attempt) =>
+          log?.(`Query classify attempt ${attempt + 1} failed: ${err}`),
+      },
     );
     trackUsage(usage);
 
     return object as QueryClassifyResult;
+  }
+
+  /** Verify with fallback — if verification itself fails, approve and move on. */
+  async function safeVerify(
+    originalQuestion: string,
+    subAnswers: SubAnswer[],
+    allEvidence: EvidenceItem[],
+    verifierConfig: VerifierConfig,
+  ): Promise<{ result: { approved: boolean; issues: string[]; retrySubQuestions?: string[] }; usage?: TokenUsage }> {
+    try {
+      return await verify(originalQuestion, subAnswers, allEvidence, verifierConfig);
+    } catch (error) {
+      await log?.(`Verification failed, approving by default: ${error instanceof Error ? error.message : String(error)}`);
+      return { result: { approved: true, issues: [] } };
+    }
   }
 
   async function respond(
@@ -248,18 +316,29 @@ export function createQueryAgent(config: QueryConfig) {
 
     const prompt = buildRespondPrompt(originalQuestion, subAnswersJson, platform);
 
-    const { object, usage } = await withRetry(() =>
-      generateObject({
+    const { object, usage } = await safeGenerateObject(
+      generateObject as GenerateObject<QueryResult>,
+      {
         prompt,
         schema: QueryResultSchema,
         maxTokens: 4096,
         providerOptions,
-      }),
+      },
+      {
+        fallback: {
+          answer: subAnswers.map((sa) => `**${sa.subQuestion}**\n${sa.answer}`).join("\n\n"),
+          citations: subAnswers.flatMap((sa) => sa.citations),
+          intent: classification.intent,
+          confidence: Math.min(...subAnswers.map((sa) => sa.confidence), 1),
+        },
+        log,
+        onError: (err, attempt) =>
+          log?.(`Respond attempt ${attempt + 1} failed: ${err}`),
+      },
     );
     trackUsage(usage);
 
     const result = object as QueryResult;
-    // Override intent from classification (more reliable than LLM re-classification)
     result.intent = classification.intent;
 
     return result;

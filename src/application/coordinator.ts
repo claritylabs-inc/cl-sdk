@@ -1,5 +1,6 @@
 import type { TokenUsage } from "../core/types";
 import { pLimit } from "../core/concurrency";
+import { safeGenerateObject } from "../core/safe-generate";
 import type { ApplicationState, ApplicationField } from "../schemas/application";
 import type {
   ApplicationPipelineConfig,
@@ -47,7 +48,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
 
   /**
    * Process a new application PDF through the full intake pipeline:
-   * classify → extract fields → backfill → auto-fill → batch questions
+   * classify -> extract fields -> backfill -> auto-fill -> batch questions
    */
   async function processApplication(
     input: ProcessApplicationInput,
@@ -60,7 +61,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     // Initialize state
     let state: ApplicationState = {
       id,
-      pdfBase64: undefined, // Don't persist the full PDF in state
+      pdfBase64: undefined,
       title: undefined,
       applicationType: null,
       fields: [],
@@ -71,14 +72,24 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       updatedAt: now,
     };
 
-    // ── Phase 1: Classify ──
+    // -- Phase 1: Classify --
     onProgress?.("Classifying document...");
-    const { result: classifyResult, usage: classifyUsage } = await classifyApplication(
-      pdfBase64.slice(0, 2000), // Send truncated content for classification
-      generateObject,
-      providerOptions,
-    );
-    trackUsage(classifyUsage);
+    // Save state before LLM call so crashes preserve last good state
+    await applicationStore?.save(state);
+
+    let classifyResult;
+    try {
+      const { result, usage: classifyUsage } = await classifyApplication(
+        pdfBase64.slice(0, 2000),
+        generateObject,
+        providerOptions,
+      );
+      trackUsage(classifyUsage);
+      classifyResult = result;
+    } catch (error) {
+      await log?.(`Classification failed, treating as non-application: ${error instanceof Error ? error.message : String(error)}`);
+      classifyResult = { isApplication: false, confidence: 0, applicationType: null };
+    }
 
     if (!classifyResult.isApplication) {
       state.status = "complete";
@@ -90,15 +101,32 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     state.applicationType = classifyResult.applicationType;
     state.status = "extracting";
     state.updatedAt = Date.now();
+    await applicationStore?.save(state);
 
-    // ── Phase 2: Extract Fields ──
+    // -- Phase 2: Extract Fields --
     onProgress?.("Extracting form fields...");
-    const { fields, usage: extractUsage } = await extractFields(
-      pdfBase64,
-      generateObject,
-      providerOptions,
-    );
-    trackUsage(extractUsage);
+    let fields: ApplicationField[];
+    try {
+      const { fields: extractedFields, usage: extractUsage } = await extractFields(
+        pdfBase64,
+        generateObject,
+        providerOptions,
+      );
+      trackUsage(extractUsage);
+      fields = extractedFields;
+    } catch (error) {
+      await log?.(`Field extraction failed: ${error instanceof Error ? error.message : String(error)}`);
+      fields = [];
+    }
+
+    if (fields.length === 0) {
+      // No fields extracted — complete gracefully rather than crashing
+      await log?.("No fields extracted, completing pipeline with empty result");
+      state.status = "complete";
+      state.updatedAt = Date.now();
+      await applicationStore?.save(state);
+      return { state, tokenUsage: totalUsage };
+    }
 
     state.fields = fields;
     state.title = classifyResult.applicationType ?? undefined;
@@ -106,7 +134,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     state.updatedAt = Date.now();
     await applicationStore?.save(state);
 
-    // ── Phase 3: Backfill + Auto-Fill (parallel) ──
+    // -- Phase 3: Backfill + Auto-Fill (parallel) --
     onProgress?.(`Auto-filling ${fields.length} fields...`);
 
     const fillTasks: Promise<void>[] = [];
@@ -139,21 +167,25 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
           const unfilledFields = state.fields.filter((f) => !f.value);
           if (unfilledFields.length === 0) return;
 
-          const { result: autoFillResult, usage: afUsage } = await autoFillFromContext(
-            unfilledFields,
-            orgContext,
-            generateObject,
-            providerOptions,
-          );
-          trackUsage(afUsage);
+          try {
+            const { result: autoFillResult, usage: afUsage } = await autoFillFromContext(
+              unfilledFields,
+              orgContext,
+              generateObject,
+              providerOptions,
+            );
+            trackUsage(afUsage);
 
-          for (const match of autoFillResult.matches) {
-            const field = state.fields.find((f) => f.id === match.fieldId);
-            if (field && !field.value) {
-              field.value = match.value;
-              field.source = `auto-fill: ${match.contextKey}`;
-              field.confidence = match.confidence;
+            for (const match of autoFillResult.matches) {
+              const field = state.fields.find((f) => f.id === match.fieldId);
+              if (field && !field.value) {
+                field.value = match.value;
+                field.source = `auto-fill: ${match.contextKey}`;
+                field.confidence = match.confidence;
+              }
             }
+          } catch (e) {
+            await log?.(`Auto-fill from context failed: ${e instanceof Error ? e.message : String(e)}`);
           }
         }),
       );
@@ -165,14 +197,12 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
         (async () => {
           try {
             const unfilledFields = state.fields.filter((f) => !f.value);
-            // Search for relevant chunks across all documents
             const searchPromises = unfilledFields.slice(0, 10).map((f) =>
               limit(async () => {
                 const chunks = await memoryStore.search(f.label, { limit: 3 });
                 for (const chunk of chunks) {
                   if (!state.fields.find((sf) => sf.id === f.id)?.value) {
-                    // Store as potential match — don't auto-fill from chunks directly
-                    // (would need LLM validation, which happens in auto-fill)
+                    // Store as potential match -- don't auto-fill from chunks directly
                   }
                 }
               }),
@@ -190,20 +220,26 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     state.updatedAt = Date.now();
     await applicationStore?.save(state);
 
-    // ── Phase 4: Batch remaining questions ──
+    // -- Phase 4: Batch remaining questions --
     const unfilledFields = state.fields.filter((f) => !f.value);
     if (unfilledFields.length > 0) {
       onProgress?.(`Batching ${unfilledFields.length} remaining questions...`);
       state.status = "batching";
 
-      const { result: batchResult, usage: batchUsage } = await batchQuestions(
-        unfilledFields,
-        generateObject,
-        providerOptions,
-      );
-      trackUsage(batchUsage);
+      try {
+        const { result: batchResult, usage: batchUsage } = await batchQuestions(
+          unfilledFields,
+          generateObject,
+          providerOptions,
+        );
+        trackUsage(batchUsage);
+        state.batches = batchResult.batches;
+      } catch (error) {
+        await log?.(`Batching failed, using single-batch fallback: ${error instanceof Error ? error.message : String(error)}`);
+        // Fallback: put all unfilled field IDs into a single batch
+        state.batches = [unfilledFields.map((f) => f.id)];
+      }
 
-      state.batches = batchResult.batches;
       state.currentBatchIndex = 0;
       state.status = "collecting";
     } else {
@@ -221,7 +257,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
 
   /**
    * Process a user reply (email, chat message) for an active application.
-   * Routes through: intent classification → answer parsing / lookup / explanation
+   * Routes through: intent classification -> answer parsing / lookup / explanation
    */
   async function processReply(input: ProcessReplyInput): Promise<ProcessReplyResult> {
     totalUsage = { inputTokens: 0, outputTokens: 0 };
@@ -242,46 +278,61 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       currentBatchFieldIds.includes(f.id),
     );
 
-    // ── Step 1: Classify reply intent ──
+    // -- Step 1: Classify reply intent --
     onProgress?.("Classifying reply...");
-    const { intent, usage: intentUsage } = await classifyReplyIntent(
-      currentBatchFields,
-      replyText,
-      generateObject,
-      providerOptions,
-    );
-    trackUsage(intentUsage);
-
-    let fieldsFilled = 0;
-    let responseText: string | undefined;
-
-    // ── Step 2: Parse answers if present ──
-    if (intent.hasAnswers) {
-      onProgress?.("Parsing answers...");
-      const { result: parseResult, usage: parseUsage } = await parseAnswers(
+    let intent;
+    try {
+      const { intent: classifiedIntent, usage: intentUsage } = await classifyReplyIntent(
         currentBatchFields,
         replyText,
         generateObject,
         providerOptions,
       );
-      trackUsage(parseUsage);
+      trackUsage(intentUsage);
+      intent = classifiedIntent;
+    } catch (error) {
+      await log?.(`Reply intent classification failed, defaulting to answers_only: ${error instanceof Error ? error.message : String(error)}`);
+      intent = {
+        primaryIntent: "answers_only" as const,
+        hasAnswers: true,
+        questionText: undefined,
+        questionFieldIds: undefined,
+        lookupRequests: undefined,
+      };
+    }
 
-      // Apply answers to state
-      for (const answer of parseResult.answers) {
-        const field = state.fields.find((f) => f.id === answer.fieldId);
-        if (field) {
-          field.value = answer.value;
-          field.source = "user";
-          field.confidence = "confirmed";
-          fieldsFilled++;
+    let fieldsFilled = 0;
+    let responseText: string | undefined;
+
+    // -- Step 2: Parse answers if present --
+    if (intent.hasAnswers) {
+      onProgress?.("Parsing answers...");
+      try {
+        const { result: parseResult, usage: parseUsage } = await parseAnswers(
+          currentBatchFields,
+          replyText,
+          generateObject,
+          providerOptions,
+        );
+        trackUsage(parseUsage);
+
+        for (const answer of parseResult.answers) {
+          const field = state.fields.find((f) => f.id === answer.fieldId);
+          if (field) {
+            field.value = answer.value;
+            field.source = "user";
+            field.confidence = "confirmed";
+            fieldsFilled++;
+          }
         }
+      } catch (error) {
+        await log?.(`Answer parsing failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
-    // ── Step 3: Handle lookup requests ──
+    // -- Step 3: Handle lookup requests --
     if (intent.lookupRequests?.length) {
       onProgress?.("Processing lookup requests...");
-      // Gather available data from document store
       let availableData = "";
       if (documentStore) {
         try {
@@ -302,42 +353,50 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
           intent.lookupRequests!.some((lr) => lr.targetFieldIds.includes(f.id)),
         );
 
-        const { result: lookupResult, usage: lookupUsage } = await fillFromLookup(
-          intent.lookupRequests,
-          targetFields,
-          availableData,
-          generateObject,
-          providerOptions,
-        );
-        trackUsage(lookupUsage);
+        try {
+          const { result: lookupResult, usage: lookupUsage } = await fillFromLookup(
+            intent.lookupRequests,
+            targetFields,
+            availableData,
+            generateObject,
+            providerOptions,
+          );
+          trackUsage(lookupUsage);
 
-        for (const fill of lookupResult.fills) {
-          const field = state.fields.find((f) => f.id === fill.fieldId);
-          if (field) {
-            field.value = fill.value;
-            field.source = `lookup: ${fill.source}`;
-            field.confidence = "high";
-            fieldsFilled++;
+          for (const fill of lookupResult.fills) {
+            const field = state.fields.find((f) => f.id === fill.fieldId);
+            if (field) {
+              field.value = fill.value;
+              field.source = `lookup: ${fill.source}`;
+              field.confidence = "high";
+              fieldsFilled++;
+            }
           }
+        } catch (error) {
+          await log?.(`Lookup fill failed: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
     }
 
-    // ── Step 4: Handle questions about fields ──
+    // -- Step 4: Handle questions about fields --
     if (intent.primaryIntent === "question" || intent.primaryIntent === "mixed") {
       if (intent.questionText) {
-        // Generate explanation — use generateText for freeform response
-        const { text, usage } = await generateText({
-          prompt: `The user is filling out an insurance application and asked: "${intent.questionText}"\n\nProvide a brief, helpful explanation (2-3 sentences). End with "Just reply with the answer when you're ready and I'll fill it in."`,
-          maxTokens: 512,
-          providerOptions,
-        });
-        trackUsage(usage);
-        responseText = text;
+        try {
+          const { text, usage } = await generateText({
+            prompt: `The user is filling out an insurance application and asked: "${intent.questionText}"\n\nProvide a brief, helpful explanation (2-3 sentences). End with "Just reply with the answer when you're ready and I'll fill it in."`,
+            maxTokens: 512,
+            providerOptions,
+          });
+          trackUsage(usage);
+          responseText = text;
+        } catch (error) {
+          await log?.(`Question response generation failed: ${error instanceof Error ? error.message : String(error)}`);
+          responseText = `I wasn't able to generate an explanation for your question. Could you rephrase it, or just provide the answer directly?`;
+        }
       }
     }
 
-    // ── Step 5: Advance batch if current batch is complete ──
+    // -- Step 5: Advance batch if current batch is complete --
     const currentBatchComplete = currentBatchFieldIds.every(
       (fid) => state!.fields.find((f) => f.id === fid)?.value,
     );
@@ -346,32 +405,36 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       if (state.currentBatchIndex < state.batches.length - 1) {
         state.currentBatchIndex++;
 
-        // Generate next batch email
         const nextBatchFieldIds = state.batches[state.currentBatchIndex];
         const nextBatchFields = state.fields.filter((f) =>
           nextBatchFieldIds.includes(f.id),
         );
 
         const filledCount = state.fields.filter((f) => f.value).length;
-        const { text: emailText, usage: emailUsage } = await generateBatchEmail(
-          nextBatchFields,
-          state.currentBatchIndex,
-          state.batches.length,
-          {
-            appTitle: state.title,
-            totalFieldCount: state.fields.length,
-            filledFieldCount: filledCount,
-            companyName: context?.companyName,
-          },
-          generateText,
-          providerOptions,
-        );
-        trackUsage(emailUsage);
 
-        if (!responseText) {
-          responseText = emailText;
-        } else {
-          responseText += `\n\n${emailText}`;
+        try {
+          const { text: emailText, usage: emailUsage } = await generateBatchEmail(
+            nextBatchFields,
+            state.currentBatchIndex,
+            state.batches.length,
+            {
+              appTitle: state.title,
+              totalFieldCount: state.fields.length,
+              filledFieldCount: filledCount,
+              companyName: context?.companyName,
+            },
+            generateText,
+            providerOptions,
+          );
+          trackUsage(emailUsage);
+
+          if (!responseText) {
+            responseText = emailText;
+          } else {
+            responseText += `\n\n${emailText}`;
+          }
+        } catch (error) {
+          await log?.(`Batch email generation failed: ${error instanceof Error ? error.message : String(error)}`);
         }
       } else {
         // All batches complete

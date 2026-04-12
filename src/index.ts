@@ -8,6 +8,10 @@ export { withRetry } from "./core/retry";
 export { pLimit } from "./core/concurrency";
 export { stripFences } from "./core/strip-fences";
 export { sanitizeNulls } from "./core/sanitize";
+export { safeGenerateObject } from "./core/safe-generate";
+export type { SafeGenerateOptions, SafeGenerateParams } from "./core/safe-generate";
+export { createPipelineContext } from "./core/pipeline";
+export type { PipelineCheckpoint, PipelineContext, PipelineContextOptions } from "./core/pipeline";
 
 // ── Schemas (Zod) + derived types ──
 export * from "./schemas/enums";
@@ -28,7 +32,7 @@ export { CONTEXT_KEY_MAP } from "./schemas/context-keys";
 
 // ── Extraction pipeline ──
 export { createExtractor } from "./extraction/coordinator";
-export type { ExtractorConfig, ExtractionResult } from "./extraction/coordinator";
+export type { ExtractorConfig, ExtractionResult, ExtractionState, ExtractOptions } from "./extraction/coordinator";
 export { chunkDocument } from "./extraction/chunking";
 
 // ── PDF operations ──
