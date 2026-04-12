@@ -34,7 +34,7 @@ jobs:
         id: check
         run: |
           cd docs-pkg
-          PACKAGE_VERSION=$(node -e "import('./package.json',{assert:{type:'json'}}).then(m=>console.log(m.default.version))")
+          PACKAGE_VERSION=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")
           echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
 
           if npm view "@claritylabs/cl-sdk-docs@$PACKAGE_VERSION" version 2>/dev/null; then
