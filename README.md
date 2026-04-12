@@ -104,14 +104,22 @@ The extraction system uses a **coordinator/worker pattern** — a coordinator ag
 │              │     │  to pages   │     │                      │
 └─────────────┘     └─────────────┘     └──────────┬───────────┘
                                                    │
-                    ┌─────────────┐     ┌──────────▼───────────┐
-                    │ 5. ASSEMBLE │◀────│  4. REVIEW           │
-                    │             │     │                      │
-                    │  Merge all  │     │  Check completeness  │
-                    │  results,   │     │  against template,   │
-                    │  validate,  │     │  dispatch follow-up  │
-                    │  chunk      │     │  extractors for gaps │
-                    └─────────────┘     └──────────────────────┘
+┌─────────────┐     ┌─────────────┐     ┌──────────▼───────────┐
+│ 6. FORMAT   │◀────│ 5. ASSEMBLE │◀────│  4. REVIEW           │
+│             │     │             │     │                      │
+│  Clean up   │     │  Merge all  │     │  Check completeness  │
+│  markdown   │     │  results    │     │  against template,   │
+│  tables,    │     │  into final │     │  dispatch follow-up  │
+│  spacing    │     │  document   │     │  extractors for gaps │
+└──────┬──────┘     └─────────────┘     └──────────────────────┘
+       │
+┌──────▼──────┐
+│ 7. CHUNK    │
+│  Break into │
+│  retrieval- │
+│  ready      │
+│  chunks     │
+└─────────────┘
 ```
 
 #### Phase 1: Classify
@@ -151,7 +159,23 @@ After initial extraction, a review loop (up to `maxReviewRounds`, default 2) che
 
 #### Phase 5: Assemble
 
-All extractor results are merged into a final validated `InsuranceDocument`, then chunked into `DocumentChunk[]` for vector storage. Chunks are deterministically IDed as `${documentId}:${type}:${index}`.
+All extractor results are merged into a final validated `InsuranceDocument`.
+
+#### Phase 6: Format
+
+A formatting agent pass cleans up markdown in all content-bearing string fields (sections, subsections, endorsements, exclusions, conditions, summary). It fixes:
+
+- **Pipe tables missing separator rows** — adds `| --- | --- |` and leading/trailing pipes
+- **Space-aligned tables** — converts whitespace-padded columns into proper markdown tables
+- **Sub-items mixed into tables** — pulls indented sub-items out of tables into lists
+- **Mixed table/prose content** — handles each segment independently
+- **General cleanup** — excessive blank lines, trailing whitespace, orphaned formatting markers
+
+Content is batched (up to 20 fields per call) and sent through `generateText` for formatting cleanup. Token usage is tracked the same as other pipeline steps.
+
+#### Phase 7: Chunk
+
+The formatted document is chunked into `DocumentChunk[]` for vector storage. Chunks are deterministically IDed as `${documentId}:${type}:${index}`.
 
 ### Configuration
 

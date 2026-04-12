@@ -24,7 +24,7 @@ No test runner is configured. Validate changes with `npm run typecheck`.
 src/
   core/           # Provider-agnostic types, retry, concurrency, utilities
   schemas/        # Zod schemas (source of truth for all types)
-  extraction/     # Agentic extraction: coordinator, extractor, assembler, chunking, pdf
+  extraction/     # Agentic extraction: coordinator, extractor, assembler, formatter, chunking, pdf
   query/          # Agentic query: coordinator, retriever, reasoner, verifier
   application/    # Agentic application processing: coordinator, 8 focused agents, store
   prompts/        # Prompt modules: coordinator/, extractors/, templates/, agent/, application/, query/
@@ -40,7 +40,9 @@ The core extraction system uses a coordinator/worker pattern with extraction mem
 2. **Plan** (`coordinator.ts`): Select a line-of-business template (`prompts/templates/`) and generate an extraction plan — a list of tasks mapping focused extractors to page ranges
 3. **Extract** (`extractor.ts`): Dispatch focused extractors in parallel (concurrency-limited, default 2). Each extractor (`prompts/extractors/`) targets a specific data domain (declarations, coverages, conditions, endorsements, etc.) against a page range. Results accumulate in an in-memory `Map`
 4. **Review** (`coordinator.ts`): Review loop (up to `maxReviewRounds`, default 2) checks completeness against template requirements. If gaps found, dispatches additional extractors for missing data
-5. **Assemble** (`assembler.ts`): Merge all extractor results into a final `InsuranceDocument`, then chunk for storage
+5. **Assemble** (`assembler.ts`): Merge all extractor results into a final `InsuranceDocument`
+6. **Format** (`formatter.ts`): Post-extraction pass that cleans up markdown formatting in all content-bearing fields (sections, endorsements, exclusions, conditions, summary). Fixes pipe tables missing separator rows, space-aligned tables, sub-items mixed into tables, orphaned formatting markers, and excessive whitespace. Uses `generateText` in batches of up to 20 entries. Prompt: `prompts/coordinator/format.ts`
+7. **Chunk** (`chunking.ts`): Break the formatted document into `DocumentChunk[]` for vector storage
 
 Entry point: `createExtractor(config)` returns `{ extract(pdfBase64, documentId?) }`.
 
@@ -113,7 +115,7 @@ Two modes using pdf-lib:
 
 ### Prompt System (`src/prompts/`)
 
-- `coordinator/` — classify, plan, review prompts for the agentic pipeline
+- `coordinator/` — classify, plan, review, format prompts for the agentic pipeline
 - `extractors/` — focused extractor prompts: declarations, coverage-limits, conditions, endorsements, exclusions, loss-history, named-insured, premium-breakdown, sections, supplementary, carrier-info
 - `templates/` — line-of-business templates (commercial-auto, cyber, workers-comp, homeowners, etc.) defining expected sections and page hints
 - `application/` — form field extraction, auto-fill, question batching, answer parsing, PDF mapping, reply intent classification

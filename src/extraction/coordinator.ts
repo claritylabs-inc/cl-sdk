@@ -6,6 +6,7 @@ import { withRetry } from "../core/retry";
 import { getPdfPageCount } from "./pdf";
 import { runExtractor } from "./extractor";
 import { assembleDocument } from "./assembler";
+import { formatDocumentContent } from "./formatter";
 import { chunkDocument } from "./chunking";
 import { getTemplate } from "../prompts/templates/index";
 import { buildClassifyPrompt, ClassifyResultSchema, type ClassifyResult } from "../prompts/coordinator/classify";
@@ -199,9 +200,18 @@ export function createExtractor(config: ExtractorConfig) {
     // Step 5: Assemble
     onProgress?.("Assembling document...");
     const document = assembleDocument(id, documentType, memory);
-    const chunks = chunkDocument(document);
 
-    return { document, chunks, tokenUsage: totalUsage };
+    // Step 6: Format markdown content
+    onProgress?.("Formatting extracted content...");
+    const formatResult = await formatDocumentContent(document, generateText, {
+      providerOptions,
+      onProgress,
+    });
+    trackUsage(formatResult.usage);
+
+    const chunks = chunkDocument(formatResult.document);
+
+    return { document: formatResult.document, chunks, tokenUsage: totalUsage };
   }
 
   return { extract };
