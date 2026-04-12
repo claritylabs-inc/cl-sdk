@@ -1,3 +1,10 @@
+## [0.7.4](https://github.com/claritylabs-inc/cl-sdk/compare/v0.7.3...v0.7.4) (2026-04-12)
+
+
+### Bug Fixes
+
+* align extractor schemas with document types and preserve describe metadata ([e6b8f74](https://github.com/claritylabs-inc/cl-sdk/commit/e6b8f744973b61ce3271f7e33d44514896d3dcc0))
+
 ## [0.7.3](https://github.com/claritylabs-inc/cl-sdk/compare/v0.7.2...v0.7.3) (2026-04-12)
 
 
