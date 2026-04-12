@@ -1,3 +1,15 @@
+# [0.10.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.9.0...v0.10.0) (2026-04-12)
+
+
+### Bug Fixes
+
+* use require('fs') for version extraction in CI workflows ([c890762](https://github.com/claritylabs-inc/cl-sdk/commit/c890762eb87f0a32cf8a213e70e72f94a4d5fb5e))
+
+
+### Features
+
+* migrate docs to npm package, add quality gates, form inventory ([d37ba95](https://github.com/claritylabs-inc/cl-sdk/commit/d37ba95e048e7054a9ec4e11fdd2fcf821ea1183))
+
 # [0.9.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.8.1...v0.9.0) (2026-04-12)
 
 
