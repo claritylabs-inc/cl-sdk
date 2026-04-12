@@ -1,3 +1,15 @@
+# [0.5.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.4.0...v0.5.0) (2026-04-12)
+
+
+### Bug Fixes
+
+* **ci:** rename workflow to publish.yml to match npm trusted publisher config ([192d034](https://github.com/claritylabs-inc/cl-sdk/commit/192d034ef130491475b8560be62e0ffa9499897e))
+
+
+### Features
+
+* add application processing pipeline with persistent state and vector backfill ([45cd487](https://github.com/claritylabs-inc/cl-sdk/commit/45cd487f6ade472347856b8f1e888a81e300bc11))
+
 # [0.4.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.3.1...v0.4.0) (2026-04-12)
 
 
