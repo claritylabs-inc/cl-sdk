@@ -10,6 +10,7 @@ export { stripFences } from "./core/strip-fences";
 export { sanitizeNulls } from "./core/sanitize";
 export { safeGenerateObject } from "./core/safe-generate";
 export type { SafeGenerateOptions, SafeGenerateParams } from "./core/safe-generate";
+export { toStrictSchema } from "./core/strict-schema";
 export { createPipelineContext } from "./core/pipeline";
 export type { PipelineCheckpoint, PipelineContext, PipelineContextOptions } from "./core/pipeline";
 

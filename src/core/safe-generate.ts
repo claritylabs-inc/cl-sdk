@@ -1,5 +1,6 @@
 import type { GenerateObject, TokenUsage, LogFn } from "./types";
 import { withRetry } from "./retry";
+import { toStrictSchema } from "./strict-schema";
 
 export interface SafeGenerateOptions<T> {
   /** Return this value instead of throwing when all retries are exhausted. */
@@ -37,10 +38,13 @@ export async function safeGenerateObject<T>(
   const maxRetries = options?.maxRetries ?? 1;
   let lastError: unknown;
 
+  // Transform schema for strict structured output compatibility (OpenAI etc.)
+  const strictParams = { ...params, schema: toStrictSchema(params.schema) as typeof params.schema };
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const result = await withRetry(
-        () => generateObject(params),
+        () => generateObject(strictParams),
         options?.log,
       );
       return result;

@@ -1,6 +1,7 @@
 import type { ZodSchema } from "zod";
 import type { GenerateObject, TokenUsage, ConvertPdfToImagesFn } from "../core/types";
 import { withRetry } from "../core/retry";
+import { toStrictSchema } from "../core/strict-schema";
 import { extractPageRange } from "./pdf";
 
 export interface ExtractorParams<T> {
@@ -45,10 +46,12 @@ export async function runExtractor<T>(params: ExtractorParams<T>): Promise<Extra
     ? `${prompt}\n\n[Document pages ${startPage}-${endPage} are provided as images above.]`
     : `${prompt}\n\n[Document pages ${startPage}-${endPage} are provided as a PDF file above.]`;
 
+  const strictSchema = toStrictSchema(schema) as typeof schema;
+
   const result = await withRetry(() =>
     generateObject({
       prompt: fullPrompt,
-      schema,
+      schema: strictSchema,
       maxTokens,
       providerOptions,
     })
