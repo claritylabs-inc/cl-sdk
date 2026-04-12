@@ -33,7 +33,7 @@ describe("runExtractor", () => {
     expect(generateObject).toHaveBeenCalledOnce();
   });
 
-  it("includes PDF file reference in prompt when no convertPdfToImages", async () => {
+  it("passes a page-scoped PDF to providerOptions when no convertPdfToImages", async () => {
     const schema = z.object({ value: z.string() });
     const generateObject = vi.fn().mockResolvedValue({
       object: { value: "test" },
@@ -50,17 +50,19 @@ describe("runExtractor", () => {
       generateObject,
     });
 
-    const calledPrompt = generateObject.mock.calls[0][0].prompt;
-    expect(calledPrompt).toContain("PDF file above");
-    expect(calledPrompt).toContain("pages 2-5");
+    const callArgs = generateObject.mock.calls[0][0];
+    expect(callArgs.prompt).toContain("provided as a PDF file");
+    expect(callArgs.prompt).toContain("pages 2-5");
+    expect(callArgs.providerOptions).toEqual({ pdfBase64: "mock-pdf-base64" });
   });
 
-  it("includes image reference in prompt when convertPdfToImages is provided", async () => {
+  it("passes images to providerOptions when convertPdfToImages is provided", async () => {
     const schema = z.object({ value: z.string() });
     const generateObject = vi.fn().mockResolvedValue({
       object: { value: "test" },
       usage: { inputTokens: 10, outputTokens: 5 },
     });
+    const convertPdfToImages = vi.fn().mockResolvedValue([{ imageBase64: "img-1", mimeType: "image/png" }]);
 
     await runExtractor({
       name: "test",
@@ -70,15 +72,19 @@ describe("runExtractor", () => {
       startPage: 1,
       endPage: 4,
       generateObject,
-      convertPdfToImages: vi.fn(),
+      convertPdfToImages,
     });
 
-    const calledPrompt = generateObject.mock.calls[0][0].prompt;
-    expect(calledPrompt).toContain("images above");
-    expect(calledPrompt).toContain("pages 1-4");
+    const callArgs = generateObject.mock.calls[0][0];
+    expect(convertPdfToImages).toHaveBeenCalledWith("base64data", 1, 4);
+    expect(callArgs.prompt).toContain("provided as images");
+    expect(callArgs.prompt).toContain("pages 1-4");
+    expect(callArgs.providerOptions).toEqual({
+      images: [{ imageBase64: "img-1", mimeType: "image/png" }],
+    });
   });
 
-  it("passes maxTokens and providerOptions through", async () => {
+  it("merges page-scoped PDF into existing providerOptions", async () => {
     const schema = z.object({ value: z.string() });
     const generateObject = vi.fn().mockResolvedValue({
       object: { value: "test" },
@@ -98,6 +104,9 @@ describe("runExtractor", () => {
 
     const callArgs = generateObject.mock.calls[0][0];
     expect(callArgs.maxTokens).toBe(8192);
-    expect(callArgs.providerOptions).toEqual({ anthropic: { thinking: true } });
+    expect(callArgs.providerOptions).toEqual({
+      anthropic: { thinking: true },
+      pdfBase64: "mock-pdf-base64",
+    });
   });
 });

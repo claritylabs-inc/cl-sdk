@@ -31,14 +31,22 @@ CL-SDK extracts structured data from insurance PDFs using a multi-agent pipeline
 import { createExtractor } from "@claritylabs/cl-sdk";
 
 const extractor = createExtractor({
-  generateText: async ({ prompt, system, maxTokens }) => {
+  generateText: async ({ prompt, system, maxTokens, providerOptions }) => {
     // Wrap your preferred LLM provider
-    const result = await yourProvider.generate({ prompt, system, maxTokens });
+    const result = await yourProvider.generate({ prompt, system, maxTokens, providerOptions });
     return { text: result.text, usage: result.usage };
   },
-  generateObject: async ({ prompt, system, schema, maxTokens }) => {
+  generateObject: async ({ prompt, system, schema, maxTokens, providerOptions }) => {
     // schema is a Zod schema — use it for structured output
-    const result = await yourProvider.generateStructured({ prompt, system, schema, maxTokens });
+    // IMPORTANT: pass providerOptions.pdfBase64 and/or providerOptions.images
+    // through to your model as file/image message parts.
+    const result = await yourProvider.generateStructured({
+      prompt,
+      system,
+      schema,
+      maxTokens,
+      providerOptions,
+    });
     return { object: result.object, usage: result.usage };
   },
 });
@@ -87,6 +95,13 @@ type GenerateObject<T> = (params: {
 }) => Promise<{ object: T; usage?: { inputTokens: number; outputTokens: number } }>;
 ```
 
+For extraction calls, `providerOptions` can carry document content:
+
+- `providerOptions.pdfBase64` — the PDF to send as a file part
+- `providerOptions.images` — page images to send as image parts
+
+The coordinator passes the full PDF to classify and plan. Worker extractors pass a page-scoped PDF produced by `extractPageRange()` unless `convertPdfToImages` is enabled, in which case they pass page images instead. Your callback must include that content in the actual model request; the prompt text alone is not sufficient.
+
 Works with any provider: Anthropic, OpenAI, Google, Mistral, Bedrock, Azure, Ollama, etc. You write the adapter once; the SDK calls it throughout the pipeline.
 
 > **Strict structured output compatibility:** The SDK automatically transforms Zod schemas before passing them to `generateObject` — converting `.optional()` fields to `.nullable()` so all properties appear in the JSON Schema `required` array. This ensures compatibility with providers like OpenAI that enforce strict structured output validation. No adapter changes needed on your end.
@@ -131,9 +146,13 @@ The coordinator sends the document to `generateObject` with the `ClassifyResultS
 - **Policy types** — one or more lines of business (e.g., `general_liability`, `workers_comp`)
 - **Confidence score**
 
+The full document is passed through `providerOptions.pdfBase64` for this step, so your callback must attach that PDF to the model request as a real document/file part.
+
 #### Phase 2: Plan
 
 Based on the classification, the coordinator selects a **line-of-business template** (e.g., `workers_comp`, `cyber`, `homeowners_ho3`) that defines expected sections and page hints. It then generates an **extraction plan** — a list of tasks that map specific extractors to page ranges within the PDF.
+
+The planner also receives the full document through `providerOptions.pdfBase64`, not just prompt text.
 
 #### Phase 3: Extract
 
@@ -154,6 +173,8 @@ Focused extractor agents are dispatched **in parallel** (concurrency-limited, de
 | `sections` | Raw section content (fallback for unmatched sections) |
 
 Each extractor writes its results to an in-memory `Map`. Results accumulate across all extractors.
+
+Before each worker call, the SDK slices the requested page range with `extractPageRange()` and passes that page-scoped PDF through `providerOptions.pdfBase64`. If `convertPdfToImages` is configured, it passes `providerOptions.images` instead. The callback layer is responsible for actually including that content in the model input.
 
 #### Phase 4: Review
 

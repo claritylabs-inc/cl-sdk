@@ -36,9 +36,9 @@ src/
 
 The core extraction system uses a coordinator/worker pattern with extraction memory:
 
-1. **Classify** (`coordinator.ts`): Classify document type and identify policy types using `generateObject` + `ClassifyResultSchema`
-2. **Plan** (`coordinator.ts`): Select a line-of-business template (`prompts/templates/`) and generate an extraction plan — a list of tasks mapping focused extractors to page ranges
-3. **Extract** (`extractor.ts`): Dispatch focused extractors in parallel (concurrency-limited, default 2). Each extractor (`prompts/extractors/`) targets a specific data domain (declarations, coverages, conditions, endorsements, etc.) against a page range. Results accumulate in an in-memory `Map`
+1. **Classify** (`coordinator.ts`): Classify document type and identify policy types using `generateObject` + `ClassifyResultSchema`. The coordinator passes the full PDF via `providerOptions.pdfBase64`
+2. **Plan** (`coordinator.ts`): Select a line-of-business template (`prompts/templates/`) and generate an extraction plan — a list of tasks mapping focused extractors to page ranges. The planner also receives the full PDF via `providerOptions.pdfBase64`
+3. **Extract** (`extractor.ts`): Dispatch focused extractors in parallel (concurrency-limited, default 2). Each extractor (`prompts/extractors/`) targets a specific data domain (declarations, coverages, conditions, endorsements, etc.) against a page range. Before the callback is invoked, `runExtractor()` slices that range with `extractPageRange()` and passes the page-scoped PDF via `providerOptions.pdfBase64`, or `providerOptions.images` if `convertPdfToImages` is configured. Results accumulate in an in-memory `Map`
 4. **Review** (`coordinator.ts`): Review loop (up to `maxReviewRounds`, default 2) checks completeness against template requirements. If gaps found, dispatches additional extractors for missing data
 5. **Assemble** (`assembler.ts`): Merge all extractor results into a final `InsuranceDocument`
 6. **Format** (`formatter.ts`): Post-extraction pass that cleans up markdown formatting in all content-bearing fields (sections, endorsements, exclusions, conditions, summary). Fixes pipe tables missing separator rows, space-aligned tables, sub-items mixed into tables, orphaned formatting markers, and excessive whitespace. Uses `generateText` in batches of up to 20 entries. Prompt: `prompts/coordinator/format.ts`
@@ -93,6 +93,11 @@ No framework coupling. Consumers provide plain callback functions:
 - `ConvertPdfToImagesFn` — `(pdfBase64, startPage, endPage) => Promise<Array<{ imageBase64, mimeType }>>` — if provided, PDF pages are sent as images instead of native PDF file
 
 Consumers wrap their preferred provider (Anthropic, OpenAI, etc.) into these callbacks. The SDK never imports or depends on any provider package.
+
+Important extraction contract:
+- `providerOptions.pdfBase64` carries document content for classify, plan, and PDF-mode extractor calls
+- `providerOptions.images` carries rendered page images for image-mode extractor calls
+- The callback must translate those fields into actual multi-part model input. Prompt text that says a document is "provided" is not enough by itself
 
 ### Schemas (`src/schemas/`)
 
