@@ -1,3 +1,10 @@
+## [0.7.3](https://github.com/claritylabs-inc/cl-sdk/compare/v0.7.2...v0.7.3) (2026-04-12)
+
+
+### Bug Fixes
+
+* auto-transform schemas for strict structured output compatibility ([ed29a72](https://github.com/claritylabs-inc/cl-sdk/commit/ed29a72717236bf40fe3791b136e7a39d3bfe61c))
+
 ## [0.7.2](https://github.com/claritylabs-inc/cl-sdk/compare/v0.7.1...v0.7.2) (2026-04-12)
 
 
