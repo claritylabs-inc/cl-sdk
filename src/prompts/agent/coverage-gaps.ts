@@ -1,4 +1,4 @@
-import { AgentContext } from "../../types/platform";
+import { AgentContext } from "../../schemas/platform";
 
 export function buildCoverageGapPrompt(ctx: AgentContext): string | null {
   if (ctx.intent === "direct") return null;

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-`@claritylabs/cl-sdk` (CL-0 SDK) is an open infrastructure layer for building AI agents that work with insurance — a pure TypeScript library for policy/quote extraction, application processing, and agent prompts. It uses the Vercel AI SDK (`ai`) and pdf-lib as peer dependencies. Provider-agnostic — works with any AI provider via `LanguageModel` instances.
+`@claritylabs/cl-sdk` (CL-0 SDK) is an open infrastructure layer for building AI agents that work with insurance — a pure TypeScript library for policy/quote extraction, application processing, and agent prompts. Provider-agnostic via plain callback functions (`GenerateText`, `GenerateObject`) — no framework dependency. Uses Zod schemas as the source of truth for all types. Includes optional SQLite-backed storage for documents and extraction memory.
 
 ## Commands
 
@@ -18,61 +18,73 @@ No test runner is configured. Validate changes with `npm run typecheck`.
 
 ## Architecture
 
-### Multi-Pass Extraction Pipeline (`src/extraction/pipeline.ts`)
+### File Structure
 
-The core extraction system processes insurance PDFs in 3 passes with adaptive fallback:
+```
+src/
+  core/           # Provider-agnostic types, retry, concurrency, utilities
+  schemas/        # Zod schemas (source of truth for all types)
+  extraction/     # Agentic extraction: coordinator, extractor, assembler, chunking, pdf
+  prompts/        # Prompt modules: coordinator/, extractors/, templates/, agent/, application/
+  storage/        # DocumentStore + MemoryStore interfaces, SQLite reference impl
+  tools/          # Tool definitions (unchanged)
+```
 
-- **Pass 0 (Classification)**: `classification` model classifies document as policy or quote
-- **Pass 1 (Metadata)**: `metadata` model extracts high-level metadata (carrier, dates, premium, coverages). Includes `onMetadata?()` callback for early persistence — if pass 2 fails, metadata is already saved
-- **Pass 2 (Sections)**: Chunked extraction with `sections` model. Documents split into 15-page chunks and processed in parallel (concurrency-limited, default 2). On JSON parse failure, re-splits to 10→5 pages, then falls back to `sectionsFallback` model. `mergeChunkedSections()` combines results
-- **Pass 3 (Enrichment)**: `enrichment` model enriches supplementary fields (regulatory context, contacts) from raw text. Non-fatal
+### Agentic Extraction Pipeline (`src/extraction/`)
 
-Separate flows exist for policies (`extractFromPdf`) vs quotes (`extractQuoteFromPdf`). `extractSectionsOnly()` retries pass 2 using saved metadata from a prior pass 1.
+The core extraction system uses a coordinator/worker pattern with extraction memory:
 
-### Model Configuration (`src/types/models.ts`)
+1. **Classify** (`coordinator.ts`): Classify document type and identify policy types using `generateObject` + `ClassifyResultSchema`
+2. **Plan** (`coordinator.ts`): Select a line-of-business template (`prompts/templates/`) and generate an extraction plan — a list of tasks mapping focused extractors to page ranges
+3. **Extract** (`extractor.ts`): Dispatch focused extractors in parallel (concurrency-limited, default 2). Each extractor (`prompts/extractors/`) targets a specific data domain (declarations, coverages, conditions, endorsements, etc.) against a page range. Results accumulate in an in-memory `Map`
+4. **Review** (`coordinator.ts`): Review loop (up to `maxReviewRounds`, default 2) checks completeness against template requirements. If gaps found, dispatches additional extractors for missing data
+5. **Assemble** (`assembler.ts`): Merge all extractor results into a final `InsuranceDocument`, then chunk for storage
 
-Provider-agnostic via Vercel AI SDK. The pipeline accepts `ModelConfig` with `LanguageModel` instances for each role (classification, metadata, sections, sectionsFallback, enrichment). Consumers bring their own provider package (`@ai-sdk/anthropic`, `@ai-sdk/openai`, etc.).
+Entry point: `createExtractor(config)` returns `{ extract(pdfBase64, documentId?) }`.
 
-- `createUniformModelConfig(model)` — same model for all roles
-- `DEFAULT_TOKEN_LIMITS` — default per-role token limits; `MODEL_TOKEN_LIMITS` is a deprecated alias
-- `TokenLimits` / `resolveTokenLimits(overrides?)` — override maxTokens per role via options
+### Provider Callbacks (`src/core/types.ts`)
 
-Public functions use options objects (`ExtractOptions`, `ClassifyOptions`, `ExtractSectionsOptions`) with required `models` field — no default provider is assumed. Provider-specific config (e.g. Anthropic thinking) goes through `providerOptions`. Options also include `concurrency` (parallel chunk limit, default 2) and `onTokenUsage` callback for tracking cumulative token usage.
+No framework coupling. Consumers provide plain callback functions:
 
-#### PDF Content Format (`PdfContentFormat`)
+- `GenerateText` — `(params: { prompt, system?, maxTokens, providerOptions? }) => Promise<{ text, usage? }>`
+- `GenerateObject<T>` — `(params: { prompt, system?, schema: ZodSchema<T>, maxTokens, providerOptions? }) => Promise<{ object: T, usage? }>`
+- `EmbedText` — `(text: string) => Promise<number[]>` (for memory store)
+- `ConvertPdfToImagesFn` — `(pdfBase64, startPage, endPage) => Promise<Array<{ imageBase64, mimeType }>>` — if provided, PDF pages are sent as images instead of native PDF file
 
-The SDK supports multiple PDF input formats to work across different providers:
+Consumers wrap their preferred provider (Anthropic, OpenAI, etc.) into these callbacks. The SDK never imports or depends on any provider package.
 
-- `file` (default): Send PDF as native file `{ type: "file", data, mediaType }` — most efficient, works with most providers (Anthropic, Google, OpenAI, Mistral, Bedrock, Azure)
-- `image`: Convert PDF pages to base64 images via `convertPdfToImages` callback — fallback for models that don't support native PDF input
+### Schemas (`src/schemas/`)
 
-No provider detection or sniffing — defaults to `file` for all providers. If a model doesn't support native PDF input, the consumer sets `pdfContentFormat: "image"` and provides a `convertPdfToImages` callback. The callback receives `(pdfBase64, startPage, endPage)` and returns an array of `{ imageBase64, mimeType }` per page. The SDK does not bundle a converter — consumers use whatever library works in their runtime.
+All types are derived from Zod schemas via `z.infer`. Schema files define both runtime validation and TypeScript types:
 
-**Implementation details** (`src/extraction/pipeline.ts`):
-- `getEffectivePdfFormat()` — determines format based on setting + model provider
-- `buildPdfContentParts()` — constructs Vercel AI SDK content parts for the selected format
-- `callModel()` — accepts `pdfContentFormat` and `convertPdfToImages` params
+- `document.ts` — `InsuranceDocument`, `PolicyDocument`, `QuoteDocument` (discriminated union)
+- `coverage.ts`, `condition.ts`, `exclusion.ts`, `endorsement.ts`, `financial.ts` — domain schemas
+- `declarations/` — per-line-of-business declaration page schemas
+- `parties.ts`, `loss-history.ts`, `underwriting.ts`, `shared.ts`, `enums.ts` — shared schemas
+- `platform.ts` — `Platform`, `CommunicationIntent`, `AgentContext`, `PLATFORM_CONFIGS`
+- `context-keys.ts` — extraction memory context keys
 
 ### PDF Operations (`src/extraction/pdf.ts`)
 
 Two modes using pdf-lib:
 - **AcroForm**: Detect fields (`getAcroFormFields`), fill and flatten (`fillAcroForm`)
 - **Text Overlay**: Position text at percentage-based coordinates on flat PDFs (`overlayTextOnPdf`)
+- **Page extraction**: `extractPageRange()` and `getPdfPageCount()` for chunked extraction
 
 ### Prompt System (`src/prompts/`)
 
-- `extraction.ts` — document classification, metadata, section extraction, enrichment
-- `application.ts` — form field detection, auto-fill, question batching, answer parsing, PDF mapping
-- `agent/` — composable agent prompt modules (identity, safety, formatting, coverage-gaps, coi-routing, quotes-policies, conversation-memory, intent). `buildAgentSystemPrompt(ctx)` composes all modules.
-- `agent.ts` — legacy `buildSystemPrompt()` (deprecated, delegates to `agent/`), `buildDocumentContext`, `buildConversationMemoryContext`
+- `coordinator/` — classify, plan, review prompts for the agentic pipeline
+- `extractors/` — focused extractor prompts: declarations, coverage-limits, conditions, endorsements, exclusions, loss-history, named-insured, premium-breakdown, sections, supplementary, carrier-info
+- `templates/` — line-of-business templates (commercial-auto, cyber, workers-comp, homeowners, etc.) defining expected sections and page hints
+- `application/` — form field extraction, auto-fill, question batching, answer parsing, PDF mapping, reply intent classification
+- `agent/` — composable agent prompt modules (identity, safety, formatting, coverage-gaps, coi-routing, quotes-policies, conversation-memory, intent). `buildAgentSystemPrompt(ctx)` composes all modules
 - `intent.ts` — platform-agnostic message classification with `buildClassifyMessagePrompt(platform)`
-- `classifier.ts` — legacy `CLASSIFY_EMAIL_PROMPT` (deprecated)
 
-### Type System (`src/types/`)
+### Storage (`src/storage/`)
 
-- `document.ts` — `BaseDocument`, `PolicyDocument`, `QuoteDocument`, `InsuranceDocument` (discriminated union), `Coverage`, `Section`, `Subsection`, `Subjectivity`, `UnderwritingCondition`, `PremiumLine`
-- `platform.ts` — `Platform`, `CommunicationIntent`, `PlatformConfig`, `AgentContext`, `PLATFORM_CONFIGS`
-- `models.ts` — `ModelConfig`, `createUniformModelConfig`, `DEFAULT_TOKEN_LIMITS`, `TokenLimits`, `resolveTokenLimits`, `PdfContentFormat`, `ConvertPdfToImagesFn`
+- `interfaces.ts` — `DocumentStore` (CRUD for `InsuranceDocument`) and `MemoryStore` (vector search over `DocumentChunk`, conversation history) interfaces
+- `chunk-types.ts` — `DocumentChunk`, `ConversationTurn`, `ChunkFilter`, `DocumentFilters`
+- `sqlite/` — reference SQLite implementation of both interfaces
 
 ### Tool Definitions (`src/tools/`)
 
@@ -81,10 +93,10 @@ Two modes using pdf-lib:
 ### Key Patterns
 
 - **Null sanitization**: `sanitizeNulls()` converts null→undefined recursively for Convex compatibility
-- **`stripFences()`**: Removes markdown code fences from Claude responses before JSON parsing
+- **`stripFences()`**: Removes markdown code fences from model responses before JSON parsing
 - **Rate-limit retry**: `withRetry()` wraps all model calls with exponential backoff (5 retries, 2-32s + jitter) on 429/rate-limit errors
-- **Concurrency control**: `pLimit(n)` utility limits parallel chunk extraction (no external dependency). Default concurrency is 2
-- **Token tracking**: `onTokenUsage` callback on options objects reports `{ inputTokens, outputTokens }` after each model call
+- **Concurrency control**: `pLimit(n)` utility limits parallel extractor dispatch (no external dependency). Default concurrency is 2
+- **Token tracking**: `onTokenUsage` callback on `ExtractorConfig` reports `{ inputTokens, outputTokens }` after each model call
 - **Path alias**: `@/*` maps to `src/*` in tsconfig
 - **Barrel exports**: `src/index.ts` — all public API goes through here
 - **Platform/Intent model**: Agent prompts use `AgentContext` with `platform` (email/chat/sms/slack/discord) and `intent` (direct/mediated/observed) instead of legacy mode strings
@@ -98,11 +110,12 @@ Versioning and publishing are fully automated via [semantic-release](https://git
 3. Creates a GitHub release with auto-generated release notes
 4. Commits the updated files back to `master`
 5. Publishes to npm (`registry.npmjs.org`)
+6. Triggers `cl-sdk-docs` rebuild
 
-**Commit message format** (determines version bump — pre-1.0, breaking changes bump minor only):
+**Commit message format** (determines version bump):
 - `fix: ...` → patch (0.0.x)
 - `feat: ...` → minor (0.x.0)
-- `feat!: ...` or `BREAKING CHANGE:` → minor (0.x.0) — not major while pre-1.0
+- `feat!: ...` or `BREAKING CHANGE:` in footer → major (x.0.0)
 - `chore:`, `docs:`, `refactor:`, `test:`, etc. → no release
 
 Local dry-run: `npx semantic-release --dry-run`

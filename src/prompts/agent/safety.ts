@@ -1,4 +1,4 @@
-import { AgentContext } from "../../types/platform";
+import { AgentContext } from "../../schemas/platform";
 
 export function buildSafetyPrompt(ctx: AgentContext): string {
   const companyRef = ctx.companyName ?? "the user's company";

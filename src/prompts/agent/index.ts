@@ -1,4 +1,4 @@
-import { AgentContext } from "../../types/platform";
+import { AgentContext } from "../../schemas/platform";
 import { buildIdentityPrompt } from "./identity";
 import { buildSafetyPrompt } from "./safety";
 import { buildFormattingPrompt } from "./formatting";

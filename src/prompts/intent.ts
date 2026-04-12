@@ -1,4 +1,4 @@
-import { Platform } from "../types/platform";
+import { Platform } from "../schemas/platform";
 
 /**
  * Build a platform-agnostic message classification prompt.

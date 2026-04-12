@@ -1,4 +1,4 @@
-import { AgentContext, PLATFORM_CONFIGS, PlatformConfig } from "../../types/platform";
+import { AgentContext, PLATFORM_CONFIGS, PlatformConfig } from "../../schemas/platform";
 
 export function buildFormattingPrompt(ctx: AgentContext): string {
   const config: PlatformConfig = ctx.platformConfig ?? PLATFORM_CONFIGS[ctx.platform];
