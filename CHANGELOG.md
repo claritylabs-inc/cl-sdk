@@ -1,3 +1,10 @@
+# [0.9.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.8.1...v0.9.0) (2026-04-12)
+
+
+### Features
+
+* strengthen extraction planning and review ([19a38c6](https://github.com/claritylabs-inc/cl-sdk/commit/19a38c60d3351188bd4e94e326f7efcda2d242b8))
+
 ## [0.8.1](https://github.com/claritylabs-inc/cl-sdk/compare/v0.8.0...v0.8.1) (2026-04-12)
 
 
