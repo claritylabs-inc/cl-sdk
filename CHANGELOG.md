@@ -1,3 +1,10 @@
+# [0.4.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.3.1...v0.4.0) (2026-04-12)
+
+
+### Features
+
+* add query agent pipeline with citation-backed provenance ([9b65b76](https://github.com/claritylabs-inc/cl-sdk/commit/9b65b767cf29dc94357773413da2d57fbd52013f))
+
 # [0.3.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.2.1...v0.3.0) (2026-04-12)
 
 
