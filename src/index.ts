@@ -52,7 +52,19 @@ export {
   buildIntentPrompt,
 } from "./prompts/agent/index";
 
-// ── Application prompts ──
+// ── Application pipeline ──
+export { createApplicationPipeline } from "./application/coordinator";
+export type {
+  ApplicationPipelineConfig,
+  ProcessApplicationInput,
+  ProcessApplicationResult,
+  ProcessReplyInput,
+  ProcessReplyResult,
+} from "./application/types";
+export type { ApplicationStore, ApplicationListFilters, BackfillProvider, PriorAnswer } from "./application/store";
+export * from "./schemas/application";
+
+// ── Application prompts (for advanced use) ──
 export * from "./prompts/application/index";
 
 // ── Query agent pipeline ──

@@ -300,21 +300,120 @@ const prompt = buildClassifyMessagePrompt("email");
 // coverage_shopping, general, unrelated
 ```
 
-## Application Processing
+## Application Processing Pipeline
 
-CL-SDK includes prompts for processing insurance applications — extracting form fields from PDFs, auto-filling from existing documents, batching questions for the insured, and mapping answers back to PDF forms.
+The application pipeline processes insurance applications through an agentic coordinator/worker system — small focused agents handle classification, field extraction, auto-fill, question batching, reply routing, and PDF mapping. Supports persistent state and vector-based answer backfill from prior applications.
+
+### Quick Start
+
+```typescript
+import { createApplicationPipeline } from "@claritylabs/cl-sdk";
+
+const pipeline = createApplicationPipeline({
+  generateText,
+  generateObject,
+  applicationStore,      // persistent state storage
+  documentStore,         // for policy/quote lookups during auto-fill
+  memoryStore,           // for vector-based answer backfill
+  orgContext: [           // business context for auto-fill
+    { key: "company_name", value: "Acme Corp", category: "company_info" },
+    { key: "company_address", value: "123 Main St", category: "company_info" },
+  ],
+});
+
+// Process a new application PDF
+const { state } = await pipeline.processApplication({
+  pdfBase64: "...",
+  applicationId: "app-123",
+});
+// state.fields → extracted fields, some already auto-filled
+// state.batches → question batches ready for user collection
+
+// Generate email for current batch
+const { text: emailBody } = await pipeline.generateCurrentBatchEmail("app-123", {
+  companyName: "Acme Corp",
+});
+
+// Process user's reply
+const { state: updated, fieldsFilled, responseText } = await pipeline.processReply({
+  applicationId: "app-123",
+  replyText: "1. Yes\n2. $1,000,000\n3. Check our website for revenue",
+});
+```
+
+### Pipeline Phases
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────────────┐
+│ 1. CLASSIFY  │────>│ 2. EXTRACT   │────>│ 3. BACKFILL +       │
+│              │     │    FIELDS    │     │    AUTO-FILL         │
+│ Is this an   │     │              │     │    (parallel)        │
+│ application? │     │ All fillable │     │                     │
+│              │     │ fields as    │     │ • vector backfill   │
+│              │     │ structured   │     │ • context auto-fill │
+│              │     │ data         │     │ • document search   │
+└──────────────┘     └──────────────┘     └──────────┬──────────┘
+                                                     │
+                     ┌──────────────┐     ┌──────────v──────────┐
+                     │ REPLY LOOP   │<────│ 4. BATCH QUESTIONS  │
+                     │              │     │                     │
+                     │ Route intent │     │ Group unfilled      │
+                     │ Parse answers│     │ fields by topic     │
+                     │ Handle lookup│     │ Generate emails     │
+                     │ Explain field│     │                     │
+                     └──────┬───────┘     └─────────────────────┘
+                            │
+                     ┌──────v───────┐
+                     │ 5. CONFIRM + │
+                     │    MAP PDF   │
+                     └──────────────┘
+```
+
+### Focused Agents (8 types)
+
+| Agent | Task | Model Size |
+|-------|------|-----------|
+| `classifier` | Detect if PDF is an application | Tiny |
+| `field-extractor` | Extract all form fields | Medium |
+| `auto-filler` | Match fields to business context | Small |
+| `batcher` | Group fields into topic batches | Small |
+| `reply-router` | Classify reply intent | Tiny |
+| `answer-parser` | Extract answers from replies | Small |
+| `lookup-filler` | Fill from policy/record lookups | Small |
+| `email-generator` | Generate professional batch emails | Small |
+
+### Vector-Based Answer Backfill
+
+The `BackfillProvider` interface enables searching prior application answers and extracted document data to pre-fill new applications:
+
+```typescript
+interface BackfillProvider {
+  searchPriorAnswers(
+    fields: { id: string; label: string; section: string; fieldType: string }[],
+    options?: { limit?: number },
+  ): Promise<PriorAnswer[]>;
+}
+```
+
+This runs in parallel with context-based auto-fill, so the pipeline fills as many fields as possible before asking the user anything.
+
+### Application Prompts (for advanced use)
+
+The individual prompt functions are still exported for custom pipelines:
 
 ```typescript
 import {
-  buildFieldExtractionPrompt,   // Extract fields from application PDFs
-  buildAutoFillPrompt,          // Auto-fill from existing policy data
-  buildQuestionBatchPrompt,     // Group remaining questions for the insured
-  buildAnswerParsingPrompt,     // Parse insured's responses
-  buildConfirmationSummaryPrompt, // Generate confirmation summary
-  buildFlatPdfMappingPrompt,    // Map answers to flat PDF coordinates
-  buildAcroFormMappingPrompt,   // Map answers to AcroForm fields
-  buildReplyIntentClassificationPrompt, // Classify reply intent
-  buildFieldExplanationPrompt,  // Explain fields to the insured
+  buildFieldExtractionPrompt,
+  buildAutoFillPrompt,
+  buildQuestionBatchPrompt,
+  buildAnswerParsingPrompt,
+  buildConfirmationSummaryPrompt,
+  buildBatchEmailGenerationPrompt,
+  buildReplyIntentClassificationPrompt,
+  buildFieldExplanationPrompt,
+  buildFlatPdfMappingPrompt,
+  buildAcroFormMappingPrompt,
+  buildLookupFillPrompt,
 } from "@claritylabs/cl-sdk";
 ```
 

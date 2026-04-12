@@ -26,6 +26,7 @@ src/
   schemas/        # Zod schemas (source of truth for all types)
   extraction/     # Agentic extraction: coordinator, extractor, assembler, chunking, pdf
   query/          # Agentic query: coordinator, retriever, reasoner, verifier
+  application/    # Agentic application processing: coordinator, 8 focused agents, store
   prompts/        # Prompt modules: coordinator/, extractors/, templates/, agent/, application/, query/
   storage/        # DocumentStore + MemoryStore interfaces, SQLite reference impl
   tools/          # Tool definitions (unchanged)
@@ -60,6 +61,25 @@ Query intents: `policy_question`, `coverage_comparison`, `document_search`, `cla
 Schemas: `src/schemas/query.ts` — `QueryClassifyResultSchema`, `SubAnswerSchema`, `VerifyResultSchema`, `QueryResultSchema`, `CitationSchema`.
 
 Prompts: `src/prompts/query/` — `classify.ts`, `reason.ts`, `verify.ts`, `respond.ts`.
+
+### Application Processing Pipeline (`src/application/`)
+
+Agentic pipeline for processing insurance applications. Same coordinator/worker pattern:
+
+1. **Classify** (`agents/classifier.ts`): Detect if PDF is an application form
+2. **Extract** (`agents/field-extractor.ts`): Extract all fillable fields as structured data
+3. **Backfill + Auto-Fill** (parallel): Vector search prior answers (`BackfillProvider`), match business context (`agents/auto-filler.ts`), search document chunks
+4. **Batch** (`agents/batcher.ts`): Group unfilled fields into topic-based batches for user collection
+5. **Reply Loop**: Route reply intent (`agents/reply-router.ts`) → parse answers (`agents/answer-parser.ts`) / handle lookups (`agents/lookup-filler.ts`) / generate emails (`agents/email-generator.ts`)
+6. **Confirm + Map PDF** (`agents/pdf-mapper.ts`): Map filled values to PDF (flat overlay or AcroForm)
+
+Entry point: `createApplicationPipeline(config)` returns `{ processApplication, processReply, generateCurrentBatchEmail, getConfirmationSummary }`.
+
+Storage: `ApplicationStore` interface for persistent state, `BackfillProvider` interface for vector-based answer backfill.
+
+Schemas: `src/schemas/application.ts` — `ApplicationField`, `ApplicationState`, `AutoFillResult`, `ReplyIntent`, `AnswerParsingResult`, etc.
+
+Agents: 8 focused agents in `src/application/agents/` — each with simple prompts designed for small/fast models.
 
 ### Provider Callbacks (`src/core/types.ts`)
 
