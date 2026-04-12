@@ -1,3 +1,5 @@
+# CL-0 SDK
+
 [Clarity Labs](https://claritylabs.inc) allows insurers to understand their clients as well as they know themselves. Having a better understanding of clients means insurers can automate servicing to reduce costs and identify coverage gaps to cross-sell products.
 
 CL-0 SDK is the open infrastructure layer that makes this possible: a shared intelligence system that any product or agent can import to understand, reason about, and act on insurance documents and workflows.
@@ -10,7 +12,7 @@ npm install @claritylabs/cl-sdk
 
 ### Peer Dependencies
 
-CL-0 SDK requires the [Vercel AI SDK](https://sdk.vercel.ai) and pdf-lib:
+CL-0 SDK requires the [AI SDK](https://sdk.vercel.ai) (from Vercel) and pdf-lib:
 
 ```bash
 npm install ai pdf-lib
@@ -35,7 +37,7 @@ npm install @ai-sdk/google
 
 ```typescript
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { extractFromPdf, createUniformModelConfig, applyExtracted } from "@claritylabs/cl-sdk";
+import { extractFromPdf, createUniformModelConfig } from "@claritylabs/cl-sdk";
 
 const anthropic = createAnthropic();
 const pdfBase64 = "..."; // base64-encoded PDF
@@ -43,7 +45,6 @@ const pdfBase64 = "..."; // base64-encoded PDF
 const { extracted } = await extractFromPdf(pdfBase64, {
   models: createUniformModelConfig(anthropic("claude-sonnet-4-6")),
 });
-const fields = applyExtracted(extracted);
 ```
 
 ### Any Provider
@@ -60,7 +61,7 @@ const { extracted } = await extractFromPdf(pdfBase64, {
 });
 ```
 
-If your model doesn't support native PDF input, set `pdfContentFormat: "image"` and provide a `convertPdfToImages` callback. The SDK does not bundle a converter — use whatever library works in your runtime (pdf2pic, mupdf, pdfjs-dist, etc.):
+If your model doesn't support native PDF input, set `pdfContentFormat: "image"` and provide a `convertPdfToImages` callback:
 
 ```typescript
 const { extracted } = await extractFromPdf(pdfBase64, {
@@ -75,7 +76,7 @@ const { extracted } = await extractFromPdf(pdfBase64, {
 
 ### Fine-Grained Model Config
 
-Assign different models per pipeline role — use a fast model for classification/sections and a capable model for metadata/fallback:
+Assign different models per pipeline role:
 
 ```typescript
 import { createAnthropic } from "@ai-sdk/anthropic";
@@ -83,11 +84,11 @@ import { extractFromPdf, type ModelConfig } from "@claritylabs/cl-sdk";
 
 const anthropic = createAnthropic();
 const models: ModelConfig = {
-  classification: anthropic("claude-haiku-4-5-20251001"),  // fast, cheap
-  metadata: anthropic("claude-sonnet-4-6"),                // capable
-  sections: anthropic("claude-haiku-4-5-20251001"),        // fast, cheap
-  sectionsFallback: anthropic("claude-sonnet-4-6"),        // capable (fallback)
-  enrichment: anthropic("claude-haiku-4-5-20251001"),      // fast, cheap
+  classification: anthropic("claude-haiku-4-5"),   // fast, cheap
+  metadata: anthropic("claude-sonnet-4-6"),        // capable
+  sections: anthropic("claude-haiku-4-5"),         // fast, cheap
+  sectionsFallback: anthropic("claude-sonnet-4-6"), // capable (fallback)
+  enrichment: anthropic("claude-haiku-4-5"),       // fast, cheap
 };
 
 const { extracted } = await extractFromPdf(pdfBase64, { models });
@@ -118,111 +119,91 @@ const { extracted } = await extractFromPdf(pdfBase64, { models });
 
 ### Document Extraction Pipeline
 
-A multi-pass system that turns insurance PDFs into structured, queryable data:
+A multi-pass system that turns insurance PDFs into structured data:
 
-- **Pass 0 — Classification**: Determines whether a document is a policy or a quote. Returns document type, confidence score, and supporting signals.
-- **Pass 1 — Metadata Extraction**: Extracts high-level metadata — carrier, policy/quote number, dates, premium, insured name, coverage table with limits and deductibles. Includes an early persistence callback (`onMetadata`) so metadata is saved immediately, surviving downstream failures.
-- **Pass 2 — Section Extraction**: Splits the document into page chunks (starting at 15 pages) and extracts structured sections in parallel (concurrency-limited, default 2). All model calls automatically retry on rate-limit errors with exponential backoff. Adaptive fallback: if a chunk's output is truncated (JSON parse failure), it re-splits into smaller chunks (10, then 5 pages), and escalates to the fallback model. Results are merged across chunks.
-- **Pass 3 — Enrichment**: A non-fatal pass that parses raw text into structured supplementary fields — regulatory context, complaint contacts, costs and fees, claims contacts.
+- **Pass 0 — Classification**: Determines document type (policy/quote) with confidence score
+- **Pass 1 — Metadata Extraction**: Extracts carrier, dates, premium, coverages. Includes `onMetadata` callback for early persistence
+- **Pass 2 — Section Extraction**: Processes page chunks in parallel (configurable concurrency) with adaptive fallback on truncation
+- **Pass 3 — Enrichment**: Non-fatal pass for supplementary fields (regulatory context, contacts, fees)
 
-For quotes specifically, the pipeline also extracts premium breakdowns, subjectivities (conditions that must be met before binding), and underwriting conditions.
+For quotes: also extracts premium breakdowns, subjectivities, and underwriting conditions.
 
 ### Application Processing
 
-End-to-end insurance application handling — from blank PDF to filled form:
+End-to-end insurance application handling:
 
-- **Application detection** — classifies whether a PDF is an insurance application form
-- **Field extraction** — reads every fillable field as structured data (text, numeric, currency, date, yes/no, table, and declaration fields)
-- **Auto-fill** — matches extracted fields against known business context to pre-populate answers
-- **Question batching** — organizes unfilled fields into topic-based batches for emailing the insured
-- **Answer parsing** — parses free-text replies back into structured field values
-- **PDF filling** — maps answers back onto the original PDF, supporting both AcroForm and flat PDF overlay
+- **Application detection** — classifies PDF as insurance application form
+- **Field extraction** — reads all fillable fields (text, numeric, currency, date, yes/no, table)
+- **Auto-fill** — matches fields against business context to pre-populate
+- **Question batching** — organizes unfilled fields for emailing the insured
+- **Answer parsing** — parses free-text replies into structured values
+- **PDF filling** — fills both AcroForm and flat PDFs
 
 ### Agent System
 
-A composable prompt system that powers conversational AI across platforms:
+Composable prompt system for conversational AI:
 
-- **Multi-platform support** — email, chat, SMS, Slack, Discord with platform-aware formatting
-- **Communication intents** — direct (user-facing), mediated (forwarded), observed (CC'd)
-- **Composable modules** — identity, safety, formatting, coverage gaps, COI routing, quotes-vs-policies, conversation memory, and intent-specific instructions
-- **`buildAgentSystemPrompt(ctx)`** — composes all modules into a complete system prompt
-- **Document context builder** — scores and ranks policies/quotes by relevance to a query
-- **Tool definitions** — `tool_use`-compatible schemas for document lookup, COI generation, and coverage comparison
-
-### Intent Classification
-
-Platform-agnostic message classification with `buildClassifyMessagePrompt(platform)` — determines whether an incoming message is insurance-related and suggests an intent.
+- **Multi-platform support** — email, chat, SMS, Slack, Discord
+- **Communication intents** — direct, mediated, observed
+- **Composable modules** — identity, safety, formatting, coverage gaps, COI routing, conversation memory
+- **Document context builder** — ranks policies/quotes by relevance
+- **Tool definitions** — schemas for document lookup, COI generation, coverage comparison
 
 ### Insurance Domain Types
 
-Comprehensive TypeScript type system for the insurance domain:
+Comprehensive TypeScript types:
 
-- **Document types** — `PolicyDocument`, `QuoteDocument`, and `InsuranceDocument` discriminated union
-- **Platform types** — `Platform`, `CommunicationIntent`, `PlatformConfig`, `AgentContext`
-- **Model types** — `ModelConfig`, `createUniformModelConfig`, `TokenLimits`, `DEFAULT_TOKEN_LIMITS`
+- **Documents** — `PolicyDocument`, `QuoteDocument`, `InsuranceDocument` (discriminated union)
+- **Declarations** — typed unions for 20+ line types (Homeowners, Auto, GL, Property, etc.)
+- **Coverages** — enriched coverage with limits, deductibles, sublimits
+- **Endorsements, Exclusions, Conditions**
+- **Financial** — payment plans, premiums, fees
+- **Platform** — `Platform`, `CommunicationIntent`, `AgentContext`
+- **Models** — `ModelConfig`, `TokenLimits`, `PdfContentFormat`
 
 ## API Reference
 
-### Extraction
+### Extraction Functions
 
 | Function | Description |
 |----------|-------------|
 | `classifyDocumentType(pdf, options)` | Classify document as policy or quote |
-| `extractFromPdf(pdf, options)` | Full policy extraction (passes 1-3) |
-| `extractQuoteFromPdf(pdf, options)` | Full quote extraction (passes 1-2) |
+| `extractFromPdf(pdf, options)` | Full policy extraction (passes 0-3) |
+| `extractQuoteFromPdf(pdf, options)` | Full quote extraction (passes 0-2) |
 | `extractSectionsOnly(pdf, metadata, options)` | Retry pass 2 using saved metadata |
-| `applyExtracted(extracted)` | Map extraction JSON to persistence fields |
-| `applyExtractedQuote(extracted)` | Map quote extraction JSON to persistence fields |
+| `applyExtracted(extracted)` | Map extraction to persistence fields |
+| `applyExtractedQuote(extracted)` | Map quote extraction to persistence fields |
 
-### Options
+### Extraction Options
 
 ```typescript
 interface ExtractOptions {
+  models: ModelConfig;                    // required
   log?: LogFn;
   onMetadata?: (raw: string) => Promise<void>;
-  models: ModelConfig;             // required — bring your own models
   metadataProviderOptions?: ProviderOptions;
   fallbackProviderOptions?: ProviderOptions;
-  concurrency?: number;            // parallel chunk limit (default: 2)
-  tokenLimits?: TokenLimits;       // override default maxTokens per role
+  concurrency?: number;                   // default: 2
+  tokenLimits?: TokenLimits;
   onTokenUsage?: (usage: TokenUsage) => void;
-  pdfContentFormat?: "file" | "image";             // default: "file"
-  convertPdfToImages?: ConvertPdfToImagesFn;       // required when pdfContentFormat is "image"
+  pdfContentFormat?: "file" | "image";    // default: "file"
+  convertPdfToImages?: ConvertPdfToImagesFn;
 }
 
-interface ExtractSectionsOptions {
-  log?: LogFn;
-  promptBuilder?: PromptBuilder;
-  models: ModelConfig;             // required — bring your own models
-  fallbackProviderOptions?: ProviderOptions;
-  concurrency?: number;            // parallel chunk limit (default: 2)
-  tokenLimits?: TokenLimits;       // override default maxTokens per role
-  onTokenUsage?: (usage: TokenUsage) => void;
-  pdfContentFormat?: "file" | "image";             // default: "file"
-  convertPdfToImages?: ConvertPdfToImagesFn;       // required when pdfContentFormat is "image"
+interface ModelConfig {
+  classification: LanguageModel;   // Pass 0
+  metadata: LanguageModel;         // Pass 1
+  sections: LanguageModel;         // Pass 2
+  sectionsFallback: LanguageModel; // Pass 2 fallback
+  enrichment: LanguageModel;       // Pass 3
 }
 
-interface ClassifyOptions {
-  log?: LogFn;
-  models: ModelConfig;             // required — bring your own models
-  tokenLimits?: TokenLimits;       // override default maxTokens per role
-  onTokenUsage?: (usage: TokenUsage) => void;
-  pdfContentFormat?: "file" | "image";             // default: "file"
-  convertPdfToImages?: ConvertPdfToImagesFn;       // required when pdfContentFormat is "image"
-}
-
-// Override default token limits per role (all fields optional)
 interface TokenLimits {
   classification?: number;  // default: 512
   metadata?: number;        // default: 16384
   sections?: number;        // default: 8192
   sectionsFallback?: number; // default: 16384
   enrichment?: number;      // default: 4096
-}
-
-interface TokenUsage {
-  inputTokens: number;
-  outputTokens: number;
 }
 
 type ConvertPdfToImagesFn = (
@@ -234,43 +215,21 @@ type ConvertPdfToImagesFn = (
 
 ### PDF Content Formats
 
-| Format | Description | When to use |
-|--------|-------------|-------------|
-| `file` (default) | Send PDF as a native file. Most efficient — no conversion needed. | Most models (Anthropic, Google, OpenAI, Mistral, Bedrock, Azure) |
-| `image` | Convert PDF pages to images via `convertPdfToImages` callback. | Models that don't support native PDF file input |
-
-The SDK defaults to `"file"` — most modern models support native PDF input. If your model doesn't, set `pdfContentFormat: "image"` and provide a `convertPdfToImages` callback. The SDK does not bundle a converter — use whatever library works in your runtime (pdf2pic, mupdf, pdfjs-dist, etc.).
+| Format | Description | Providers |
+|--------|-------------|-----------|
+| `file` (default) | Native PDF file input | Anthropic, Google, OpenAI, Mistral, Bedrock, Azure |
+| `image` | Converted to base64 images | Fallback for other providers |
 
 ### Rate-Limit Resilience
 
-All model calls automatically retry on rate-limit errors (HTTP 429 or "rate limit" in error message) with exponential backoff — up to 5 retries with delays of 2s, 4s, 8s, 16s, 32s (plus jitter). Non-rate-limit errors are re-thrown immediately.
+All model calls automatically retry on rate-limit errors with exponential backoff — up to 5 retries with delays of 2s, 4s, 8s, 16s, 32s (plus jitter).
 
-### Parallel Chunk Extraction
-
-Pass 2 section extraction processes page chunks in parallel with a configurable concurrency limit (default: 2). This balances throughput against rate limits. Sub-chunk retries on truncation are also parallelized.
-
-```typescript
-// Track token usage across all passes
-let totalInput = 0, totalOutput = 0;
-
-const { extracted } = await extractFromPdf(pdfBase64, {
-  models: createUniformModelConfig(yourModel),
-  concurrency: 3,
-  onTokenUsage: ({ inputTokens, outputTokens }) => {
-    totalInput += inputTokens;
-    totalOutput += outputTokens;
-  },
-});
-
-console.log(`Total: ${totalInput} input, ${totalOutput} output tokens`);
-```
-
-### Agent
+### Agent Functions
 
 | Function | Description |
 |----------|-------------|
 | `buildAgentSystemPrompt(ctx)` | Full system prompt from `AgentContext` |
-| `buildDocumentContext(docs, query)` | Ranked document context for a query |
+| `buildDocumentContext(docs, query)` | Ranked document context for query |
 | `buildClassifyMessagePrompt(platform)` | Intent classification prompt |
 
 ### PDF Operations
@@ -278,8 +237,47 @@ console.log(`Total: ${totalInput} input, ${totalOutput} output tokens`);
 | Function | Description |
 |----------|-------------|
 | `getAcroFormFields(pdfBytes)` | Detect fillable form fields |
-| `fillAcroForm(pdfBytes, mappings)` | Fill and flatten form fields |
+| `fillAcroForm(pdfBytes, mappings)` | Fill and flatten AcroForm fields |
 | `overlayTextOnPdf(pdfBytes, overlays)` | Position text on flat PDFs |
+| `getPdfPageCount(pdfBytes)` | Get total page count |
+| `extractPageRange(pdfBytes, start, end)` | Extract page range as new PDF |
+
+### Prompts (Advanced)
+
+All prompts are exported for customization:
+
+```typescript
+// Extraction
+EXTRACTION_PROMPT
+CLASSIFY_DOCUMENT_PROMPT
+METADATA_PROMPT
+QUOTE_METADATA_PROMPT
+buildSectionsPrompt(metadata)
+buildPolicySectionsPrompt(metadata)
+buildQuoteSectionsPrompt(metadata)
+
+// Application
+APPLICATION_CLASSIFY_PROMPT
+buildFieldExtractionPrompt(fields)
+buildAutoFillPrompt(fields, context)
+buildQuestionBatchPrompt(fields)
+
+// Agent (composable)
+buildIdentityPrompt(ctx)
+buildSafetyPrompt(ctx)
+buildFormattingPrompt(platform)
+buildCoverageGapPrompt(ctx)
+buildCoiRoutingPrompt(ctx)
+```
+
+### Tool Definitions
+
+```typescript
+import { AGENT_TOOLS, DOCUMENT_LOOKUP_TOOL, COI_GENERATION_TOOL, COVERAGE_COMPARISON_TOOL } from "@claritylabs/cl-sdk";
+
+// AGENT_TOOLS is an array of all tool definitions
+// Individual tools available for selective use
+```
 
 ## Development
 
@@ -290,4 +288,8 @@ npm run dev        # Watch mode
 npm run typecheck  # Type check (tsc --noEmit)
 ```
 
-Pure TypeScript — no framework dependencies. Peer dependencies on `ai` (Vercel AI SDK) and `pdf-lib`. Model-agnostic — bring any provider (`@ai-sdk/anthropic`, `@ai-sdk/openai`, `@ai-sdk/google`, etc.).
+Pure TypeScript — no framework dependencies. Peer dependencies on `ai` (AI SDK) and `pdf-lib`. Model-agnostic — bring any provider (`@ai-sdk/anthropic`, `@ai-sdk/openai`, `@ai-sdk/google`, etc.).
+
+## License
+
+Apache-2.0
