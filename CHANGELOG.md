@@ -1,3 +1,10 @@
+## [0.7.1](https://github.com/claritylabs-inc/cl-sdk/compare/v0.7.0...v0.7.1) (2026-04-12)
+
+
+### Bug Fixes
+
+* replace z.record() in declarations extractor schema ([d57adf5](https://github.com/claritylabs-inc/cl-sdk/commit/d57adf52c36e9111b4e6a1f1d25d7a913d9d01da))
+
 # [0.7.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.6.0...v0.7.0) (2026-04-12)
 
 
