@@ -62,7 +62,6 @@ jobs:
           npm publish --provenance --access public
           echo "published=true" >> $GITHUB_OUTPUT
           echo "Successfully published to npm"
-        # No NODE_AUTH_TOKEN needed - uses OIDC Trusted Publishing
 
       - name: Rollback on npm publish failure
         if: failure() && steps.semantic.outputs.released == 'true' && steps.npm_publish.outputs.published != 'true'
