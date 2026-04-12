@@ -97,7 +97,7 @@ Versioning and publishing are fully automated via [semantic-release](https://git
 2. Updates `CHANGELOG.md`, `package.json`, and `package-lock.json`
 3. Creates a GitHub release with auto-generated release notes
 4. Commits the updated files back to `master`
-5. Publishes to GitHub Packages (`npm.pkg.github.com`)
+5. Publishes to npm (`registry.npmjs.org`)
 
 **Commit message format** (determines version bump — pre-1.0, breaking changes bump minor only):
 - `fix: ...` → patch (0.0.x)
