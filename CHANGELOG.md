@@ -1,3 +1,27 @@
+# [0.2.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.1.0...v0.2.0) (2026-04-12)
+
+
+### Documentation
+
+* fix all documentation to match SDK v0.1.0 API ([0e6b23e](https://github.com/claritylabs-inc/cl-sdk/commit/0e6b23ef8af7491beaf7abc52595107a2bc39b6a))
+
+
+### BREAKING CHANGES
+
+* Documentation now correctly reflects that models is required
+
+- Fix models parameter from optional to required in all option types
+- Remove non-existent createDefaultModelConfig() references
+- Remove non-existent SONNET_MODEL and HAIKU_MODEL constants
+- Fix metadata token limit to 16384 (was 4096)
+- Add missing pdfContentFormat, convertPdfToImages, tokenLimits fields
+- Fix enrichSupplementaryFields signature
+- Update all quickstart examples with createUniformModelConfig
+- Rewrite models.mdx to explain models is required
+- Fix application prompt function signatures
+- Mark MODEL_TOKEN_LIMITS as deprecated
+- Update changelog for v0.2.0 and version reset
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
