@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+/**
+ * Deprecated candidate: the extraction coordinator no longer uses this prompt
+ * to assign broad page ranges. Planning is now derived from the page-mapping
+ * phase in `coordinator/page-map.ts`, which maps pages to extractors first and
+ * then builds tasks deterministically. Keep this module only for compatibility
+ * until the old prompt-based planning path is removed everywhere.
+ */
 export const ExtractionTaskSchema = z.object({
   extractorName: z.string(),
   startPage: z.number(),

@@ -24,6 +24,7 @@ vi.mock("../../extraction/extractor", () => ({
 
 vi.mock("../../extraction/pdf", () => ({
   getPdfPageCount: vi.fn().mockResolvedValue(6),
+  extractPageRange: vi.fn().mockResolvedValue("mapped-pages-pdf-base64"),
 }));
 
 vi.mock("../../extraction/formatter", () => ({
@@ -50,18 +51,18 @@ describe("createExtractor", () => {
       })
       .mockResolvedValueOnce({
         object: {
-          tasks: [
-            {
-              extractorName: "sections",
-              startPage: 2,
-              endPage: 4,
-              description: "Extract sections from a focused page range",
-            },
+          pages: [
+            { localPageNumber: 1, extractorNames: ["carrier_info", "named_insured", "declarations", "coverage_limits"] },
+            { localPageNumber: 2, extractorNames: ["coverage_limits"] },
+            { localPageNumber: 3, extractorNames: ["sections"] },
+            { localPageNumber: 4, extractorNames: ["sections"] },
+            { localPageNumber: 5, extractorNames: ["endorsements"] },
+            { localPageNumber: 6, extractorNames: ["endorsements"] },
           ],
         },
       })
       .mockResolvedValueOnce({
-        object: { complete: true, missingFields: [], additionalTasks: [] },
+        object: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
       });
 
     runExtractor.mockResolvedValue({
@@ -86,7 +87,7 @@ describe("createExtractor", () => {
     expect(typeof extractor.extract).toBe("function");
   });
 
-  it("passes the full PDF to classify and plan, then dispatches worker extraction", async () => {
+  it("passes the full PDF to classify and review, page-scoped PDFs to page mapping, then dispatches page-mapped extractors", async () => {
     const generateText = vi.fn();
     const generateObject = vi.fn();
     const extractor = createExtractor({
@@ -117,6 +118,19 @@ describe("createExtractor", () => {
         maxTokens: 2048,
         providerOptions: {
           anthropic: { thinking: true },
+          pdfBase64: "mapped-pages-pdf-base64",
+        },
+      }),
+      expect.any(Object),
+    );
+
+    expect(safeGenerateObject).toHaveBeenNthCalledWith(
+      3,
+      generateObject,
+      expect.objectContaining({
+        maxTokens: 1536,
+        providerOptions: {
+          anthropic: { thinking: true },
           pdfBase64: "full-pdf-base64",
         },
       }),
@@ -126,8 +140,6 @@ describe("createExtractor", () => {
     expect(runExtractor).toHaveBeenCalledWith(
       expect.objectContaining({
         pdfBase64: "full-pdf-base64",
-        startPage: 2,
-        endPage: 4,
         providerOptions: { anthropic: { thinking: true } },
       }),
     );

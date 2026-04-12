@@ -55,6 +55,8 @@ const pdfBase64 = "..."; // base64-encoded insurance PDF
 const result = await extractor.extract(pdfBase64);
 console.log(result.document); // Typed InsuranceDocument (policy or quote)
 console.log(result.chunks);   // DocumentChunk[] ready for vector storage
+console.log(result.tokenUsage);      // Aggregate input/output tokens when available
+console.log(result.usageReporting);  // How many model calls did or did not report usage
 ```
 
 ### With PDF-to-Image Conversion
@@ -108,34 +110,35 @@ Works with any provider: Anthropic, OpenAI, Google, Mistral, Bedrock, Azure, Oll
 
 ### Extraction Pipeline
 
-The extraction system uses a **coordinator/worker pattern** — a coordinator agent plans the work, specialized extractor agents execute in parallel, and a review loop ensures completeness.
+The extraction system uses a **coordinator/worker pattern** with page-aware planning, merged worker outputs, and a document-grounded review loop.
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌──────────────────────┐
-│  1. CLASSIFY │────▶│  2. PLAN    │────▶│  3. EXTRACT (parallel)│
-│              │     │             │     │                      │
-│  Document    │     │  Select     │     │  Run focused         │
-│  type, line  │     │  template,  │     │  extractors against  │
-│  of business │     │  assign     │     │  assigned page       │
-│              │     │  extractors │     │  ranges              │
-│              │     │  to pages   │     │                      │
-└─────────────┘     └─────────────┘     └──────────┬───────────┘
-                                                   │
-┌─────────────┐     ┌─────────────┐     ┌──────────▼───────────┐
-│ 6. FORMAT   │◀────│ 5. ASSEMBLE │◀────│  4. REVIEW           │
-│             │     │             │     │                      │
-│  Clean up   │     │  Merge all  │     │  Check completeness  │
-│  markdown   │     │  results    │     │  against template,   │
-│  tables,    │     │  into final │     │  dispatch follow-up  │
-│  spacing    │     │  document   │     │  extractors for gaps │
-└──────┬──────┘     └─────────────┘     └──────────────────────┘
-       │
-┌──────▼──────┐
-│ 7. CHUNK    │
-│  Break into │
-│  retrieval- │
-│  ready      │
-│  chunks     │
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│ 1. CLASSIFY │────▶│ 2. PAGE MAP  │────▶│ 3. PLAN     │
+│             │     │              │     │             │
+│ Document    │     │ Assign pages │     │ Build tasks │
+│ type, line  │     │ to focused   │     │ from page   │
+│ of business │     │ extractors   │     │ assignments │
+└─────────────┘     └──────┬───────┘     └──────┬──────┘
+                           │                    │
+                    ┌──────▼────────────────────▼──────┐
+                    │ 4. EXTRACT + MERGE (parallel)    │
+                    │ Run focused extractors, merge    │
+                    │ repeat runs instead of overwrite │
+                    └──────────────┬───────────────────┘
+                                   │
+┌─────────────┐     ┌─────────────▼───────────┐     ┌─────────────┐
+│ 7. FORMAT   │◀────│ 6. ASSEMBLE             │◀────│ 5. REVIEW   │
+│             │     │                         │     │             │
+│ Clean up    │     │ Merge all data into     │     │ Check       │
+│ markdown    │     │ final document          │     │ completeness│
+└──────┬──────┘     └─────────────────────────┘     │ and quality │
+       │                                             └──────┬──────┘
+┌──────▼──────┐                                                │
+│ 8. CHUNK    │◀───────────────────────────────────────────────┘
+│ Break into  │
+│ retrieval-  │
+│ ready chunks│
 └─────────────┘
 ```
 
@@ -148,13 +151,19 @@ The coordinator sends the document to `generateObject` with the `ClassifyResultS
 
 The full document is passed through `providerOptions.pdfBase64` for this step, so your callback must attach that PDF to the model request as a real document/file part.
 
-#### Phase 2: Plan
+#### Phase 2: Page Map
 
-Based on the classification, the coordinator selects a **line-of-business template** (e.g., `workers_comp`, `cyber`, `homeowners_ho3`) that defines expected sections and page hints. It then generates an **extraction plan** — a list of tasks that map specific extractors to page ranges within the PDF.
+Before planning tasks, the coordinator maps each page to one or more focused extractors. This reduces the chance that declaration pages and schedule pages get mixed into large generic ranges dominated by form language.
 
-The planner also receives the full document through `providerOptions.pdfBase64`, not just prompt text.
+The page-mapping step uses the relevant PDF pages through `providerOptions.pdfBase64`, chunk by chunk, and produces page-level assignments for the downstream plan.
 
-#### Phase 3: Extract
+#### Phase 3: Plan
+
+Based on the classification, page map, and **line-of-business template** (e.g., `workers_comp`, `cyber`, `homeowners_ho3`), the coordinator builds an **extraction plan** — a list of focused extractor tasks derived from those page assignments.
+
+The old prompt-only `plan.ts` module is a deprecated candidate and is no longer the active planning path used by the coordinator.
+
+#### Phase 4: Extract And Merge
 
 Focused extractor agents are dispatched **in parallel** (concurrency-limited, default 2). Each extractor targets a specific data domain against its assigned page range. The 11 extractor types are:
 
@@ -172,19 +181,21 @@ Focused extractor agents are dispatched **in parallel** (concurrency-limited, de
 | `supplementary` | Regulatory context, contacts, TPA, claims contacts |
 | `sections` | Raw section content (fallback for unmatched sections) |
 
-Each extractor writes its results to an in-memory `Map`. Results accumulate across all extractors.
+Each extractor writes its results to an in-memory `Map`. Repeated extractor runs now **merge** instead of overwriting previous results, which is critical for extractors like `coverage_limits`, `endorsements`, `exclusions`, `conditions`, `sections`, and `declarations`.
 
 Before each worker call, the SDK slices the requested page range with `extractPageRange()` and passes that page-scoped PDF through `providerOptions.pdfBase64`. If `convertPdfToImages` is configured, it passes `providerOptions.images` instead. The callback layer is responsible for actually including that content in the model input.
 
-#### Phase 4: Review
+#### Phase 5: Review
 
-After initial extraction, a review loop (up to `maxReviewRounds`, default 2) checks completeness against the template's expected sections. If gaps are found, additional extractor tasks are dispatched to fill missing data. This iterative refinement ensures comprehensive extraction.
+After initial extraction, a review loop (up to `maxReviewRounds`, default 2) checks both **completeness and quality**. The reviewer sees the full PDF, a page-map summary, and a summary of extracted results. It is expected to catch issues like missing required fields, generic placeholder outputs such as "shown in declarations" or "per schedule", and outputs that appear to come from generic form text instead of declaration/schedule values.
 
-#### Phase 5: Assemble
+If gaps or quality issues are found, additional focused extractor tasks are dispatched.
+
+#### Phase 6: Assemble
 
 All extractor results are merged into a final validated `InsuranceDocument`.
 
-#### Phase 6: Format
+#### Phase 7: Format
 
 A formatting agent pass cleans up markdown in all content-bearing string fields (sections, subsections, endorsements, exclusions, conditions, summary). It fixes:
 
@@ -196,7 +207,7 @@ A formatting agent pass cleans up markdown in all content-bearing string fields 
 
 Content is batched (up to 20 fields per call) and sent through `generateText` for formatting cleanup. Token usage is tracked the same as other pipeline steps.
 
-#### Phase 7: Chunk
+#### Phase 8: Chunk
 
 The formatted document is chunked into `DocumentChunk[]` for vector storage. Chunks are deterministically IDed as `${documentId}:${type}:${index}`.
 
@@ -226,6 +237,8 @@ const extractor = createExtractor({
   providerOptions: {},   // Passed through to every LLM call
 });
 ```
+
+`tokenUsage` aggregates whatever usage your callbacks return. `usageReporting` tells you how many model calls reported usage versus how many omitted it, so a `0 in / 0 out` result is diagnosable instead of silent.
 
 ### Line-of-Business Templates
 
