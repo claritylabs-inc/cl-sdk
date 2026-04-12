@@ -89,6 +89,8 @@ type GenerateObject<T> = (params: {
 
 Works with any provider: Anthropic, OpenAI, Google, Mistral, Bedrock, Azure, Ollama, etc. You write the adapter once; the SDK calls it throughout the pipeline.
 
+> **Strict structured output compatibility:** The SDK automatically transforms Zod schemas before passing them to `generateObject` — converting `.optional()` fields to `.nullable()` so all properties appear in the JSON Schema `required` array. This ensures compatibility with providers like OpenAI that enforce strict structured output validation. No adapter changes needed on your end.
+
 ### Extraction Pipeline
 
 The extraction system uses a **coordinator/worker pattern** — a coordinator agent plans the work, specialized extractor agents execute in parallel, and a review loop ensures completeness.
@@ -592,11 +594,38 @@ import type {
 
 ```typescript
 import {
-  withRetry,       // Exponential backoff with jitter (5 retries, 2–32s) for rate limits
-  pLimit,          // Concurrency limiter for parallel async tasks
-  sanitizeNulls,   // Recursively convert null → undefined (for database compatibility)
-  stripFences,     // Remove markdown code fences from LLM JSON responses
+  withRetry,            // Exponential backoff with jitter (5 retries, 2–32s) for rate limits + transient errors
+  pLimit,               // Concurrency limiter for parallel async tasks
+  sanitizeNulls,        // Recursively convert null → undefined (for database compatibility)
+  stripFences,          // Remove markdown code fences from LLM JSON responses
+  safeGenerateObject,   // generateObject wrapper with retry, schema strictification, and fallback
+  toStrictSchema,       // Convert .optional() → .nullable() for strict structured output APIs
 } from "@claritylabs/cl-sdk";
+```
+
+### Schema Compatibility
+
+The SDK automatically handles schema compatibility with strict structured output APIs (like OpenAI). Two key mechanisms:
+
+**`toStrictSchema(schema)`** — Recursively transforms Zod schemas so `.optional()` properties become `.nullable()`. This ensures all properties appear in the JSON Schema `required` array, which OpenAI requires. Applied automatically inside the pipeline — you don't need to call this yourself unless building custom pipelines.
+
+**`safeGenerateObject(generateObject, params, options?)`** — Wraps a `generateObject` call with:
+1. Automatic schema strictification via `toStrictSchema`
+2. Retry on schema validation errors and transient API failures
+3. Optional fallback value when all retries are exhausted
+
+```typescript
+import { safeGenerateObject } from "@claritylabs/cl-sdk";
+
+const { object, usage } = await safeGenerateObject(
+  myGenerateObject,
+  { prompt: "...", schema: MySchema, maxTokens: 1024 },
+  {
+    fallback: { field: "default" },  // Return this if all retries fail
+    maxRetries: 2,                    // Schema validation retries (default: 1)
+    log: async (msg) => console.log(msg),
+  },
+);
 ```
 
 ## Development

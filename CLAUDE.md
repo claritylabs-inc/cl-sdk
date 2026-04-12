@@ -137,7 +137,9 @@ Two modes using pdf-lib:
 
 - **Null sanitization**: `sanitizeNulls()` converts null→undefined recursively for Convex compatibility
 - **`stripFences()`**: Removes markdown code fences from model responses before JSON parsing
-- **Rate-limit retry**: `withRetry()` wraps all model calls with exponential backoff (5 retries, 2-32s + jitter) on 429/rate-limit errors
+- **Retry with backoff**: `withRetry()` wraps all model calls with exponential backoff (5 retries, 2-32s + jitter) on rate limits (429), grammar compilation timeouts, 5xx errors, overloaded, and no-output-generated errors
+- **Strict schema compatibility**: `toStrictSchema()` (`core/strict-schema.ts`) auto-transforms Zod schemas before `generateObject` calls — converts `.optional()` to `.nullable()` so all properties appear in `required` (required by OpenAI's strict structured output). Applied automatically in `safeGenerateObject` and `runExtractor`. **Important**: never use `z.record()` in schemas passed to `generateObject` — it generates `propertyNames` which is unsupported. Use `z.array(z.object({ key, value }))` instead
+- **Safe generate**: `safeGenerateObject()` (`core/safe-generate.ts`) wraps `generateObject` with schema strictification + retry on schema validation errors + optional fallback values
 - **Concurrency control**: `pLimit(n)` utility limits parallel extractor dispatch (no external dependency). Default concurrency is 2
 - **Token tracking**: `onTokenUsage` callback on `ExtractorConfig` reports `{ inputTokens, outputTokens }` after each model call
 - **Path alias**: `@/*` maps to `src/*` in tsconfig

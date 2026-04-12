@@ -10,21 +10,23 @@ import { z, type ZodTypeAny } from "zod";
  * Non-object schemas (string, number, etc.) are returned as-is.
  */
 export function toStrictSchema(schema: ZodTypeAny): ZodTypeAny {
-  const typeName = schema.type ?? (schema as any)._zod?.def?.type;
+  const def = (schema as any)._zod?.def;
+  const typeName: string | undefined = def?.type ?? (schema as any).type;
 
   if (typeName === "object") {
-    const shape = (schema as any).shape;
+    const shape: Record<string, ZodTypeAny> | undefined = (schema as any).shape;
     if (!shape) return schema;
 
     const newShape: Record<string, ZodTypeAny> = {};
 
     for (const [key, value] of Object.entries(shape)) {
       const field = value as ZodTypeAny;
-      const fieldType = field.type ?? (field as any)._zod?.def?.type;
+      const fieldDef = (field as any)._zod?.def;
+      const fieldType: string | undefined = fieldDef?.type ?? (field as any).type;
 
       if (fieldType === "optional") {
         // Convert .optional() → .nullable() (required but accepts null)
-        const innerType = (field as any)._zod?.def?.innerType;
+        const innerType: ZodTypeAny | undefined = fieldDef?.innerType;
         if (innerType) {
           const transformed = toStrictSchema(innerType);
           newShape[key] = z.nullable(transformed);
@@ -41,7 +43,7 @@ export function toStrictSchema(schema: ZodTypeAny): ZodTypeAny {
   }
 
   if (typeName === "array") {
-    const element = (schema as any)._zod?.def?.element ?? (schema as any).element;
+    const element: ZodTypeAny | undefined = def?.element ?? (schema as any).element;
     if (element) {
       return z.array(toStrictSchema(element));
     }
@@ -49,7 +51,7 @@ export function toStrictSchema(schema: ZodTypeAny): ZodTypeAny {
   }
 
   if (typeName === "nullable") {
-    const innerType = (schema as any)._zod?.def?.innerType;
+    const innerType: ZodTypeAny | undefined = def?.innerType;
     if (innerType) {
       return z.nullable(toStrictSchema(innerType));
     }
