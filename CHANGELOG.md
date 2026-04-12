@@ -1,3 +1,10 @@
+## [0.7.5](https://github.com/claritylabs-inc/cl-sdk/compare/v0.7.4...v0.7.5) (2026-04-12)
+
+
+### Bug Fixes
+
+* improve classification reliability and prevent silent fallback to "other" ([c966fa5](https://github.com/claritylabs-inc/cl-sdk/commit/c966fa569049d9dd24e06916df8c4e2f271eb84d))
+
 ## [0.7.4](https://github.com/claritylabs-inc/cl-sdk/compare/v0.7.3...v0.7.4) (2026-04-12)
 
 
