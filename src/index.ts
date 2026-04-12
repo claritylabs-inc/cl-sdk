@@ -55,6 +55,17 @@ export {
 // ── Application prompts ──
 export * from "./prompts/application/index";
 
+// ── Query agent pipeline ──
+export { createQueryAgent } from "./query/coordinator";
+export type { QueryConfig, QueryInput, QueryOutput } from "./query/types";
+export * from "./schemas/query";
+
+// ── Query prompts ──
+export { buildQueryClassifyPrompt } from "./prompts/query/classify";
+export { buildReasonPrompt } from "./prompts/query/reason";
+export { buildVerifyPrompt } from "./prompts/query/verify";
+export { buildRespondPrompt } from "./prompts/query/respond";
+
 // ── Intent classification ──
 export { buildClassifyMessagePrompt } from "./prompts/intent";
 

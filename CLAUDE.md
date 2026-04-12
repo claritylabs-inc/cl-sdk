@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-`@claritylabs/cl-sdk` (CL-0 SDK) is an open infrastructure layer for building AI agents that work with insurance — a pure TypeScript library for policy/quote extraction, application processing, and agent prompts. Provider-agnostic via plain callback functions (`GenerateText`, `GenerateObject`) — no framework dependency. Uses Zod schemas as the source of truth for all types. Includes optional SQLite-backed storage for documents and extraction memory.
+`@claritylabs/cl-sdk` (CL-SDK) is an open infrastructure layer for building AI agents that work with insurance — a pure TypeScript library for policy/quote extraction, application processing, and agent prompts. Provider-agnostic via plain callback functions (`GenerateText`, `GenerateObject`) — no framework dependency. Uses Zod schemas as the source of truth for all types. Includes optional SQLite-backed storage for documents and extraction memory.
 
 ## Commands
 
@@ -25,7 +25,8 @@ src/
   core/           # Provider-agnostic types, retry, concurrency, utilities
   schemas/        # Zod schemas (source of truth for all types)
   extraction/     # Agentic extraction: coordinator, extractor, assembler, chunking, pdf
-  prompts/        # Prompt modules: coordinator/, extractors/, templates/, agent/, application/
+  query/          # Agentic query: coordinator, retriever, reasoner, verifier
+  prompts/        # Prompt modules: coordinator/, extractors/, templates/, agent/, application/, query/
   storage/        # DocumentStore + MemoryStore interfaces, SQLite reference impl
   tools/          # Tool definitions (unchanged)
 ```
@@ -41,6 +42,24 @@ The core extraction system uses a coordinator/worker pattern with extraction mem
 5. **Assemble** (`assembler.ts`): Merge all extractor results into a final `InsuranceDocument`, then chunk for storage
 
 Entry point: `createExtractor(config)` returns `{ extract(pdfBase64, documentId?) }`.
+
+### Query Agent Pipeline (`src/query/`)
+
+The query system answers user questions against stored documents with citation-backed provenance. Same coordinator/worker pattern as extraction:
+
+1. **Classify** (`coordinator.ts`): Determine query intent and decompose into atomic sub-questions. Each sub-question specifies chunk type filters and document filters for retrieval
+2. **Retrieve** (`retriever.ts`): For each sub-question, search chunks (semantic), documents (structured), and conversation history — in parallel (concurrency-limited, default 3)
+3. **Reason** (`reasoner.ts`): For each sub-question, a reasoner receives only retrieved evidence and produces a sub-answer with citations. Uses intent-specific prompts (policy questions, comparisons, claims, etc.)
+4. **Verify** (`verifier.ts`): Check grounding (every claim has a citation), consistency (no contradictions), and completeness. Can trigger re-retrieval on failure (up to `maxVerifyRounds`, default 1)
+5. **Respond** (`coordinator.ts`): Merge sub-answers into final response with inline citations, store conversation turns
+
+Entry point: `createQueryAgent(config)` returns `{ query(input) }`.
+
+Query intents: `policy_question`, `coverage_comparison`, `document_search`, `claims_inquiry`, `general_knowledge`.
+
+Schemas: `src/schemas/query.ts` — `QueryClassifyResultSchema`, `SubAnswerSchema`, `VerifyResultSchema`, `QueryResultSchema`, `CitationSchema`.
+
+Prompts: `src/prompts/query/` — `classify.ts`, `reason.ts`, `verify.ts`, `respond.ts`.
 
 ### Provider Callbacks (`src/core/types.ts`)
 
@@ -63,6 +82,7 @@ All types are derived from Zod schemas via `z.infer`. Schema files define both r
 - `parties.ts`, `loss-history.ts`, `underwriting.ts`, `shared.ts`, `enums.ts` — shared schemas
 - `platform.ts` — `Platform`, `CommunicationIntent`, `AgentContext`, `PLATFORM_CONFIGS`
 - `context-keys.ts` — extraction memory context keys
+- `query.ts` — `QueryIntent`, `Citation`, `SubQuestion`, `SubAnswer`, `VerifyResult`, `QueryResult` schemas
 
 ### PDF Operations (`src/extraction/pdf.ts`)
 
@@ -77,6 +97,7 @@ Two modes using pdf-lib:
 - `extractors/` — focused extractor prompts: declarations, coverage-limits, conditions, endorsements, exclusions, loss-history, named-insured, premium-breakdown, sections, supplementary, carrier-info
 - `templates/` — line-of-business templates (commercial-auto, cyber, workers-comp, homeowners, etc.) defining expected sections and page hints
 - `application/` — form field extraction, auto-fill, question batching, answer parsing, PDF mapping, reply intent classification
+- `query/` — classify (intent + decomposition), reason (per-intent evidence-based), verify (grounding check), respond (citation formatting)
 - `agent/` — composable agent prompt modules (identity, safety, formatting, coverage-gaps, coi-routing, quotes-policies, conversation-memory, intent). `buildAgentSystemPrompt(ctx)` composes all modules
 - `intent.ts` — platform-agnostic message classification with `buildClassifyMessagePrompt(platform)`
 
