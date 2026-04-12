@@ -1,3 +1,45 @@
+# [0.3.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.2.1...v0.3.0) (2026-04-12)
+
+
+* feat!: merge v6 agentic refactor to master ([792ca72](https://github.com/claritylabs-inc/cl-sdk/commit/792ca72127a9a246da55cfd68be63c73c9fd8df8))
+* feat!: new barrel exports for v6 — remove all v5 deprecated exports ([8280e0c](https://github.com/claritylabs-inc/cl-sdk/commit/8280e0c5d625a27e99bc1342aa0296d065c33a3c))
+* feat!: remove v5 source files — types/, pipeline.ts, monolithic prompts, deprecated exports ([fcd8c22](https://github.com/claritylabs-inc/cl-sdk/commit/fcd8c22136f07c3fb7477b94f1453b6494fb8380))
+
+
+### Features
+
+* add coordinator prompts — classify, plan, review ([3917f4e](https://github.com/claritylabs-inc/cl-sdk/commit/3917f4e8cc848560a4c0d32690f4cb19ab56eab3))
+* add document chunking for vector retrieval + chunk types ([e672870](https://github.com/claritylabs-inc/cl-sdk/commit/e6728705bf010f834ca17dbca11307cdd1407a0d))
+* add document type templates for agentic extraction ([2c261f6](https://github.com/claritylabs-inc/cl-sdk/commit/2c261f63dcf7e70ae80cd69f48ebebb00a229124))
+* add focused extractor prompts — split monolithic extraction prompt into 11 modules ([b026dcb](https://github.com/claritylabs-inc/cl-sdk/commit/b026dcb67c6686ec3cbba0379f4e48897225c715))
+* add storage interfaces + SQLite reference implementation ([9078792](https://github.com/claritylabs-inc/cl-sdk/commit/9078792f20ed041e7c1477bf2fad0acd56e891a0))
+* migrate agent, application, and intent prompts — split application.ts into modules ([eb06447](https://github.com/claritylabs-inc/cl-sdk/commit/eb064472d5cc5e09c90278a3c54ee0c7e88a3eb5))
+
+
+### BREAKING CHANGES
+
+* Complete v6 rewrite with new API
+
+- Remove ai SDK peer dependency (now provider-agnostic callbacks)
+- New peer deps: pdf-lib, zod
+- New extraction pipeline: coordinator/worker pattern with agentic review
+- Provider-agnostic: works with any LLM provider via simple callbacks
+- Add Zod schemas for all types (23 declaration types as discriminated union)
+- Add storage interfaces with SQLite reference implementation
+- Add document chunking for vector retrieval
+- New exports: createExtractor, chunkDocument, storage interfaces
+- Remove old exports: extractFromPdf, classifyDocumentType, etc.
+- Version bumped to 0.3.0
+
+The old 6.0.0 npm version was from an incorrect release and is now deprecated.
+* All v5 modules are removed. Consumers must use v6 APIs.
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+* All v5 exports from types/, pipeline.ts, and legacy
+prompts are removed. Consumers must migrate to v6 APIs.
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+
 ## [0.2.1](https://github.com/claritylabs-inc/cl-sdk/compare/v0.2.0...v0.2.1) (2026-04-12)
 
 
