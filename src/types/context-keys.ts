@@ -37,7 +37,7 @@ export const CONTEXT_KEY_MAP: ContextKeyMapping[] = [
   { extractedField: "vehicles[].length", category: "vehicles", contextKey: "vehicle_count", description: "Number of insured vehicles" },
   { extractedField: "classifications[](WC)", category: "employees", contextKey: "employee_count_by_class", description: "Employee count by WC classification" },
   { extractedField: "classifications[].basisAmount(payroll,byState)", category: "employees", contextKey: "annual_payroll_by_state", description: "Annual payroll by state" },
-  // ── Personal lines context keys (v1.3+) ──
+  // ── Personal lines context keys ──
   { extractedField: "declarations.dwelling.yearBuilt", category: "property_info", contextKey: "year_built", description: "Year dwelling was built" },
   { extractedField: "declarations.dwelling.constructionType", category: "property_info", contextKey: "construction_type", description: "Dwelling construction type" },
   { extractedField: "declarations.dwelling.squareFootage", category: "property_info", contextKey: "square_footage", description: "Dwelling square footage" },

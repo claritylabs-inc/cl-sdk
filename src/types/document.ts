@@ -69,7 +69,7 @@ export interface BaseDocument {
   coverages: Coverage[];
   sections?: Section[];
 
-  // ── Enriched fields (v1.2+) ──
+  // ── Enriched fields ──
 
   /** Legal name of insurance carrier */
   carrierLegalName?: string;
@@ -134,7 +134,7 @@ export interface BaseDocument {
   /** All form numbers in the policy */
   formInventory?: FormReference[];
 
-  /** Typed declarations union — line-specific structured data (v1.3+) */
+  /** Typed declarations union — line-specific structured data */
   declarations?: Declarations;
 
   /** Coverage trigger type */
@@ -215,7 +215,7 @@ export interface QuoteDocument extends BaseDocument {
   underwritingConditions?: UnderwritingCondition[];
   premiumBreakdown?: PremiumLine[];
 
-  // ── Enriched quote fields (v1.2+) ──
+  // ── Enriched quote fields ──
   /** Enriched subjectivities with category, due date, status */
   enrichedSubjectivities?: EnrichedSubjectivity[];
   /** Enriched underwriting conditions */

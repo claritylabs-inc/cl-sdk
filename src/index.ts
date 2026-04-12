@@ -77,7 +77,7 @@ export type {
   ClassificationCode,
 } from "./types/declarations";
 
-// Types - Declarations (typed union, v1.3+)
+// Types - Declarations (typed union)
 export type {
   Declarations,
   DwellingDetails,

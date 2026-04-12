@@ -72,7 +72,7 @@ Two modes using pdf-lib:
 
 - `document.ts` — `BaseDocument`, `PolicyDocument`, `QuoteDocument`, `InsuranceDocument` (discriminated union), `Coverage`, `Section`, `Subsection`, `Subjectivity`, `UnderwritingCondition`, `PremiumLine`
 - `platform.ts` — `Platform`, `CommunicationIntent`, `PlatformConfig`, `AgentContext`, `PLATFORM_CONFIGS`
-- `models.ts` — `ModelConfig`, `createUniformModelConfig`, `DEFAULT_TOKEN_LIMITS`, `TokenLimits`, `resolveTokenLimits`, `PdfContentFormat`, `ConvertPdfToImagesFn`, `isAnthropicModel`
+- `models.ts` — `ModelConfig`, `createUniformModelConfig`, `DEFAULT_TOKEN_LIMITS`, `TokenLimits`, `resolveTokenLimits`, `PdfContentFormat`, `ConvertPdfToImagesFn`
 
 ### Tool Definitions (`src/tools/`)
 
@@ -98,12 +98,11 @@ Versioning and publishing are fully automated via [semantic-release](https://git
 3. Creates a GitHub release with auto-generated release notes
 4. Commits the updated files back to `master`
 5. Publishes to npm (`registry.npmjs.org`)
-6. Triggers `cl-sdk-docs` rebuild
 
-**Commit message format** (determines version bump):
+**Commit message format** (determines version bump — pre-1.0, breaking changes bump minor only):
 - `fix: ...` → patch (0.0.x)
 - `feat: ...` → minor (0.x.0)
-- `feat!: ...` or `BREAKING CHANGE:` in footer → major (x.0.0)
+- `feat!: ...` or `BREAKING CHANGE:` → minor (0.x.0) — not major while pre-1.0
 - `chore:`, `docs:`, `refactor:`, `test:`, etc. → no release
 
 Local dry-run: `npx semantic-release --dry-run`

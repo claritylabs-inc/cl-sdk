@@ -477,7 +477,7 @@ export function applyExtracted(extracted: any) {
     extractionError: "",
   };
 
-  // Enriched metadata fields (v1.2+)
+  // Enriched metadata fields
   if (extracted.metadata?.carrierLegalName) fields.carrierLegalName = extracted.metadata.carrierLegalName;
   if (extracted.metadata?.carrierNaicNumber) fields.carrierNaicNumber = extracted.metadata.carrierNaicNumber;
   if (extracted.metadata?.carrierAmBestRating) fields.carrierAmBestRating = extracted.metadata.carrierAmBestRating;
@@ -507,7 +507,7 @@ export function applyExtracted(extracted: any) {
   if (extracted.formInventory?.length) fields.formInventory = extracted.formInventory;
   if (extracted.taxesAndFees?.length) fields.taxesAndFees = extracted.taxesAndFees;
 
-  // Construct typed declarations (v1.3+)
+  // Construct typed declarations
   const declarations = buildDeclarations(meta, extracted);
   if (declarations) fields.declarations = declarations;
 
@@ -878,7 +878,7 @@ export function applyExtractedQuote(extracted: any) {
     extractionError: "",
   };
 
-  // Enriched quote fields (v1.2+)
+  // Enriched quote fields
   if (meta.carrierLegalName) fields.carrierLegalName = meta.carrierLegalName;
   if (meta.carrierNaicNumber) fields.carrierNaicNumber = meta.carrierNaicNumber;
   if (meta.carrierAdmittedStatus) fields.carrierAdmittedStatus = meta.carrierAdmittedStatus;
@@ -909,7 +909,7 @@ export function applyExtractedQuote(extracted: any) {
     }));
   }
 
-  // Construct typed declarations (v1.3+)
+  // Construct typed declarations
   const declarations = buildDeclarations(meta, extracted);
   if (declarations) fields.declarations = declarations;
 
