@@ -1,0 +1,250 @@
+---
+title: Extraction Results
+description: Working with InsuranceDocument, DocumentChunk, and token usage output from the extraction pipeline
+---
+
+import { Callout } from "@/components/ui/callout";
+
+The extraction pipeline returns a fully typed `ExtractionResult` containing the structured document, retrieval-ready chunks, cumulative token usage, and usage-reporting metadata. No post-processing or normalization step is needed — results are ready for persistence and querying.
+
+## ExtractionResult
+
+```typescript
+interface ExtractionResult {
+  document: InsuranceDocument;  // Fully typed policy or quote
+  chunks: DocumentChunk[];       // Ready for vector storage
+  tokenUsage: TokenUsage;        // Cumulative { inputTokens, outputTokens }
+  usageReporting: {
+    modelCalls: number;
+    callsWithUsage: number;
+    callsMissingUsage: number;
+  };
+}
+```
+
+```typescript
+const { document, chunks, tokenUsage, usageReporting } = await extractor.extract(pdfBase64, "doc-123");
+```
+
+## InsuranceDocument
+
+`InsuranceDocument` is a discriminated union of `PolicyDocument` and `QuoteDocument`, distinguished by the `type` field:
+
+```typescript
+type InsuranceDocument = PolicyDocument | QuoteDocument;
+```
+
+Both types share a large set of base fields and diverge on type-specific fields.
+
+### Shared fields
+
+These fields appear on both `PolicyDocument` and `QuoteDocument`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `string` | Document ID |
+| `type` | `"policy" \| "quote"` | Discriminator |
+| `carrier` | `string` | Insurance carrier name |
+| `carrierLegalName` | `string?` | Legal entity name |
+| `carrierNaicNumber` | `string?` | NAIC company code |
+| `carrierAmBestRating` | `string?` | AM Best financial strength rating |
+| `carrierAdmittedStatus` | `string?` | Admitted / non-admitted / surplus lines |
+| `security` | `string?` | Security / surplus lines carrier |
+| `mga` | `string?` | Managing General Agent |
+| `underwriter` | `string?` | Underwriter name |
+| `brokerAgency` | `string?` | Broker agency name |
+| `brokerContactName` | `string?` | Individual producer name |
+| `brokerLicenseNumber` | `string?` | Producer license number |
+| `insuredName` | `string` | Name of the insured |
+| `insuredDba` | `string?` | DBA name |
+| `insuredAddress` | `Address?` | Mailing address |
+| `insuredEntityType` | `EntityType?` | Legal entity type |
+| `insuredFein` | `string?` | Federal EIN |
+| `insuredSicCode` | `string?` | SIC code |
+| `insuredNaicsCode` | `string?` | NAICS code |
+| `additionalNamedInsureds` | `NamedInsured[]?` | Additional named insureds |
+| `policyTypes` | `string[]?` | Lines of business |
+| `premium` | `string?` | Total premium |
+| `totalCost` | `string?` | Premium + taxes + fees |
+| `summary` | `string?` | AI-generated summary |
+| `coverages` | `Coverage[]` | Coverage details with limits |
+| `enrichedCoverages` | `EnrichedCoverage[]?` | Detailed coverage data |
+| `endorsements` | `Endorsement[]?` | Structured endorsements |
+| `exclusions` | `Exclusion[]?` | Structured exclusions |
+| `conditions` | `PolicyCondition[]?` | Structured conditions |
+| `declarations` | `Declarations?` | Line-specific structured declarations |
+| `sections` | `Section[]?` | Raw document sections |
+| `limits` | `LimitSchedule?` | Structured limits schedule |
+| `deductibles` | `DeductibleSchedule?` | Structured deductible schedule |
+| `locations` | `InsuredLocation[]?` | Insured premises |
+| `vehicles` | `InsuredVehicle[]?` | Insured vehicles |
+| `classifications` | `ClassificationCode[]?` | Rating class codes |
+| `formInventory` | `FormReference[]?` | All form numbers |
+| `taxesAndFees` | `TaxFeeItem[]?` | Taxes and fees breakdown |
+| `coverageForm` | `CoverageForm?` | Occurrence, claims-made, or accident |
+| `retroactiveDate` | `string?` | Retroactive date (claims-made) |
+| `insurer` | `InsurerInfo?` | Structured insurer details |
+| `producer` | `ProducerInfo?` | Structured producer details |
+| `claimsContacts` | `Contact[]?` | Claims contact information |
+| `regulatoryContacts` | `Contact[]?` | Regulatory contacts |
+| `thirdPartyAdministrators` | `Contact[]?` | TPA contacts |
+| `additionalInsureds` | `EndorsementParty[]?` | Additional insureds |
+| `lossPayees` | `EndorsementParty[]?` | Loss payees |
+| `mortgageHolders` | `EndorsementParty[]?` | Mortgage holders |
+| `paymentPlan` | `PaymentPlan?` | Payment plan details |
+| `lossSummary` | `LossSummary?` | Loss history summary |
+| `individualClaims` | `ClaimRecord[]?` | Individual claim records |
+| `experienceMod` | `ExperienceMod?` | Experience modification |
+
+### PolicyDocument fields
+
+In addition to the shared fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | `"policy"` | Always `"policy"` |
+| `policyNumber` | `string` | Policy number |
+| `effectiveDate` | `string` | Policy effective date |
+| `expirationDate` | `string?` | Policy expiration date |
+| `effectiveTime` | `string?` | Time coverage begins |
+| `policyTermType` | `PolicyTermType?` | Annual, semi-annual, etc. |
+| `nextReviewDate` | `string?` | Next review date |
+| `isRenewal` | `boolean?` | Whether this is a renewal |
+| `isPackage` | `boolean?` | Whether this is a commercial package |
+| `priorPolicyNumber` | `string?` | Previous policy number |
+| `programName` | `string?` | Named program |
+
+### QuoteDocument fields
+
+In addition to the shared fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | `"quote"` | Always `"quote"` |
+| `quoteNumber` | `string` | Quote number |
+| `proposedEffectiveDate` | `string?` | Proposed effective date |
+| `proposedExpirationDate` | `string?` | Proposed expiration date |
+| `quoteExpirationDate` | `string?` | When the quote expires |
+| `premiumBreakdown` | `PremiumLine[]?` | Line-by-line premium |
+| `subjectivities` | `Subjectivity[]?` | Binding conditions |
+| `enrichedSubjectivities` | `EnrichedSubjectivity[]?` | Subjectivities with category, due date, status |
+| `underwritingConditions` | `UnderwritingCondition[]?` | Carrier requirements |
+| `enrichedUnderwritingConditions` | `EnrichedUnderwritingCondition[]?` | Conditions with category |
+| `warrantyRequirements` | `string[]?` | Warranty provisions |
+| `lossControlRecommendations` | `string[]?` | Loss control recommendations |
+| `bindingAuthority` | `BindingAuthority?` | Binding authority details |
+
+### Type narrowing
+
+Use the `type` discriminator to narrow the union:
+
+```typescript
+const { document } = await extractor.extract(pdfBase64);
+
+if (document.type === "policy") {
+  console.log(document.policyNumber);     // string
+  console.log(document.effectiveDate);    // string
+} else {
+  console.log(document.quoteNumber);      // string
+  console.log(document.subjectivities);   // Subjectivity[] | undefined
+}
+```
+
+## DocumentChunk
+
+The pipeline's `chunks` output contains retrieval-ready chunks produced by `chunkDocument()`. Each chunk is designed for vector storage and semantic search.
+
+```typescript
+interface DocumentChunk {
+  /** Deterministic ID: `${documentId}:${type}:${index}` */
+  id: string;
+  /** Source document ID */
+  documentId: string;
+  /** Chunk type for filtering */
+  type: "carrier_info" | "named_insured" | "coverage" | "endorsement"
+      | "exclusion" | "condition" | "section" | "declaration"
+      | "loss_history" | "premium" | "supplementary";
+  /** Human-readable text for embedding */
+  text: string;
+  /** Structured metadata for filtering */
+  metadata: Record<string, string>;
+}
+```
+
+### Chunk types
+
+| Type | Source | Content |
+|------|--------|---------|
+| `carrier_info` | Carrier extractor | Carrier name, NAIC, AM Best, MGA, underwriter, broker |
+| `named_insured` | Named insured extractor | Insured name, DBA, address, entity type |
+| `coverage` | Coverage limits extractor | One chunk per coverage with limits and deductibles |
+| `endorsement` | Endorsements extractor | One chunk per endorsement with form number and content |
+| `exclusion` | Exclusions extractor | One chunk per exclusion |
+| `condition` | Conditions extractor | One chunk per policy condition |
+| `section` | Sections extractor | Raw section content |
+| `declaration` | Declarations extractor | Line-specific declaration data |
+| `loss_history` | Loss history extractor | Loss runs and claim records |
+| `premium` | Premium breakdown extractor | Premium, taxes, fees, payment plans |
+| `supplementary` | Supplementary extractor | Regulatory context, TPA, contacts |
+
+### Deterministic chunk IDs
+
+Chunk IDs follow the pattern `${documentId}:${type}:${index}`, where `index` is a zero-based counter within each type. This makes chunk IDs deterministic and idempotent — re-extracting the same document produces the same chunk IDs, enabling safe upserts.
+
+```typescript
+// Example chunk IDs for document "doc-123":
+// "doc-123:carrier_info:0"
+// "doc-123:coverage:0"
+// "doc-123:coverage:1"
+// "doc-123:coverage:2"
+// "doc-123:endorsement:0"
+// "doc-123:endorsement:1"
+```
+
+## Persisting results
+
+The `ExtractionResult` is designed to feed directly into the SDK's storage interfaces:
+
+```typescript
+import { createExtractor } from "@claritylabs/cl-sdk";
+
+const extractor = createExtractor({
+  generateText: myGenerateText,
+  generateObject: myGenerateObject,
+});
+
+const { document, chunks, tokenUsage, usageReporting } = await extractor.extract(pdfBase64, "doc-123");
+
+// Save structured document to DocumentStore
+await documentStore.save(document);
+
+// Save chunks to MemoryStore for vector search
+await memoryStore.addChunks(chunks);
+```
+
+<Callout type="info">
+`DocumentStore` and `MemoryStore` are interfaces defined by the SDK. The SDK includes a reference SQLite implementation, but you can implement these interfaces with any storage backend.
+</Callout>
+
+## Token usage
+
+The `tokenUsage` field on `ExtractionResult` provides cumulative input and output token counts across all model calls that actually return usage metadata.
+
+```typescript
+interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+```
+
+```typescript
+const { tokenUsage, usageReporting } = await extractor.extract(pdfBase64);
+console.log(`Cost: ${tokenUsage.inputTokens} input + ${tokenUsage.outputTokens} output tokens`);
+console.log(`Usage reported for ${usageReporting.callsWithUsage}/${usageReporting.modelCalls} model calls`);
+```
+
+For per-call tracking, use the `onTokenUsage` callback in `ExtractorConfig`. If some provider calls omit usage, `usageReporting.callsMissingUsage` will make that visible.
+
+## Null handling
+
+The assembler uses `sanitizeNulls` internally to convert `null` values to `undefined` throughout the document. This ensures compatibility with frameworks like Convex that reject `null` for optional fields. You do not need to call `sanitizeNulls` yourself on extraction results.

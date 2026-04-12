@@ -12,7 +12,17 @@ describe("chunkDocument", () => {
     policyNumber: "POL-001",
     effectiveDate: "01/01/2026",
     coverages: [
-      { name: "General Liability", limit: "$1,000,000" },
+      {
+        name: "General Liability",
+        limit: "$1,000,000",
+        limitValueType: "numeric",
+        deductible: "Waiting Period - 24 Hours",
+        deductibleValueType: "waiting_period",
+        formNumber: "CG0001",
+        pageNumber: 1,
+        sectionRef: "Declarations",
+        originalContent: "General Liability | $1,000,000 | Waiting Period - 24 Hours",
+      },
       { name: "Property", limit: "$500,000" },
     ],
     endorsements: [
@@ -39,6 +49,11 @@ describe("chunkDocument", () => {
     const coverages = chunks.filter((c) => c.type === "coverage");
     expect(coverages.length).toBe(2);
     expect(coverages[0].metadata.coverageName).toBe("General Liability");
+    expect(coverages[0].metadata.formNumber).toBe("CG0001");
+    expect(coverages[0].metadata.pageNumber).toBe("1");
+    expect(coverages[0].metadata.sectionRef).toBe("Declarations");
+    expect(coverages[0].metadata.deductibleValueType).toBe("waiting_period");
+    expect(coverages[0].text).toContain("Source: General Liability | $1,000,000 | Waiting Period - 24 Hours");
   });
 
   it("creates endorsement chunks", () => {

@@ -1,0 +1,87 @@
+{
+  "title": "CL-SDK",
+  "sections": [
+    {
+      "title": "Getting Started",
+      "slug": "getting-started",
+      "pages": [
+        { "slug": "quickstart", "title": "Quickstart" },
+        { "slug": "architecture", "title": "Architecture" },
+        { "slug": "models", "title": "Model Providers" }
+      ]
+    },
+    {
+      "title": "Extraction",
+      "slug": "extraction",
+      "pages": [
+        { "slug": "pipeline", "title": "Pipeline" },
+        { "slug": "classification", "title": "Classification" },
+        { "slug": "form-inventory", "title": "Form Inventory" },
+        { "slug": "applying-results", "title": "Applying Results" }
+      ]
+    },
+    {
+      "title": "Query",
+      "slug": "query",
+      "pages": [
+        { "slug": "pipeline", "title": "Pipeline" },
+        { "slug": "citations", "title": "Citations" }
+      ]
+    },
+    {
+      "title": "Application",
+      "slug": "application",
+      "pages": [
+        { "slug": "overview", "title": "Overview" },
+        { "slug": "pdf-operations", "title": "PDF Operations" }
+      ]
+    },
+    {
+      "title": "Agent",
+      "slug": "agent",
+      "pages": [
+        { "slug": "system-prompt", "title": "System Prompt" },
+        { "slug": "platforms", "title": "Platforms" },
+        { "slug": "tools", "title": "Tools" }
+      ]
+    },
+    {
+      "title": "Storage",
+      "slug": "storage",
+      "pages": [
+        { "slug": "overview", "title": "Overview" },
+        { "slug": "chunks", "title": "Chunks" }
+      ]
+    },
+    {
+      "title": "Reference",
+      "slug": "reference",
+      "pages": [
+        { "slug": "data-dictionary", "title": "Data Dictionary" },
+        { "slug": "quality-gates", "title": "Quality Gates" },
+        { "slug": "form-structure", "title": "Form Structure" },
+        { "slug": "line-of-business-profiles", "title": "Line of Business Profiles" },
+        { "slug": "types", "title": "Types" }
+      ]
+    },
+    {
+      "title": "API",
+      "slug": "api",
+      "pages": [
+        { "slug": "extraction", "title": "Extraction" },
+        { "slug": "query", "title": "Query" },
+        { "slug": "application", "title": "Application" },
+        { "slug": "agent", "title": "Agent" },
+        { "slug": "pdf", "title": "PDF" }
+      ]
+    },
+    {
+      "title": "MCP Server",
+      "slug": "mcp-server",
+      "pages": [
+        { "slug": "overview", "title": "Overview" },
+        { "slug": "tools", "title": "Tools" }
+      ]
+    }
+  ]
+}

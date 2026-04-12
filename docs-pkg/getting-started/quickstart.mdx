@@ -1,0 +1,181 @@
+---
+title: Quickstart
+description: Install CL SDK and run your first insurance document extraction
+---
+
+import { Callout } from "@/components/ui/callout";
+import { Cards, Card } from "fumadocs-ui/components/card";
+
+## Installation
+
+Install CL SDK and its peer dependencies:
+
+```bash
+npm install @claritylabs/cl-sdk pdf-lib zod
+```
+
+<Callout type="info">
+  CL SDK is published on [npm](https://www.npmjs.com/package/@claritylabs/cl-sdk) under the `@claritylabs` scope. It has no framework dependency — bring any LLM provider you prefer.
+</Callout>
+
+## Create provider callbacks
+
+CL SDK uses plain callback functions instead of framework-specific model objects. Wrap your preferred provider's SDK into `generateText` and `generateObject` callbacks:
+
+```typescript
+import Anthropic from "@anthropic-ai/sdk";
+
+const client = new Anthropic();
+
+const generateText = async ({ prompt, system, maxTokens, providerOptions }) => {
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: maxTokens,
+    system: system ? [{ type: "text", text: system }] : undefined,
+    messages: [{ role: "user", content: prompt }],
+  });
+  return {
+    text: response.content[0].type === "text" ? response.content[0].text : "",
+    usage: { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
+  };
+};
+
+const generateObject = async ({ prompt, system, schema, maxTokens, providerOptions }) => {
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: maxTokens,
+    system: system ? [{ type: "text", text: system }] : undefined,
+    messages: [{
+      role: "user",
+      content: [
+        ...(providerOptions?.pdfBase64
+          ? [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: providerOptions.pdfBase64 } }]
+          : []),
+        ...((providerOptions?.images as Array<{ imageBase64: string; mimeType: string }> | undefined)?.map((img) => ({
+          type: "image",
+          source: { type: "base64", media_type: img.mimeType, data: img.imageBase64 },
+        })) ?? []),
+        { type: "text", text: prompt },
+      ],
+    }],
+  });
+  const text = response.content[0].type === "text" ? response.content[0].text : "{}";
+  return {
+    object: schema.parse(JSON.parse(text)),
+    usage: { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
+  };
+};
+```
+
+For extraction calls, CL SDK uses `providerOptions` to carry document content into your callback:
+
+- classify and plan calls include the full PDF in `providerOptions.pdfBase64`
+- worker extractor calls include a page-scoped PDF in `providerOptions.pdfBase64`
+- if you configure `convertPdfToImages`, worker extractor calls include `providerOptions.images` instead
+
+Your callback must attach those values to the actual model request. Prompt text alone does not provide the document.
+
+See the [Provider Callbacks](/docs/getting-started/models) guide for examples with OpenAI, Vercel AI SDK, and other providers.
+
+## Extract a document
+
+Pass your callbacks to `createExtractor` and extract structured data from any insurance PDF:
+
+```typescript
+import { createExtractor } from "@claritylabs/cl-sdk";
+import { readFileSync } from "fs";
+
+// Load a PDF as base64
+const pdfBase64 = readFileSync("./policy.pdf").toString("base64");
+
+// Create the extractor with your provider callbacks
+const extractor = createExtractor({ generateText, generateObject });
+
+// Run the agentic extraction pipeline
+const { document, chunks, tokenUsage, usageReporting } = await extractor.extract(pdfBase64, "doc-123");
+
+console.log(document.carrier);       // "Hartford"
+console.log(document.policyNumber);  // "GL-2024-001234"
+console.log(document.coverages);     // [{ name: "General Liability", limit: "$1,000,000", ... }]
+console.log(chunks.length);          // 24 chunks ready for vector storage
+console.log(tokenUsage);             // { inputTokens: 45000, outputTokens: 12000 }
+console.log(usageReporting);         // { modelCalls: 14, callsWithUsage: 14, callsMissingUsage: 0 }
+```
+
+## Query documents
+
+Answer questions against stored documents with citation-backed provenance:
+
+```typescript
+import { createQueryAgent } from "@claritylabs/cl-sdk";
+
+const agent = createQueryAgent({
+  generateText,
+  generateObject,
+  documentStore,
+  memoryStore,
+});
+
+const result = await agent.query({
+  question: "What is the GL deductible?",
+  conversationId: "conv-1",
+});
+
+console.log(result.answer);     // "The General Liability deductible is $1,000 per occurrence."
+console.log(result.citations);  // [{ chunkId: "...", text: "...", pages: [3] }]
+```
+
+## Process an application
+
+Handle insurance application intake with an agentic pipeline:
+
+```typescript
+import { createApplicationPipeline } from "@claritylabs/cl-sdk";
+
+const pipeline = createApplicationPipeline({
+  generateText,
+  generateObject,
+});
+
+const { state } = await pipeline.processApplication({
+  pdfBase64,
+  applicationId: "app-1",
+});
+
+console.log(state.fields);    // extracted and auto-filled fields
+console.log(state.batches);   // topic-based question batches for user collection
+```
+
+## Add logging
+
+Every pipeline accepts an `onProgress` callback for observability:
+
+```typescript
+const extractor = createExtractor({
+  generateText,
+  generateObject,
+  onProgress: (message) => console.log(`[cl-sdk] ${message}`),
+});
+
+const { document } = await extractor.extract(pdfBase64);
+```
+
+Output:
+
+```
+[cl-sdk] Classifying document...
+[cl-sdk] Mapping document pages for commercial-auto policy...
+[cl-sdk] Building extraction plan from page map for commercial-auto policy...
+[cl-sdk] Dispatching 8 extractors across 45 pages...
+[cl-sdk] Extractor declarations (pages 1-5) complete
+[cl-sdk] Extractor coverage-limits (pages 6-20) complete
+[cl-sdk] Review round 1: 2 gaps found, dispatching follow-up...
+[cl-sdk] Assembling final document...
+```
+
+## Next steps
+
+<Cards>
+  <Card title="Architecture" description="Learn how the agentic extraction pipeline works." href="/docs/getting-started/architecture" />
+  <Card title="Provider Callbacks" description="Connect any LLM provider via plain callback functions." href="/docs/getting-started/models" />
+</Cards>

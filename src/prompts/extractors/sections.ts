@@ -54,6 +54,12 @@ For each section, classify its type:
 - "other" — anything that doesn't fit the above categories
 
 Include accurate page numbers for every section. Include subsections only if the section has clearly defined subsections with their own titles.
+If a page begins or ends in the middle of a section, treat it as a continuation of the existing section instead of creating a new orphan section from the fragment.
+
+Critical rules:
+- Ignore table-of-contents entries, page-number references, repeating headers/footers, and other navigational artifacts.
+- Do not create a new section from a lone continuation fragment such as a single paragraph tail or list item that clearly belongs to the previous page's section.
+- When a section spans multiple pages, keep it as one section with pageStart/pageEnd covering the full span represented in this extraction.
 
 Return JSON only.`;
 }

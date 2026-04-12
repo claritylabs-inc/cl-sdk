@@ -1,0 +1,60 @@
+---
+title: Changelog
+description: Release history for @claritylabs/cl-sdk
+---
+
+All notable changes to `@claritylabs/cl-sdk` are documented here.
+
+## v0.7.x — Schema Compatibility & Resilience
+
+### Added
+
+- **`toStrictSchema()`** — auto-transforms Zod schemas before `generateObject` calls, converting `.optional()` to `.nullable()` for OpenAI strict structured output compatibility. Applied automatically in the pipeline.
+- **`safeGenerateObject()`** — wraps `generateObject` with schema strictification, retry on schema validation errors, and optional fallback values when all retries are exhausted.
+- **Pipeline checkpoints** — `createPipelineContext()` for save/resume at phase boundaries with `onCheckpointSave` callback.
+
+### Fixed
+
+- **`z.record()` removal** — replaced all `z.record()` usages in schemas with `z.array(z.object({ key, value }))` to avoid unsupported `propertyNames` in JSON Schema.
+- **Transient error retry** — `withRetry()` now retries on grammar compilation timeouts, no-output-generated, overloaded, and 5xx errors (not just rate limits).
+- **Graceful degradation** — extraction pipeline uses fallback values for classify/plan/review when all retries fail, allowing the pipeline to continue rather than crash.
+
+## v0.5.0
+
+### Added
+
+- **Markdown formatting pass** — new Phase 6 in the extraction pipeline. After assembly, a formatting agent cleans up all content-bearing fields (sections, endorsements, exclusions, conditions, summary) to ensure proper markdown rendering. Fixes pipe tables missing separator rows, space-aligned tables, sub-items mixed into tables, and general whitespace issues.
+  - New files: `src/extraction/formatter.ts`, `src/prompts/coordinator/format.ts`
+  - Pipeline now runs 7 phases: Classify → Plan → Extract → Review → Assemble → Format → Chunk
+  - Token usage from formatting is tracked and included in the total
+
+## v0.2.0 — Upcoming
+
+### Changes
+
+- **BREAKING:** `models` parameter is now required for all extraction functions (`ExtractOptions`, `ClassifyOptions`, `ExtractSectionsOptions`)
+- **BREAKING:** Removed `createDefaultModelConfig()` — consumers must provide their own models
+- **BREAKING:** Removed `SONNET_MODEL` and `HAIKU_MODEL` constants
+- Added `pdfContentFormat` and `convertPdfToImages` options for PDF input format control
+- Added `tokenLimits` option for per-role token limit overrides
+- `MODEL_TOKEN_LIMITS` is now deprecated — use `DEFAULT_TOKEN_LIMITS`
+- Fixed default metadata token limit to 16,384 (was incorrectly documented as 4,096)
+
+## v0.1.0 — 2026-04-11
+
+Version reset. All prior versions (1.x through 6.x) are no longer relevant and should not be used. The SDK will remain below 1.0.0 until official launch.
+
+### Current Features
+
+- Document classification (`classifyDocumentType`)
+- PDF extraction pipeline (`extractFromPdf`, `extractQuoteFromPdf`)
+- Provider-agnostic model configuration via Vercel AI SDK `LanguageModel` instances
+- Composable agent prompt system (`buildAgentSystemPrompt`)
+- Platform and intent model for multi-channel agents
+- PDF operations (AcroForm fill, text overlay, page splitting)
+- Comprehensive insurance type system (42 policy types, declarations, coverages)
+- Rate-limit retry with exponential backoff
+- Parallel chunk extraction with configurable concurrency
+- Token usage tracking via `onTokenUsage` callback
+- Context key mapping for policy-to-application auto-fill
+- Native PDF file support with `convertPdfToImages` fallback

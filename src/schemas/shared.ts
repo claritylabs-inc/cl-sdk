@@ -28,6 +28,8 @@ export const FormReferenceSchema = z.object({
   editionDate: z.string().optional(),
   title: z.string().optional(),
   formType: z.enum(["coverage", "endorsement", "declarations", "application", "notice", "other"]),
+  pageStart: z.number().optional(),
+  pageEnd: z.number().optional(),
 });
 export type FormReference = z.infer<typeof FormReferenceSchema>;
 

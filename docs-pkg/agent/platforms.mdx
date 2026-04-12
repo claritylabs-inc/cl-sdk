@@ -1,0 +1,86 @@
+---
+title: Platforms & Intents
+description: Multi-platform support and communication intent system
+---
+
+CL SDK's agent system adapts to different communication platforms and interaction modes through the platform/intent model.
+
+## Platforms
+
+Five platforms are supported, each with different formatting capabilities:
+
+| Platform | Markdown | Links | Rich Formatting | Max Length | Sign-off |
+|----------|----------|-------|----------------|------------|----------|
+| `email` | No | Yes | No | — | Yes |
+| `chat` | Yes | Yes | Yes | — | No |
+| `sms` | No | No | No | 1,600 | No |
+| `slack` | Yes | Yes | Yes | — | No |
+| `discord` | Yes | Yes | Yes | 2,000 | No |
+
+### Platform configs
+
+Access platform configurations directly:
+
+```typescript
+import { PLATFORM_CONFIGS } from "@claritylabs/cl-sdk";
+
+const emailConfig = PLATFORM_CONFIGS.email;
+// { supportsMarkdown: false, supportsLinks: true, supportsRichFormatting: false, signOff: true }
+```
+
+### Custom platform config
+
+Override the default config for a platform:
+
+```typescript
+const ctx: AgentContext = {
+  platform: "chat",
+  intent: "direct",
+  siteUrl: "https://app.example.com",
+  platformConfig: {
+    supportsMarkdown: true,
+    supportsLinks: true,
+    supportsRichFormatting: true,
+    maxResponseLength: 4000,  // Custom limit
+  },
+};
+```
+
+## Communication intents
+
+Intents describe the relationship between the sender and the agent:
+
+### `direct`
+
+The user is communicating directly with the agent (e.g., emailing the agent address, using web chat). The agent responds as itself with full capabilities.
+
+### `mediated`
+
+The message was forwarded by someone (e.g., a broker forwarding an email from a client). The agent responds to the forwarder, not the original sender. Links to the app are omitted.
+
+### `observed`
+
+The agent was CC'd on a conversation. It observes and may provide relevant information, but doesn't insert itself as a primary participant.
+
+## COI handling
+
+The `coiHandling` field on `AgentContext` controls how certificate of insurance requests are routed:
+
+| Value | Behavior |
+|-------|----------|
+| `"broker"` | Route COI requests to the broker contact |
+| `"user"` | The user can generate COIs directly |
+| `"member"` | Route to a specific team member |
+| `"ignore"` | Don't handle COI requests |
+
+```typescript
+const ctx: AgentContext = {
+  platform: "email",
+  intent: "direct",
+  siteUrl: "https://app.example.com",
+  coiHandling: "broker",
+  brokerName: "ABC Insurance Agency",
+  brokerContactName: "John Smith",
+  brokerContactEmail: "john@abcinsurance.com",
+};
+```

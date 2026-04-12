@@ -1,0 +1,47 @@
+---
+title: CL SDK
+description: Open infrastructure for AI agents working with insurance
+---
+
+import { Cards, Card } from "fumadocs-ui/components/card";
+
+[Clarity Labs](https://claritylabs.inc) is an applied AI research lab building the infrastructure for AI to work safely with insurance.
+
+CL SDK is the open infrastructure layer for AI agents working with insurance — a pure TypeScript library for extracting, reasoning about, and acting on insurance documents. Provider-agnostic by design: bring any LLM via plain callback functions. No framework dependency.
+
+## Capabilities
+
+<Cards>
+  <Card title="Document Extraction" description="Agentic pipeline with 11 focused extractors that turns insurance PDFs into structured data — coverages, limits, exclusions, endorsements — with page-level provenance and review loops." />
+  <Card title="Query Agent" description="Citation-backed question answering over stored documents. Decomposes questions, retrieves evidence, reasons with intent-specific prompts, and verifies grounding." />
+  <Card title="Application Processing" description="Eight focused agents handle application intake — field extraction, auto-fill from prior answers, topic-based question batching, and PDF mapping." />
+  <Card title="Agent System" description="Composable prompt modules for building insurance-aware conversational agents across email, chat, SMS, Slack, and Discord." />
+  <Card title="Storage & Memory" description="DocumentStore and MemoryStore interfaces for persisting extracted documents, vector chunks, and conversation history. Includes SQLite reference implementation." />
+</Cards>
+
+## Install
+
+```bash
+npm install @claritylabs/cl-sdk pdf-lib zod
+```
+
+```typescript
+import { createExtractor } from "@claritylabs/cl-sdk";
+
+const extractor = createExtractor({ generateText, generateObject });
+const { document, chunks } = await extractor.extract(pdfBase64);
+
+console.log(document.carrier);    // "Hartford"
+console.log(document.coverages);  // [{ name: "General Liability", limit: "$1,000,000", ... }]
+console.log(chunks.length);       // 24 chunks ready for vector storage
+```
+
+## Get started
+
+<Cards>
+  <Card title="Quickstart" description="Install CL SDK and run your first extraction in minutes." href="/docs/getting-started/quickstart" />
+  <Card title="Architecture" description="Understand the agentic extraction pipeline and how components fit together." href="/docs/getting-started/architecture" />
+  <Card title="Provider Callbacks" description="Connect any LLM provider via plain callback functions." href="/docs/getting-started/models" />
+  <Card title="Storage" description="Persist documents, chunks, and conversation history." href="/docs/storage" />
+  <Card title="API Reference" description="Full reference for every exported function and type." href="/docs/api-reference/extraction" />
+</Cards>

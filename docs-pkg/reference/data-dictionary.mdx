@@ -1,7 +1,12 @@
+---
+title: "Data Dictionary"
+description: "Complete reference for all extractable fields"
+---
+
 # Insurance Data Dictionary
 
-**Version:** 1.0
-**Last Updated:** 2026-04-02
+**Version:** 1.1
+**Last Updated:** 2026-04-12
 **Scope:** All extractable fields from insurance policies, quotes, and related documents
 
 ---
@@ -117,6 +122,7 @@ Fields present on ALL insurance documents regardless of line of business. These 
 | `policy_types` | `PolicyType[]` | Lines of business covered. Uses the expanded `PolicyType` enum (see Shared Types appendix). | Declarations / form schedule | high | — |
 | `coverage_form` | `"occurrence" \| "claims_made" \| "accident"` | Coverage trigger type. Occurrence: injury/damage must occur during policy period. Claims-made: claim must be made during policy period. | Declarations / insuring agreement | high | — |
 | `policy_form_numbers` | `FormReference[]` | All form numbers listed in the policy (the forms and endorsements schedule). See `FormReference` type. This is the complete inventory of forms attached to the policy. | Form schedule / endorsement schedule | high | — |
+| `form_inventory` | `FormReference[]` | AI-extracted inventory of every form in the document with page ranges. Built during the form inventory phase before page mapping. Each entry includes `formNumber`, `formType`, `pageStart`, and `pageEnd`. Used to constrain extraction planning and cross-referenced in quality reports. | Full document scan | high | — |
 
 **TypeScript Interface:** `BaseDocument` in `src/types/document.ts`
 
@@ -245,6 +251,9 @@ A richer coverage model that replaces the flat `{name, limit, deductible}` struc
 | `coverages[].premium` | `string \| null` | Premium allocated to this coverage if broken out. | Declarations / premium page | medium |
 | `coverages[].page_number` | `number \| null` | Page number where this coverage appears in the document. | Declarations | medium |
 | `coverages[].section_ref` | `string \| null` | Cross-reference to the section of the coverage form (e.g., "Section I, Coverage A"). | Various | low |
+| `coverages[].limit_value_type` | `CoverageValueType \| null` | Classifies the limit term: `numeric`, `included`, `not_included`, `as_stated`, `waiting_period`, `referential`, `other`. Preserves non-numeric terms precisely. | Declarations / schedule | medium |
+| `coverages[].deductible_value_type` | `CoverageValueType \| null` | Same classification for the deductible term. | Declarations / schedule | medium |
+| `coverages[].original_content` | `string \| null` | Verbatim source text (schedule row or short snippet) used to extract this coverage. Enables audit trail from structured data back to document text. | Declarations / schedule | medium |
 
 ---
 

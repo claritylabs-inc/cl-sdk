@@ -10,6 +10,9 @@ Thumbs.db
 # Claude Code local state
 .claude/
 
+# Internal dev artifacts (specs, plans)
+.dev/
+
 # Editor / IDE settings
 .vscode/
 .idea/

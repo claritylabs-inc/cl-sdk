@@ -1,0 +1,28 @@
+{
+  "name": "@claritylabs/cl-sdk-docs",
+  "version": "0.1.0",
+  "description": "Documentation content for @claritylabs/cl-sdk",
+  "main": "meta.json",
+  "exports": {
+    "./meta.json": "./meta.json",
+    "./*": "./*"
+  },
+  "files": [
+    "**/*.mdx",
+    "meta.json"
+  ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/claritylabs-inc/cl-sdk.git",
+    "directory": "docs-pkg"
+  },
+  "homepage": "https://claritylabs.inc/docs",
+  "bugs": {
+    "url": "https://github.com/claritylabs-inc/cl-sdk/issues"
+  },
+  "license": "MIT"
+}

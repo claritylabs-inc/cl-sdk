@@ -1,0 +1,269 @@
+---
+title: Provider Callbacks
+description: How to connect any LLM provider to CL SDK
+---
+
+import { Callout } from "@/components/ui/callout";
+import { Tab, Tabs } from "@/components/ui/tabs";
+
+CL SDK uses plain callback functions instead of framework-specific model objects. You provide functions that call your preferred LLM provider, and the SDK handles orchestration, retries, and concurrency. No framework dependency required.
+
+## Callback types
+
+There are four callback types. Only `generateText` and `generateObject` are required for all pipelines:
+
+```typescript
+// Required — used by all pipelines (extraction, query, application)
+type GenerateText = (params: {
+  prompt: string;
+  system?: string;
+  maxTokens: number;
+  providerOptions?: Record<string, unknown>;
+}) => Promise<{ text: string; usage?: TokenUsage }>;
+
+type GenerateObject<T = unknown> = (params: {
+  prompt: string;
+  system?: string;
+  schema: ZodSchema<T>;
+  maxTokens: number;
+  providerOptions?: Record<string, unknown>;
+}) => Promise<{ object: T; usage?: TokenUsage }>;
+
+// Required for MemoryStore (vector search over chunks)
+type EmbedText = (text: string) => Promise<number[]>;
+
+// Optional — enables vision-based extraction (PDF pages as images)
+type ConvertPdfToImagesFn = (
+  pdfBase64: string,
+  startPage: number,
+  endPage: number,
+) => Promise<Array<{ imageBase64: string; mimeType: string }>>;
+```
+
+For extraction calls, `providerOptions` is also the document transport layer:
+
+- `providerOptions.pdfBase64` carries the PDF to include as a file/document part
+- `providerOptions.images` carries rendered page images to include as image parts
+- classify and plan receive the full PDF
+- worker extractors receive a page-scoped PDF produced by `extractPageRange()`, unless `convertPdfToImages` is enabled
+
+## Provider examples
+
+<Tabs items={["Anthropic", "OpenAI", "Vercel AI SDK"]}>
+  <Tab value="Anthropic">
+    ```typescript
+    import Anthropic from "@anthropic-ai/sdk";
+
+    const client = new Anthropic();
+
+    const generateText = async ({ prompt, system, maxTokens, providerOptions }) => {
+      const response = await client.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: maxTokens,
+        system: system ? [{ type: "text", text: system }] : undefined,
+        messages: [{ role: "user", content: prompt }],
+      });
+      return {
+        text: response.content[0].type === "text" ? response.content[0].text : "",
+        usage: {
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+        },
+      };
+    };
+
+    const generateObject = async ({ prompt, system, schema, maxTokens, providerOptions }) => {
+      const response = await client.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: maxTokens,
+        system: system ? [{ type: "text", text: system }] : undefined,
+        messages: [{
+          role: "user",
+          content: [
+            ...(providerOptions?.pdfBase64
+              ? [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: providerOptions.pdfBase64 } }]
+              : []),
+            ...((providerOptions?.images as Array<{ imageBase64: string; mimeType: string }> | undefined)?.map((img) => ({
+              type: "image",
+              source: { type: "base64", media_type: img.mimeType, data: img.imageBase64 },
+            })) ?? []),
+            { type: "text", text: prompt },
+          ],
+        }],
+      });
+      const text = response.content[0].type === "text" ? response.content[0].text : "{}";
+      return {
+        object: schema.parse(JSON.parse(text)),
+        usage: {
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+        },
+      };
+    };
+    ```
+  </Tab>
+  <Tab value="OpenAI">
+    ```typescript
+    import OpenAI from "openai";
+
+    const client = new OpenAI();
+
+    const generateText = async ({ prompt, system, maxTokens, providerOptions }) => {
+      const response = await client.chat.completions.create({
+        model: "gpt-4o",
+        max_tokens: maxTokens,
+        messages: [
+          ...(system ? [{ role: "system" as const, content: system }] : []),
+          { role: "user" as const, content: prompt },
+        ],
+      });
+      return {
+        text: response.choices[0]?.message?.content ?? "",
+        usage: response.usage
+          ? {
+              inputTokens: response.usage.prompt_tokens,
+              outputTokens: response.usage.completion_tokens,
+            }
+          : undefined,
+      };
+    };
+
+    const generateObject = async ({ prompt, system, schema, maxTokens, providerOptions }) => {
+      const response = await client.chat.completions.create({
+        model: "gpt-4o",
+        max_tokens: maxTokens,
+        messages: [
+          ...(system ? [{ role: "system" as const, content: system }] : []),
+          {
+            role: "user" as const,
+            content: [
+              ...(providerOptions?.pdfBase64
+                ? [{ type: "file" as const, file: { filename: "document.pdf", file_data: `data:application/pdf;base64,${providerOptions.pdfBase64}` } }]
+                : []),
+              ...((providerOptions?.images as Array<{ imageBase64: string; mimeType: string }> | undefined)?.map((img) => ({
+                type: "image_url" as const,
+                image_url: { url: `data:${img.mimeType};base64,${img.imageBase64}` },
+              })) ?? []),
+              { type: "text" as const, text: prompt },
+            ],
+          },
+        ],
+      });
+      const text = response.choices[0]?.message?.content ?? "{}";
+      return {
+        object: schema.parse(JSON.parse(text)),
+        usage: response.usage
+          ? {
+              inputTokens: response.usage.prompt_tokens,
+              outputTokens: response.usage.completion_tokens,
+            }
+          : undefined,
+      };
+    };
+    ```
+  </Tab>
+  <Tab value="Vercel AI SDK">
+    If you already use the [Vercel AI SDK](https://sdk.vercel.ai), you can wrap its functions as callbacks:
+
+    ```typescript
+    import { generateText as aiGenerateText, generateObject as aiGenerateObject } from "ai";
+    import { createAnthropic } from "@ai-sdk/anthropic";
+
+    const anthropic = createAnthropic();
+    const model = anthropic("claude-sonnet-4-6");
+
+    const generateText = async ({ prompt, system, maxTokens, providerOptions }) => {
+      const result = await aiGenerateText({
+        model,
+        prompt,
+        system,
+        maxTokens,
+        providerOptions,
+      });
+      return {
+        text: result.text,
+        usage: {
+          inputTokens: result.usage.promptTokens,
+          outputTokens: result.usage.completionTokens,
+        },
+      };
+    };
+
+    const generateObject = async ({ prompt, system, schema, maxTokens, providerOptions }) => {
+      const result = await aiGenerateObject({
+        model,
+        prompt,
+        system,
+        schema,
+        maxTokens,
+        providerOptions,
+      });
+      return {
+        object: result.object,
+        usage: {
+          inputTokens: result.usage.promptTokens,
+          outputTokens: result.usage.completionTokens,
+        },
+      };
+    };
+    ```
+
+    <Callout type="info">
+      The Vercel AI SDK is fully optional. CL SDK does not depend on it — this is just a convenience wrapper for teams already using it.
+    </Callout>
+  </Tab>
+</Tabs>
+
+## Using callbacks with pipelines
+
+Pass your callbacks to any pipeline factory:
+
+```typescript
+import { createExtractor, createQueryAgent, createApplicationPipeline } from "@claritylabs/cl-sdk";
+
+// Extraction
+const extractor = createExtractor({ generateText, generateObject });
+
+// Query agent (also needs document and memory stores)
+const agent = createQueryAgent({ generateText, generateObject, documentStore, memoryStore });
+
+// Application processing
+const pipeline = createApplicationPipeline({ generateText, generateObject });
+```
+
+## Provider options passthrough
+
+The `providerOptions` field lets you pass provider-specific configuration through the SDK to your callback. For example, enabling Anthropic extended thinking:
+
+```typescript
+const generateText = async ({ prompt, system, maxTokens, providerOptions }) => {
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: maxTokens,
+    system: system ? [{ type: "text", text: system }] : undefined,
+    messages: [{ role: "user", content: prompt }],
+    // Pass through any provider-specific options
+    ...(providerOptions?.thinking && {
+      thinking: providerOptions.thinking,
+    }),
+  });
+  // ...
+};
+```
+
+The SDK passes `providerOptions` from its internal pipeline calls, so your callback can decide how to handle them.
+
+For the extraction pipeline, that includes the document itself. If your callback ignores `providerOptions.pdfBase64` or `providerOptions.images`, the model will not actually see the PDF pages even if the prompt says they were provided.
+
+## When each callback is needed
+
+| Callback | Required for | Purpose |
+|----------|-------------|---------|
+| `generateText` | All pipelines | Text generation (prompts, reviews, responses) |
+| `generateObject` | All pipelines | Structured output with Zod schema validation |
+| `embedText` | MemoryStore | Vector embeddings for semantic chunk search |
+| `convertPdfToImages` | Vision extraction | Send PDF pages as images instead of native PDF |
+
+<Callout type="info">
+  `convertPdfToImages` enables vision-based extraction where PDF pages are rendered as images and sent to the model. This can improve extraction quality for documents with complex layouts, tables, or scanned content.
+</Callout>

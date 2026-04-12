@@ -7,13 +7,13 @@ describe("mergeExtractorResult", () => {
       "coverage_limits",
       {
         coverages: [
-          { name: "Business Personal Property", limit: "$350,804", deductible: "$2,500", formNumber: "PR5070CF" },
+          { name: "Business Personal Property", limit: "$350,804", deductible: "$2,500", formNumber: "PR5070CF", pageNumber: 1 },
         ],
         coverageForm: "occurrence",
       },
       {
         coverages: [
-          { name: "Professional Fees", limit: "$100,000", deductible: "$2,500", formNumber: "PR5070CF" },
+          { name: "Professional Fees", limit: "$100,000", deductible: "$2,500", formNumber: "PR5070CF", pageNumber: 2 },
         ],
       },
     ) as { coverages: Array<{ name: string }>; coverageForm: string };
@@ -24,6 +24,36 @@ describe("mergeExtractorResult", () => {
       "Professional Fees",
     ]);
     expect(merged.coverageForm).toBe("occurrence");
+  });
+
+  it("preserves newly learned coverage provenance when merging duplicate coverage rows", () => {
+    const merged = mergeExtractorResult(
+      "coverage_limits",
+      {
+        coverages: [
+          { name: "Business Personal Property", limit: "$350,804", deductible: "$2,500", formNumber: "PR5070CF" },
+        ],
+      },
+      {
+        coverages: [
+          {
+            name: "Business Personal Property",
+            limit: "$350,804",
+            deductible: "$2,500",
+            formNumber: "PR5070CF",
+            pageNumber: 1,
+            sectionRef: "Commercial Property Declarations",
+          },
+        ],
+      },
+    ) as { coverages: Array<{ name: string; pageNumber?: number; sectionRef?: string }> };
+
+    expect(merged.coverages).toHaveLength(1);
+    expect(merged.coverages[0]).toMatchObject({
+      name: "Business Personal Property",
+      pageNumber: 1,
+      sectionRef: "Commercial Property Declarations",
+    });
   });
 
   it("deduplicates repeated sections when merging follow-up extractor runs", () => {

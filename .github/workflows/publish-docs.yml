@@ -1,0 +1,84 @@
+name: Publish Docs
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "docs-pkg/**"
+      - ".github/workflows/publish-docs.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: publish-docs
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Check if version already published
+        id: check
+        run: |
+          cd docs-pkg
+          PACKAGE_VERSION=$(node -e "import('./package.json',{assert:{type:'json'}}).then(m=>console.log(m.default.version))")
+          echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+
+          if npm view "@claritylabs/cl-sdk-docs@$PACKAGE_VERSION" version 2>/dev/null; then
+            echo "published=true" >> $GITHUB_OUTPUT
+            echo "Version $PACKAGE_VERSION already published"
+          else
+            echo "published=false" >> $GITHUB_OUTPUT
+            echo "Version $PACKAGE_VERSION needs to be published"
+          fi
+
+      - name: Publish to npm
+        if: steps.check.outputs.published == 'false'
+        id: npm_publish
+        run: |
+          cd docs-pkg
+          echo "Publishing version ${{ steps.check.outputs.version }} to npm..."
+          npm publish --provenance --access public
+          echo "success=true" >> $GITHUB_OUTPUT
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub tag for release
+        if: steps.npm_publish.outputs.success == 'true'
+        run: |
+          VERSION="${{ steps.check.outputs.version }}"
+          git tag "v$VERSION-docs"
+          git push origin "refs/tags/v$VERSION-docs"
+          echo "Created tag v$VERSION-docs"
+
+      - name: Verify npm publication
+        if: steps.npm_publish.outputs.success == 'true'
+        run: |
+          VERSION="${{ steps.check.outputs.version }}"
+          for i in 1 2 3; do
+            if npm view "@claritylabs/cl-sdk-docs@$VERSION" version 2>/dev/null; then
+              echo "✓ npm package verified"
+              break
+            fi
+            echo "Waiting for npm to propagate... (attempt $i/3)"
+            sleep 5
+          done
+
+      - name: Notify on failure
+        if: failure() && steps.check.outputs.published == 'false'
+        run: |
+          echo "::error::Docs package publish failed!"
+          echo "Version: ${{ steps.check.outputs.version }}"

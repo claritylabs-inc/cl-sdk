@@ -1,0 +1,44 @@
+---
+title: Tools Reference
+description: Complete reference for the 3 documentation tools provided by the CL SDK MCP server
+---
+
+## `list_doc_sections`
+
+List all documentation sections and their pages.
+
+**Input**: none
+
+**Output**: JSON array of sections with `title`, `slug`, and `pages`.
+
+```json
+[
+  { "title": "Getting Started", "slug": "getting-started", "pages": ["quickstart", "architecture", "models"] },
+  { "title": "Document Extraction", "slug": "extraction", "pages": ["pipeline", "classification", "applying-results"] }
+]
+```
+
+## `search_docs`
+
+Full-text search across all MDX documentation pages. Returns top 5 matches ranked by relevance.
+
+**Input**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | yes | Search query |
+| `section` | string | no | Limit to a section slug (e.g. `extraction`) |
+
+**Output**: Ranked results with title, slug, score, and a text excerpt around the match.
+
+## `read_doc_page`
+
+Read a specific documentation page by its slug.
+
+**Input**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `slug` | string | yes | Page slug (e.g. `getting-started/quickstart`) |
+
+**Output**: The page title and full MDX content.

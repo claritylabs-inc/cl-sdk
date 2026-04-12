@@ -1,0 +1,150 @@
+---
+title: Query API
+description: Complete reference for the query agent pipeline
+---
+
+## Pipeline functions
+
+### `createQueryAgent(config)`
+
+Create a query agent that answers questions against stored documents with citation-backed provenance.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `config` | `QueryConfig` | Pipeline configuration (see below) |
+
+**Returns:** `{ query(input: QueryInput) => Promise<QueryOutput> }`
+
+```typescript
+import { createQueryAgent } from "@claritylabs/cl-sdk";
+
+const agent = createQueryAgent({
+  generateText,
+  generateObject,
+  documentStore,
+  memoryStore,
+  concurrency: 3,
+  maxVerifyRounds: 1,
+  retrievalLimit: 10,
+});
+```
+
+---
+
+### `agent.query(input)`
+
+Run the full query pipeline: classify, retrieve, reason, verify, respond.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `input.question` | `string` | The user's question |
+| `input.conversationId` | `string?` | Conversation ID for history context |
+| `input.context` | `AgentContext?` | Platform and user context |
+
+**Returns:** `Promise<QueryOutput>`
+
+```typescript
+const result = await agent.query({
+  question: "What is the deductible on our GL policy?",
+  conversationId: "conv-123",
+});
+
+console.log(result.answer);      // Natural language answer with [1], [2] citations
+console.log(result.citations);   // Citation[] with source references
+console.log(result.confidence);  // 0-1 confidence score
+console.log(result.intent);      // "policy_question"
+console.log(result.followUp);    // Optional follow-up suggestion
+console.log(result.tokenUsage);  // { inputTokens, outputTokens }
+```
+
+---
+
+## Types
+
+### `QueryConfig`
+
+```typescript
+interface QueryConfig {
+  generateText: GenerateText;
+  generateObject: GenerateObject;
+  documentStore: DocumentStore;
+  memoryStore: MemoryStore;
+  concurrency?: number;           // default: 3
+  maxVerifyRounds?: number;       // default: 1
+  retrievalLimit?: number;        // default: 10
+  onTokenUsage?: (usage: TokenUsage) => void;
+  onProgress?: (message: string) => void;
+  log?: LogFn;
+  providerOptions?: Record<string, unknown>;
+}
+```
+
+### `QueryInput`
+
+```typescript
+interface QueryInput {
+  question: string;
+  conversationId?: string;
+  context?: AgentContext;
+}
+```
+
+### `QueryOutput`
+
+```typescript
+interface QueryOutput {
+  answer: string;
+  citations: Citation[];
+  intent: QueryIntent;
+  confidence: number;
+  followUp?: string;
+  tokenUsage: TokenUsage;
+}
+```
+
+### `Citation`
+
+```typescript
+interface Citation {
+  index: number;
+  chunkId: string;
+  documentId: string;
+  documentType?: "policy" | "quote";
+  field?: string;
+  quote: string;
+  relevance: number;
+}
+```
+
+### `QueryIntent`
+
+```typescript
+type QueryIntent =
+  | "policy_question"
+  | "coverage_comparison"
+  | "document_search"
+  | "claims_inquiry"
+  | "general_knowledge";
+```
+
+---
+
+## Query prompt functions
+
+These are exported for advanced use (custom pipelines, testing):
+
+### `buildQueryClassifyPrompt(question, conversationContext?)`
+
+Build the classification prompt for intent detection and sub-question decomposition.
+
+### `buildReasonPrompt(subQuestion, intent, evidence)`
+
+Build an intent-specific reasoning prompt with evidence context.
+
+### `buildVerifyPrompt(originalQuestion, subAnswersJson, evidenceJson)`
+
+Build the verification prompt for grounding, consistency, and completeness checks.
+
+### `buildRespondPrompt(originalQuestion, subAnswersJson, platform?)`
+
+Build the final response formatting prompt with platform-specific formatting guidance.

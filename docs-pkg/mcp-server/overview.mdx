@@ -1,0 +1,130 @@
+---
+title: Overview
+description: Search and read CL SDK documentation directly from AI coding assistants via MCP
+---
+
+import { Callout } from "@/components/ui/callout";
+import { Cards, Card } from "fumadocs-ui/components/card";
+
+The CL SDK MCP server provides documentation search and reference as [Model Context Protocol](https://modelcontextprotocol.io/) tools. This lets AI coding assistants like Claude Code, Cursor, and Windsurf look up SDK docs while helping you write integration code.
+
+No API keys or configuration required.
+
+## What it provides
+
+| Tool | Description |
+|------|-------------|
+| `search_docs` | Full-text search across all doc pages, returns top 5 matches with context |
+| `read_doc_page` | Read a specific doc page by slug (e.g. `getting-started/quickstart`) |
+| `list_doc_sections` | List all sections and pages in the doc tree |
+
+## Quick start
+
+Add the server to your MCP client config. No install needed — `npx` fetches it on demand.
+
+<Callout type="info">
+  Published on [npm](https://www.npmjs.com/package/@claritylabs/cl-sdk-mcp) under the `@claritylabs` scope. Source on [GitHub](https://github.com/claritylabs-inc/cl-sdk-docs/tree/main/mcp).
+</Callout>
+
+## Architecture
+
+The server bundles all documentation as `docs-bundle.json` at publish time. At runtime it's a lightweight MCP server with zero external dependencies beyond the MCP SDK. It supports two transport modes:
+
+- **stdio** (default) — for local clients like Claude Code, Cursor, and Windsurf
+- **Streamable HTTP** (`--http` flag) — for remote clients like Claude.ai custom connectors
+
+```
+┌──────────────────┐          ┌─────────────────────────────────┐
+│  Local clients   │  stdio   │  @claritylabs/cl-sdk-mcp        │
+│                  │◄────────►│                                 │
+│  Claude Code     │          │  ┌─────────────────────────────┐ │
+│  Cursor          │          │  │ search_docs                 │ │
+│  Windsurf        │          │  │ read_doc_page               │ │
+│                  │          │  │ list_doc_sections           │ │
+├──────────────────┤          │  └─────────────┬───────────────┘ │
+│  Remote clients  │  HTTP    │                │                 │
+│                  │◄────────►│                ▼                 │
+│  Claude.ai       │ POST/mcp │  ┌─────────────────────────────┐ │
+│  Custom apps     │          │  │ docs-bundle.json            │ │
+└──────────────────┘          │  └─────────────────────────────┘ │
+                              └─────────────────────────────────┘
+```
+
+## Client setup
+
+### Claude Code
+
+Add to your project's `.claude/mcp.json` or global `~/.claude/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "cl-sdk": {
+      "command": "npx",
+      "args": ["@claritylabs/cl-sdk-mcp"]
+    }
+  }
+}
+```
+
+### Cursor / Windsurf
+
+Add to your MCP settings (`~/.cursor/mcp.json` or equivalent):
+
+```json
+{
+  "mcpServers": {
+    "cl-sdk": {
+      "command": "npx",
+      "args": ["@claritylabs/cl-sdk-mcp"]
+    }
+  }
+}
+```
+
+### Claude.ai (remote)
+
+To connect via Claude.ai's **custom connectors**, deploy the server in HTTP mode and point Claude at the URL.
+
+1. Start the server with HTTP transport:
+
+```bash
+npx @claritylabs/cl-sdk-mcp --http
+```
+
+This starts a Streamable HTTP server on port 8787 (configurable via `PORT` env var). The MCP endpoint is `POST /mcp`.
+
+2. In Claude.ai, go to **Settings → Connectors → Add custom connector** and enter your server URL (e.g. `https://your-host.example.com/mcp`).
+
+<Callout type="info">
+  The HTTP server is stateless and auth-free — each request gets a fresh server instance. For production, deploy behind a reverse proxy with TLS.
+</Callout>
+
+### Self-hosting
+
+Run the HTTP server with Docker or any Node.js hosting:
+
+```bash
+# Direct
+PORT=8787 npx @claritylabs/cl-sdk-mcp --http
+
+# Or via npm start in the mcp directory
+npm start
+```
+
+| Environment variable | Default | Description |
+|---------------------|---------|-------------|
+| `PORT` | `8787` | HTTP listen port |
+| `HOST` | `0.0.0.0` | Bind address |
+
+### Other MCP clients
+
+Any client that supports stdio servers:
+
+```bash
+npx @claritylabs/cl-sdk-mcp
+```
+
+<Cards>
+  <Card title="Tools reference" description="Detailed reference for all 3 documentation tools." href="/docs/mcp-server/tools" />
+</Cards>

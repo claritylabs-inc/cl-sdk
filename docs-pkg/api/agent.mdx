@@ -1,0 +1,140 @@
+---
+title: Agent API
+description: Complete reference for agent prompt builders and context functions
+---
+
+## System prompt
+
+### `buildAgentSystemPrompt(ctx)`
+
+Build a complete agent system prompt from composable modules.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `ctx` | `AgentContext` | Agent context configuration |
+
+**Returns:** `string`
+
+## Individual modules
+
+Each module can be used independently for custom prompt composition.
+
+### `buildIdentityPrompt(ctx)`
+
+Agent identity and name. **Returns:** `string`
+
+### `buildIntentPrompt(ctx)`
+
+Communication intent behavior rules. **Returns:** `string`
+
+### `buildFormattingPrompt(ctx)`
+
+Platform-specific output formatting rules. **Returns:** `string`
+
+### `buildSafetyPrompt(ctx)`
+
+Scope guardrails, anti-hallucination, prompt injection defense. **Returns:** `string`
+
+### `buildCoverageGapPrompt(ctx)`
+
+Coverage gap detection guidance. Returns `null` for some intents. **Returns:** `string | null`
+
+### `buildCoiRoutingPrompt(ctx)`
+
+Certificate of insurance request routing. **Returns:** `string`
+
+### `buildQuotesPoliciesPrompt()`
+
+Document type differentiation rules. No context needed. **Returns:** `string`
+
+### `buildConversationMemoryGuidance()`
+
+Cross-conversation memory continuity rules. No context needed. **Returns:** `string`
+
+## Context builders
+
+### `buildDocumentContext(policies, quotes, queryText)`
+
+Build ranked document context for a query. Scores and ranks policies and quotes by relevance.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `policies` | `PolicyDocument[]` | Available policy documents |
+| `quotes` | `QuoteDocument[]` | Available quote documents |
+| `queryText` | `string` | User's question |
+
+**Returns:** `{ context: string; relevantPolicyIds: string[]; relevantQuoteIds: string[] }`
+
+```typescript
+const { context, relevantPolicyIds, relevantQuoteIds } =
+  buildDocumentContext(policies, quotes, userMessage);
+```
+
+---
+
+### `buildConversationMemoryContext(conversations)`
+
+Build conversation history context for the agent.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `conversations` | `PastConversation[]` | Previous conversations |
+
+**Returns:** `string`
+
+```typescript
+interface PastConversation {
+  fromName?: string;
+  fromEmail: string;
+  subject: string;
+  body: string;
+  responseBody: string;
+  _creationTime: number;
+  threadId?: string;
+}
+```
+
+---
+
+### `buildPolicyContext(policies, queryText)` *deprecated*
+
+Build policy context string. **Deprecated** — use `buildDocumentContext` instead.
+
+**Returns:** `{ context: string; relevantPolicyIds: string[] }`
+
+## Intent classification
+
+### `buildClassifyMessagePrompt(platform)`
+
+Build a prompt for classifying incoming messages as insurance-related.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `platform` | `Platform` | The platform the message came from |
+
+**Returns:** `string`
+
+## Legacy (deprecated)
+
+### `buildSystemPrompt(options)`
+
+Legacy system prompt builder. Delegates to `buildAgentSystemPrompt` internally.
+
+### `CLASSIFY_EMAIL_PROMPT`
+
+Legacy email classification prompt. Use `buildClassifyMessagePrompt("email")` instead.
+
+## Extraction prompts
+
+These prompts are used internally by the extraction pipeline but are exported for advanced use cases:
+
+| Export | Description |
+|--------|-------------|
+| `EXTRACTION_PROMPT` | Full extraction prompt |
+| `CLASSIFY_DOCUMENT_PROMPT` | Document type classification |
+| `METADATA_PROMPT` | Policy metadata extraction |
+| `QUOTE_METADATA_PROMPT` | Quote metadata extraction |
+| `buildSectionsPrompt(start, end)` | Policy section extraction for page range |
+| `buildPolicySectionsPrompt(start, end)` | Alias for `buildSectionsPrompt` |
+| `buildQuoteSectionsPrompt(start, end)` | Quote section extraction for page range |
+| `buildSupplementaryEnrichmentPrompt(fields)` | Supplementary field enrichment |

@@ -1,4 +1,5 @@
 import type { GenerateText, GenerateObject, TokenUsage, ConvertPdfToImagesFn, LogFn } from "../core/types";
+import type { QualityGateMode } from "../core/quality";
 import type { InsuranceDocument } from "../schemas/document";
 import type { DocumentChunk } from "../storage/chunk-types";
 import { pLimit } from "../core/concurrency";
@@ -13,17 +14,22 @@ import { mergeExtractorResult } from "./merge";
 import { getTemplate } from "../prompts/templates/index";
 import { buildClassifyPrompt, ClassifyResultSchema, type ClassifyResult } from "../prompts/coordinator/classify";
 import { type ExtractionPlan } from "../prompts/coordinator/plan";
-import { buildPageMapPrompt, PageMapChunkSchema, type PageAssignment } from "../prompts/coordinator/page-map";
+import { buildFormInventoryPrompt, FormInventorySchema, type FormInventoryResult } from "../prompts/coordinator/form-inventory";
+import { buildPageMapPrompt, PageMapChunkSchema, formatFormInventoryForPageMap, type PageAssignment } from "../prompts/coordinator/page-map";
 import { buildReviewPrompt, ReviewResultSchema, type ReviewResult } from "../prompts/coordinator/review";
 import { getExtractor } from "../prompts/extractors/index";
+import { buildExtractionReviewReport, toReviewRoundRecord, type ExtractionReviewReport, type ReviewRoundRecord } from "./quality";
+import { shouldFailQualityGate } from "../core/quality";
 
 /** Internal state checkpointed between extraction phases. */
 export interface ExtractionState {
   id: string;
   pageCount: number;
   classifyResult?: ClassifyResult;
+  formInventory?: FormInventoryResult;
   pageAssignments?: PageAssignment[];
   plan?: ExtractionPlan;
+  reviewReport?: ExtractionReviewReport;
   memory: Record<string, unknown>;
   document?: InsuranceDocument;
 }
@@ -38,6 +44,7 @@ export interface ExtractorConfig {
   onProgress?: (message: string) => void;
   log?: LogFn;
   providerOptions?: Record<string, unknown>;
+  qualityGate?: QualityGateMode;
   /** Optional checkpoint persistence callback. */
   onCheckpointSave?: (checkpoint: PipelineCheckpoint<ExtractionState>) => Promise<void>;
 }
@@ -51,6 +58,7 @@ export interface ExtractionResult {
     callsWithUsage: number;
     callsMissingUsage: number;
   };
+  reviewReport: ExtractionReviewReport;
   /** Last checkpoint — can be passed as `resumeFrom` to retry from a failure point. */
   checkpoint?: PipelineCheckpoint<ExtractionState>;
 }
@@ -71,6 +79,7 @@ export function createExtractor(config: ExtractorConfig) {
     onProgress,
     log,
     providerOptions,
+    qualityGate = "warn",
     onCheckpointSave,
   } = config;
 
@@ -140,6 +149,75 @@ export function createExtractor(config: ExtractorConfig) {
     return [...extractorPages.entries()]
       .map(([extractorName, pages]) => `${extractorName}: pages ${pages.join(", ")}`)
       .join("\n");
+  }
+
+  function normalizePageAssignments(
+    pageAssignments: PageAssignment[],
+    formInventory?: FormInventoryResult,
+  ): PageAssignment[] {
+    // Build a lookup: page number → form types from inventory
+    const pageFormTypes = new Map<number, Set<string>>();
+    if (formInventory) {
+      for (const form of formInventory.forms) {
+        if (form.pageStart != null) {
+          const end = form.pageEnd ?? form.pageStart;
+          for (let p = form.pageStart; p <= end; p++) {
+            const types = pageFormTypes.get(p) ?? new Set();
+            types.add(form.formType);
+            pageFormTypes.set(p, types);
+          }
+        }
+      }
+    }
+
+    return pageAssignments.map((assignment) => {
+      let extractorNames: PageAssignment["extractorNames"] = [...new Set(
+        (assignment.extractorNames.length > 0 ? assignment.extractorNames : ["sections"]).filter(Boolean),
+      )] as PageAssignment["extractorNames"];
+
+      const hasDeclarations = extractorNames.includes("declarations");
+      const hasConditions = extractorNames.includes("conditions");
+      const hasExclusions = extractorNames.includes("exclusions");
+      const hasEndorsements = extractorNames.includes("endorsements");
+      const looksLikeScheduleValues = assignment.hasScheduleValues === true;
+      const roleBlocksCoverageLimits = assignment.pageRole === "policy_form"
+        || assignment.pageRole === "condition_exclusion_form"
+        || assignment.pageRole === "endorsement_form";
+
+      // Use form inventory to further constrain: if the inventory says this page
+      // belongs to an endorsement/notice/application form, block coverage_limits
+      // unless the page has explicit schedule values.
+      const inventoryTypes = pageFormTypes.get(assignment.localPageNumber);
+      const inventoryBlocksCoverageLimits = inventoryTypes != null
+        && !looksLikeScheduleValues
+        && !hasDeclarations
+        && (inventoryTypes.has("endorsement") || inventoryTypes.has("notice") || inventoryTypes.has("application"));
+
+      if (extractorNames.includes("coverage_limits")) {
+        const shouldDropCoverageLimits = inventoryBlocksCoverageLimits
+          || (!looksLikeScheduleValues && roleBlocksCoverageLimits)
+          || (!hasDeclarations && !looksLikeScheduleValues && (hasConditions || hasExclusions))
+          || (!hasDeclarations && !looksLikeScheduleValues && hasEndorsements);
+
+        if (shouldDropCoverageLimits) {
+          extractorNames = extractorNames.filter((name) => name !== "coverage_limits") as PageAssignment["extractorNames"];
+        }
+      }
+
+      // If inventory says this page is an endorsement form, ensure endorsements extractor is assigned
+      if (inventoryTypes?.has("endorsement") && !extractorNames.includes("endorsements")) {
+        extractorNames = [...extractorNames, "endorsements"] as PageAssignment["extractorNames"];
+      }
+
+      if (extractorNames.length === 0) {
+        extractorNames = ["sections"];
+      }
+
+      return {
+        ...assignment,
+        extractorNames,
+      };
+    });
   }
 
   function buildTemplateHints(
@@ -296,7 +374,43 @@ export function createExtractor(config: ExtractorConfig) {
     const pageCount = resumed?.pageCount ?? await getPdfPageCount(pdfBase64);
     const templateHints = buildTemplateHints(primaryType, documentType, pageCount, template);
 
-    // Step 2: Map pages to extractors
+    // Step 2: Build form inventory
+    let formInventory: FormInventoryResult | undefined;
+    if (resumed?.formInventory && pipelineCtx.isPhaseComplete("form_inventory")) {
+      formInventory = resumed.formInventory;
+      memory.set("form_inventory", formInventory);
+      onProgress?.("Resuming from checkpoint (form inventory complete)...");
+    } else {
+      onProgress?.(`Building form inventory for ${primaryType} ${documentType}...`);
+      const formInventoryResponse = await safeGenerateObject(
+        generateObject as GenerateObject<FormInventoryResult>,
+        {
+          prompt: buildFormInventoryPrompt(templateHints),
+          schema: FormInventorySchema,
+          maxTokens: 2048,
+          providerOptions: { ...providerOptions, pdfBase64 },
+        },
+        {
+          fallback: { forms: [] },
+          log,
+          onError: (err, attempt) =>
+            log?.(`Form inventory attempt ${attempt + 1} failed: ${err instanceof Error ? err.message : String(err)}`),
+        },
+      );
+      trackUsage(formInventoryResponse.usage);
+      formInventory = formInventoryResponse.object;
+      memory.set("form_inventory", formInventory);
+
+      await pipelineCtx.save("form_inventory", {
+        id,
+        pageCount,
+        classifyResult,
+        formInventory,
+        memory: Object.fromEntries(memory),
+      });
+    }
+
+    // Step 3: Map pages to extractors
     let pageAssignments: PageAssignment[];
     if (resumed?.pageAssignments && pipelineCtx.isPhaseComplete("page_map")) {
       pageAssignments = resumed.pageAssignments;
@@ -305,6 +419,9 @@ export function createExtractor(config: ExtractorConfig) {
       onProgress?.(`Mapping document pages for ${primaryType} ${documentType}...`);
       const chunkSize = 8;
       const collectedAssignments: PageAssignment[] = [];
+      const formInventoryHint = formInventory?.forms.length
+        ? formatFormInventoryForPageMap(formInventory.forms)
+        : undefined;
 
       for (let startPage = 1; startPage <= pageCount; startPage += chunkSize) {
         const endPage = Math.min(pageCount, startPage + chunkSize - 1);
@@ -312,7 +429,7 @@ export function createExtractor(config: ExtractorConfig) {
         const mapResponse = await safeGenerateObject(
           generateObject as GenerateObject<{ pages: PageAssignment[] }>,
           {
-            prompt: buildPageMapPrompt(templateHints, startPage, endPage),
+            prompt: buildPageMapPrompt(templateHints, startPage, endPage, formInventoryHint),
             schema: PageMapChunkSchema,
             maxTokens: 2048,
             providerOptions: { ...providerOptions, pdfBase64: pagesPdf },
@@ -354,16 +471,19 @@ export function createExtractor(config: ExtractorConfig) {
             notes: "Full-document fallback page assignment",
           }));
 
+      pageAssignments = normalizePageAssignments(pageAssignments, formInventory);
+
       await pipelineCtx.save("page_map", {
         id,
         pageCount,
         classifyResult,
+        formInventory,
         pageAssignments,
         memory: Object.fromEntries(memory),
       });
     }
 
-    // Step 3: Plan
+    // Step 4: Plan
     let plan: ExtractionPlan;
     if (resumed?.plan && pipelineCtx.isPhaseComplete("plan")) {
       plan = resumed.plan;
@@ -376,13 +496,14 @@ export function createExtractor(config: ExtractorConfig) {
         id,
         pageCount,
         classifyResult,
+        formInventory,
         pageAssignments,
         plan,
         memory: Object.fromEntries(memory),
       });
     }
 
-    // Step 4: Dispatch extractors in parallel
+    // Step 5: Dispatch extractors in parallel
     if (!pipelineCtx.isPhaseComplete("extract")) {
       const tasks = plan.tasks;
       onProgress?.(`Dispatching ${tasks.length} extractors...`);
@@ -430,14 +551,18 @@ export function createExtractor(config: ExtractorConfig) {
         id,
         pageCount,
         classifyResult,
+        formInventory,
         pageAssignments,
         plan,
         memory: Object.fromEntries(memory),
       });
     }
 
-    // Step 5: Review loop
+    // Step 6: Review loop
+    let reviewRounds: ReviewRoundRecord[] = resumed?.reviewReport?.reviewRoundRecords ?? [];
+    let reviewReport: ExtractionReviewReport | undefined = resumed?.reviewReport;
     if (!pipelineCtx.isPhaseComplete("review")) {
+      reviewRounds = [];
       for (let round = 0; round < maxReviewRounds; round++) {
         const extractedKeys = [...memory.keys()].filter((k) => k !== "classify");
         const extractionSummary = summarizeExtraction(memory);
@@ -459,6 +584,7 @@ export function createExtractor(config: ExtractorConfig) {
           },
         );
         trackUsage(reviewResponse.usage);
+        reviewRounds.push(toReviewRoundRecord(round + 1, reviewResponse.object));
 
         if (reviewResponse.object.qualityIssues?.length) {
           await log?.(`Review round ${round + 1} quality issues: ${reviewResponse.object.qualityIssues.join("; ")}`);
@@ -506,17 +632,41 @@ export function createExtractor(config: ExtractorConfig) {
         }
       }
 
+      reviewReport = buildExtractionReviewReport({
+        memory,
+        pageAssignments,
+        reviewRounds,
+      });
+
+      if (reviewReport.issues.length > 0) {
+        await log?.(
+          `Deterministic review issues: ${reviewReport.issues.map((issue) => issue.message).join("; ")}`,
+        );
+      }
+
+      if (shouldFailQualityGate(qualityGate, reviewReport.qualityGateStatus)) {
+        throw new Error("Extraction quality gate failed. See reviewReport for blocking issues.");
+      }
+
       await pipelineCtx.save("review", {
         id,
         pageCount,
         classifyResult,
+        formInventory,
         pageAssignments,
         plan,
+        reviewReport,
         memory: Object.fromEntries(memory),
       });
     }
 
-    // Step 6: Assemble
+    reviewReport ??= buildExtractionReviewReport({
+      memory,
+      pageAssignments,
+      reviewRounds,
+    });
+
+    // Step 7: Assemble
     onProgress?.("Assembling document...");
     const document = assembleDocument(id, documentType, memory);
 
@@ -524,13 +674,15 @@ export function createExtractor(config: ExtractorConfig) {
       id,
       pageCount,
       classifyResult,
+      formInventory,
       pageAssignments,
       plan,
+      reviewReport,
       memory: Object.fromEntries(memory),
       document,
     });
 
-    // Step 7: Format markdown content
+    // Step 8: Format markdown content
     onProgress?.("Formatting extracted content...");
     const formatResult = await formatDocumentContent(document, generateText, {
       providerOptions,
@@ -558,6 +710,7 @@ export function createExtractor(config: ExtractorConfig) {
         callsMissingUsage,
       },
       checkpoint: finalCheckpoint,
+      reviewReport,
     };
   }
 

@@ -63,6 +63,11 @@ Focus on:
 - Exclusions within insuring agreements or conditions if clearly labeled
 - Full verbatim exclusion text — do not summarize
 
+Critical rules:
+- Ignore table-of-contents entries, running headers/footers, and references that only point to another page or section.
+- Do not emit a standalone exclusion from a fragment unless the fragment itself contains substantive exclusion wording.
+- Always include pageNumber when the exclusion appears on a specific page in the supplied document chunk.
+
 Common personal lines exclusion patterns: animal liability, business pursuits, home daycare, watercraft, aircraft.
 
 Return JSON only.`;

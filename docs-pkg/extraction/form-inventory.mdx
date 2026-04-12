@@ -1,0 +1,151 @@
+---
+title: "Form Inventory"
+description: "How the form inventory phase constrains page mapping and extraction planning"
+---
+
+# Form Inventory and Extraction Planning
+
+**Version:** 1.0
+**Last Updated:** 2026-04-12
+**Scope:** How the form inventory phase constrains page mapping and extraction planning
+
+---
+
+## Purpose
+
+Insurance documents contain dozens of distinct forms — declarations pages, coverage forms, endorsements, notices, and applications — often interleaved across hundreds of pages. Without structural awareness, the page mapper can misassign pages, sending endorsement form language to the `coverage_limits` extractor (producing phantom coverages from referential wording) or missing endorsement pages entirely.
+
+The **form inventory** phase catalogs every form in the document before page mapping begins, giving both the LLM page mapper and the deterministic normalizer a structural map to work with.
+
+---
+
+## Pipeline Phases
+
+The extraction pipeline runs in this order:
+
+```
+1. Classify        → document type + policy types
+2. Form Inventory  → catalog all forms with page ranges     ← NEW
+3. Page Map        → assign extractors per page (inventory-aware)
+4. Plan            → build extraction tasks from page map
+5. Extract         → dispatch extractors in parallel
+6. Review          → LLM review loop + deterministic quality checks
+7. Assemble        → build InsuranceDocument
+8. Format          → markdown content generation
+```
+
+### Phase 2: Form Inventory
+
+**File:** `src/prompts/coordinator/form-inventory.ts`
+
+The form inventory prompt asks the model to scan the full document and produce a list of every distinct form it can identify:
+
+```ts
+interface FormInventoryEntry {
+  formNumber: string;       // e.g. "PR5070CF", "CG 00 01"
+  editionDate?: string;     // e.g. "01 24"
+  title?: string;           // e.g. "Commercial Property Coverage Form"
+  formType: "coverage" | "endorsement" | "declarations" | "application" | "notice" | "other";
+  pageStart?: number;       // original document page where form begins
+  pageEnd?: number;         // original document page where form ends
+}
+```
+
+This schema extends `FormReferenceSchema` from `src/schemas/shared.ts`, so the output is directly assignable to the document's `formInventory` field without transformation.
+
+The inventory is checkpointed as `form_inventory` and stored in extraction memory for downstream use by the review report.
+
+### Phase 3: Page Map (Inventory-Aware)
+
+**File:** `src/prompts/coordinator/page-map.ts`
+
+The page mapper receives the form inventory as a prompt hint when available:
+
+```
+FORM INVENTORY (already identified — use this to constrain your assignments):
+- PR5070CF "Commercial Property Coverage Form" [coverage] → pages 7-36
+- PR068END "Leasehold Interest" [endorsement] → pages 37-38
+```
+
+This gives the model structural context before it assigns extractors per page. The prompt also includes a rule:
+
+> When a form inventory entry identifies a page range as a specific form type, use that classification to guide your extractor choice. Do not assign "coverage_limits" to pages the inventory identifies as endorsement or condition/exclusion forms unless the page contains actual schedule values.
+
+**Formatting helper:** `formatFormInventoryForPageMap()` converts `FormInventoryEntry[]` into the concise prompt block shown above. Only entries with `pageStart` are included.
+
+### Deterministic Normalization
+
+After the LLM produces page assignments, `normalizePageAssignments()` applies hard constraints using the form inventory:
+
+1. **Block `coverage_limits`** on pages the inventory identifies as endorsement, notice, or application forms — unless `hasScheduleValues` is true or the page also has `declarations` assigned.
+2. **Ensure `endorsements`** is assigned to pages the inventory identifies as endorsement forms, even if the LLM missed it.
+3. **Existing role-based rules** still apply: `coverage_limits` is dropped from pages with `pageRole` of `policy_form`, `condition_exclusion_form`, or `endorsement_form`.
+
+This two-layer approach (soft prompt constraint + hard deterministic override) prevents the most common misassignment patterns.
+
+---
+
+## Coverage Provenance
+
+Coverage rows extracted by the `coverage_limits` extractor now carry provenance fields:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `pageNumber` | `number` | Original document page where the coverage row appears |
+| `sectionRef` | `string` | Declarations/schedule/endorsement heading |
+| `originalContent` | `string` | Verbatim source text used for extraction |
+| `limitValueType` | `CoverageValueType` | Classifies the limit: `numeric`, `included`, `not_included`, `as_stated`, `waiting_period`, `referential`, `other` |
+| `deductibleValueType` | `CoverageValueType` | Same classification for the deductible term |
+
+These fields are defined in `CoverageSchema` (`src/schemas/coverage.ts`) and flow through to:
+- `EnrichedCoverageSchema` — carries `limitValueType`, `deductibleValueType`, `originalContent`
+- Document chunks — included in chunk text and `metadata`
+- Quality reports — missing provenance triggers `coverage_missing_page_number`, `coverage_missing_section_ref`, `coverage_missing_original_content` warnings
+- Merge — `mergeShallowPreferPresent` preserves provenance when duplicate coverage rows are merged
+
+### Coverage Value Types
+
+The `CoverageValueType` enum preserves non-numeric limit/deductible terms instead of forcing them into dollar-value semantics:
+
+| Value | Meaning |
+|-------|---------|
+| `numeric` | Standard dollar amount (e.g. `$1,000,000`) |
+| `included` | Explicitly included in coverage |
+| `not_included` | Explicitly excluded from coverage |
+| `as_stated` | References another document/section |
+| `waiting_period` | Time-based deductible (e.g. `72 Hours`) |
+| `referential` | Points to declarations/schedule for the actual value |
+| `other` | None of the above |
+
+---
+
+## Prompt Improvements
+
+### Coverage Limits Extractor
+
+The `coverage_limits` prompt (`src/prompts/extractors/coverage-limits.ts`) now:
+- Requires provenance fields (`pageNumber`, `sectionRef`, `originalContent`) for every coverage
+- Instructs the model to classify limit/deductible terms using `limitValueType`/`deductibleValueType`
+- Explicitly blocks extraction from TOC lines, generic form text, and referential wording
+- Uses `CoverageSchema` from the canonical schema as its base, ensuring type alignment
+
+### Conditions, Exclusions, Sections Extractors
+
+All three extractors now include "Critical rules" blocks that:
+- Ignore table-of-contents entries, running headers/footers, and page references
+- Require substantive content (not just a heading or TOC line) before emitting an item
+- Handle continuation fragments by keeping text together rather than creating orphan entries
+
+---
+
+## Schema Alignment
+
+The form inventory, coverage, and quality report schemas are aligned to prevent drift:
+
+| Schema | Source | Used By |
+|--------|--------|---------|
+| `FormReferenceSchema` | `src/schemas/shared.ts` | Document's `formInventory` field, form inventory prompt |
+| `FormInventoryEntrySchema` | Extends `FormReferenceSchema` | Form inventory extraction prompt output |
+| `CoverageSchema` | `src/schemas/coverage.ts` | Document's `coverages`, coverage limits extractor output |
+| `CoverageValueTypeSchema` | `src/schemas/coverage.ts` | `CoverageSchema`, `EnrichedCoverageSchema`, extractor prompt |
+| `ApplicationQualityReportSchema` | `src/schemas/application.ts` | `ApplicationState` serialization |

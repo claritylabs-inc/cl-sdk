@@ -20,6 +20,7 @@ export function assembleDocument(
   const lossHistory = memory.get("loss_history") as Record<string, unknown> | undefined;
   const sections = memory.get("sections") as Record<string, unknown> | undefined;
   const supplementary = memory.get("supplementary") as Record<string, unknown> | undefined;
+  const formInventory = memory.get("form_inventory") as Record<string, unknown> | undefined;
   const classify = memory.get("classify") as Record<string, unknown> | undefined;
 
   const base = {
@@ -37,6 +38,7 @@ export function assembleDocument(
     exclusions: (exclusions as any)?.exclusions,
     conditions: (conditions as any)?.conditions,
     sections: (sections as any)?.sections,
+    formInventory: (formInventory as any)?.forms,
     declarations: declarations ? sanitizeNulls(declarations) : undefined,
     ...sanitizeNulls(lossHistory ?? {}),
   };

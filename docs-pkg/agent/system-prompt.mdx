@@ -1,0 +1,126 @@
+---
+title: Agent System Prompt
+description: Build composable, insurance-aware system prompts for conversational agents
+---
+
+CL SDK provides a modular prompt system for building insurance-aware conversational agents. Prompts are composed from independent modules that adapt to the platform and communication intent.
+
+## Quick start
+
+```typescript
+import { buildAgentSystemPrompt } from "@claritylabs/cl-sdk";
+import type { AgentContext } from "@claritylabs/cl-sdk";
+
+const ctx: AgentContext = {
+  platform: "email",
+  intent: "direct",
+  siteUrl: "https://app.example.com",
+  companyName: "Acme Insurance",
+  userName: "Jane Smith",
+};
+
+const systemPrompt = buildAgentSystemPrompt(ctx);
+// Use with any LLM: pass as the system message
+```
+
+## How it works
+
+`buildAgentSystemPrompt(ctx)` composes all modules in order, filtering out any that return `null`:
+
+```
+Identity          → Who the agent is, company context
+Company context   → Organization-specific information (if provided)
+Intent            → Behavior rules for direct / mediated / observed
+Formatting        → Platform-specific output rules
+Safety            → Scope guardrails, anti-hallucination, prompt injection defense
+Coverage gaps     → Gap detection guidance (null in some intents)
+COI routing       → Certificate of insurance handling
+Quotes/policies   → How to differentiate document types
+Memory            → Cross-conversation continuity guidance
+```
+
+## AgentContext
+
+The context object drives all prompt composition:
+
+```typescript
+interface AgentContext {
+  platform: Platform;           // "email" | "chat" | "sms" | "slack" | "discord"
+  intent: CommunicationIntent;  // "direct" | "mediated" | "observed"
+  platformConfig?: PlatformConfig;
+  companyName?: string;
+  companyContext?: string;       // Organization-specific context string
+  siteUrl: string;
+  userName?: string;
+  coiHandling?: "broker" | "user" | "member" | "ignore";
+  brokerName?: string;
+  brokerContactName?: string;
+  brokerContactEmail?: string;
+  agentName?: string;           // Display name (defaults to "CL-0 Agent")
+  linkGuidance?: string;        // Custom link formatting guidance
+}
+```
+
+## Individual modules
+
+Each module is independently importable for custom prompt composition:
+
+```typescript
+import {
+  buildIdentityPrompt,
+  buildSafetyPrompt,
+  buildFormattingPrompt,
+  buildCoverageGapPrompt,
+  buildCoiRoutingPrompt,
+  buildQuotesPoliciesPrompt,
+  buildConversationMemoryGuidance,
+  buildIntentPrompt,
+} from "@claritylabs/cl-sdk";
+```
+
+### Custom composition
+
+Build your own prompt from a subset of modules:
+
+```typescript
+const customPrompt = [
+  buildIdentityPrompt(ctx),
+  buildSafetyPrompt(ctx),
+  buildFormattingPrompt(ctx),
+  // Skip coverage gaps, COI routing, etc.
+].filter(Boolean).join("\n\n");
+```
+
+## Document context
+
+Build ranked document context for agent responses:
+
+```typescript
+import { buildDocumentContext } from "@claritylabs/cl-sdk";
+
+const { context, relevantPolicyIds, relevantQuoteIds } =
+  buildDocumentContext(policies, quotes, "What's my GL limit?");
+// Returns policies/quotes ranked by relevance to the query
+```
+
+## Conversation memory
+
+Add conversation history context:
+
+```typescript
+import { buildConversationMemoryContext } from "@claritylabs/cl-sdk";
+
+const memoryContext = buildConversationMemoryContext(previousConversations);
+```
+
+## Intent classification
+
+Classify incoming messages before routing to the agent:
+
+```typescript
+import { buildClassifyMessagePrompt } from "@claritylabs/cl-sdk";
+
+const classificationPrompt = buildClassifyMessagePrompt("email");
+// Returns a prompt that classifies whether a message is insurance-related
+// and suggests an intent
+```

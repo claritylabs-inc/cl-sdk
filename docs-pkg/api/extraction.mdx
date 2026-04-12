@@ -1,0 +1,267 @@
+---
+title: Extraction API
+description: Complete reference for the agentic extraction pipeline
+---
+
+import { Callout } from "@/components/ui/callout";
+
+## Pipeline functions
+
+### `createExtractor(config)`
+
+Create an extraction pipeline instance. Returns an object with a single `extract` method that processes a PDF and returns structured insurance data.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `config` | `ExtractorConfig` | Pipeline configuration (required) |
+
+**Returns:** `{ extract(pdfBase64: string, documentId?: string): Promise<ExtractionResult> }`
+
+```typescript
+import { createExtractor } from "@claritylabs/cl-sdk";
+
+const extractor = createExtractor({
+  generateText: myGenerateText,
+  generateObject: myGenerateObject,
+  onProgress: (msg) => console.log(msg),
+  onTokenUsage: (usage) => console.log(`Tokens: ${usage.inputTokens} in, ${usage.outputTokens} out`),
+});
+
+const { document, chunks, tokenUsage, usageReporting } = await extractor.extract(pdfBase64);
+```
+
+The pipeline runs eight phases automatically:
+
+1. **Classify** -- detect document type (policy/quote) and identify policy types, using the full PDF from `providerOptions.pdfBase64`
+2. **Page map** -- map each page to focused extractors using page-scoped PDFs
+3. **Plan** -- build deterministic extraction tasks from the page map and template hints
+4. **Extract** -- dispatch focused extractors in parallel (concurrency-limited), with each worker receiving a page-scoped PDF from `extractPageRange()` via `providerOptions.pdfBase64` or `providerOptions.images`
+5. **Review** -- check completeness and quality against template requirements, dispatch additional extractors for gaps (up to `maxReviewRounds`)
+6. **Assemble** -- merge all extractor results into an `InsuranceDocument`
+7. **Format** -- clean up markdown formatting in content fields (pipe tables, space-aligned tables, sub-items, whitespace)
+8. **Chunk** -- break the formatted document into `DocumentChunk[]` for vector storage
+
+<Callout type="info">
+  The `extract` method accepts an optional `documentId`. If omitted, a timestamped ID is generated automatically.
+</Callout>
+
+---
+
+### `chunkDocument(doc)`
+
+Convert an `InsuranceDocument` into an array of `DocumentChunk` objects suitable for vector storage and retrieval.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `doc` | `InsuranceDocument` | The extracted document |
+
+**Returns:** `DocumentChunk[]`
+
+```typescript
+import { chunkDocument } from "@claritylabs/cl-sdk";
+
+const chunks = chunkDocument(document);
+// Each chunk has: id, documentId, type, text, metadata
+```
+
+Chunk types include: `carrier_info`, `named_insured`, `coverage`, `endorsement`, `exclusion`, `condition`, `section`, `declaration`, `loss_history`, `premium`, `supplementary`.
+
+---
+
+## Advanced -- Extractor definitions
+
+These are low-level APIs for consumers who want to inspect or customize the extraction prompts.
+
+### `getExtractor(name)`
+
+Look up a focused extractor definition by name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | `string` | Extractor name (e.g. `"declarations"`, `"coverage-limits"`, `"endorsements"`) |
+
+**Returns:** `ExtractorDef | undefined`
+
+```typescript
+import { getExtractor } from "@claritylabs/cl-sdk";
+
+const ext = getExtractor("coverage-limits");
+if (ext) {
+  const prompt = ext.buildPrompt();
+  // ext.schema is the Zod schema for the extractor's output
+}
+```
+
+Available extractors: `declarations`, `coverage-limits`, `conditions`, `endorsements`, `exclusions`, `loss-history`, `named-insured`, `premium-breakdown`, `sections`, `supplementary`, `carrier-info`.
+
+---
+
+### `getTemplate(policyType)`
+
+Get the line-of-business template for a given policy type. Templates define what sections the extraction pipeline expects and where to find them.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `policyType` | `string` | A `PolicyType` value (e.g. `"commercial_auto"`, `"workers_comp"`, `"cyber"`) |
+
+**Returns:** `DocumentTemplate`
+
+```typescript
+import { getTemplate } from "@claritylabs/cl-sdk";
+
+const template = getTemplate("workers_comp");
+// template.expectedSections: ["declarations", "coverage", "endorsements", ...]
+// template.required: ["declarations", "coverage"]
+// template.pageHints: { declarations: "Usually pages 1-3", ... }
+```
+
+---
+
+## Configuration types
+
+### `ExtractorConfig`
+
+```typescript
+interface ExtractorConfig {
+  /** Provider callback for text generation */
+  generateText: GenerateText;
+  /** Provider callback for structured output with Zod schemas */
+  generateObject: GenerateObject;
+  /** Optional PDF-to-images converter. When provided, pages are sent as images instead of native PDF */
+  convertPdfToImages?: ConvertPdfToImagesFn;
+  /** Maximum parallel extractor dispatch (default: 2) */
+  concurrency?: number;
+  /** Maximum review/re-extraction rounds (default: 2) */
+  maxReviewRounds?: number;
+  /** Called after each model call with token counts */
+  onTokenUsage?: (usage: TokenUsage) => void;
+  /** Called with human-readable progress messages during extraction */
+  onProgress?: (message: string) => void;
+  /** Optional async logger */
+  log?: LogFn;
+  /** Pass-through provider options forwarded to every model call.
+   *  For extraction, this is also where the coordinator/worker pipeline passes PDF or image content to your callback.
+   */
+  providerOptions?: Record<string, unknown>;
+}
+```
+
+### `ExtractionResult`
+
+```typescript
+interface ExtractionResult {
+  /** The fully assembled insurance document */
+  document: InsuranceDocument;
+  /** Pre-computed chunks ready for vector storage */
+  chunks: DocumentChunk[];
+  /** Aggregate token usage across all model calls */
+  tokenUsage: TokenUsage;
+  /** Whether provider callbacks actually returned usage for each model call */
+  usageReporting: {
+    modelCalls: number;
+    callsWithUsage: number;
+    callsMissingUsage: number;
+  };
+}
+```
+
+### `ExtractorDef`
+
+```typescript
+interface ExtractorDef {
+  /** Build the extraction prompt for this domain */
+  buildPrompt(): string;
+  /** Zod schema for validating the extractor's output */
+  schema: ZodSchema;
+  /** Optional max tokens override for this extractor */
+  maxTokens?: number;
+}
+```
+
+### `DocumentTemplate`
+
+```typescript
+interface DocumentTemplate {
+  /** Sections the pipeline expects to extract */
+  expectedSections: string[];
+  /** Hints about where sections typically appear in the PDF */
+  pageHints: Record<string, string>;
+  /** Sections that must be present for a complete extraction */
+  required: string[];
+  /** Sections that are extracted if found but not required */
+  optional: string[];
+}
+```
+
+### `TokenUsage`
+
+```typescript
+interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+```
+
+### `LogFn`
+
+```typescript
+type LogFn = (message: string) => Promise<void>;
+```
+
+---
+
+## Schema utilities
+
+### `toStrictSchema(schema)`
+
+Transform a Zod schema for strict structured output compatibility. Recursively converts `.optional()` properties to `.nullable()` so all properties appear in the JSON Schema `required` array.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `schema` | `ZodTypeAny` | Any Zod schema |
+
+**Returns:** `ZodTypeAny` — the transformed schema
+
+```typescript
+import { toStrictSchema } from "@claritylabs/cl-sdk";
+
+const strict = toStrictSchema(z.object({
+  name: z.string(),
+  age: z.number().optional(), // becomes z.number().nullable()
+}));
+```
+
+<Callout type="info">
+  You don't need to call this yourself — the pipeline applies it automatically before every `generateObject` call. It's exported for consumers building custom pipelines.
+</Callout>
+
+---
+
+### `safeGenerateObject(generateObject, params, options?)`
+
+Wraps a `generateObject` call with schema strictification, retry on transient errors, and optional fallback values.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `generateObject` | `GenerateObject<T>` | Your provider callback |
+| `params` | `{ prompt, schema, maxTokens, ... }` | Same params as `generateObject` |
+| `options.fallback` | `T` | Return this value if all retries fail (optional) |
+| `options.maxRetries` | `number` | Schema validation retries, default 1 |
+| `options.log` | `LogFn` | Logger for retry status messages |
+
+**Returns:** `Promise<{ object: T; usage?: TokenUsage }>`
+
+If you use `safeGenerateObject()` in your own extraction flow, make sure you continue to pass through `providerOptions.pdfBase64` or `providerOptions.images` to your provider callback.
+
+```typescript
+import { safeGenerateObject } from "@claritylabs/cl-sdk";
+
+const { object } = await safeGenerateObject(
+  myGenerateObject,
+  { prompt: "...", schema: MySchema, maxTokens: 1024 },
+  {
+    fallback: { status: "unknown" },
+    maxRetries: 2,
+  },
+);
+```

@@ -1,0 +1,225 @@
+---
+title: Application API
+description: Complete reference for the application processing pipeline and prompt builders
+---
+
+## Pipeline
+
+### `createApplicationPipeline(config)`
+
+Create an application processing pipeline with persistent state, parallel auto-fill, and vector-based backfill.
+
+```typescript
+import { createApplicationPipeline } from "@claritylabs/cl-sdk";
+
+const pipeline = createApplicationPipeline({
+  generateText, generateObject,
+  applicationStore, documentStore, memoryStore,
+  orgContext: [{ key: "company_name", value: "Acme", category: "company_info" }],
+  concurrency: 4,
+});
+```
+
+**Returns:** `{ processApplication, processReply, generateCurrentBatchEmail, getConfirmationSummary }`
+
+### `pipeline.processApplication(input)`
+
+Process a new PDF: classify → extract → backfill + auto-fill → batch.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `input.pdfBase64` | `string` | Base64-encoded application PDF |
+| `input.applicationId` | `string?` | Application ID |
+| `input.context` | `AgentContext?` | Platform context |
+
+**Returns:** `Promise<{ state: ApplicationState; tokenUsage: TokenUsage }>`
+
+### `pipeline.processReply(input)`
+
+Process a user reply: classify intent → parse answers / handle lookups / explain fields → advance batch.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `input.applicationId` | `string` | Application ID |
+| `input.replyText` | `string` | User's reply |
+| `input.context` | `AgentContext?` | Platform context |
+
+**Returns:** `Promise<{ state, intent, fieldsFilled, responseText?, tokenUsage }>`
+
+### `pipeline.generateCurrentBatchEmail(applicationId, opts?)`
+
+Generate the email for the current question batch. **Returns:** `Promise<{ text, tokenUsage }>`
+
+### `pipeline.getConfirmationSummary(applicationId)`
+
+Generate a formatted summary for user review. **Returns:** `Promise<{ text, tokenUsage }>`
+
+---
+
+## Prompt builders (advanced)
+
+All application processing functions are also exported as prompt builders — they return prompt strings for use with any LLM.
+
+## Detection
+
+### `APPLICATION_CLASSIFY_PROMPT`
+
+A static prompt string for classifying whether a PDF is an insurance application form.
+
+```typescript
+import { APPLICATION_CLASSIFY_PROMPT } from "@claritylabs/cl-sdk";
+```
+
+**Expected response schema:**
+
+```json
+{
+  "isApplication": boolean,
+  "confidence": number,
+  "applicationType": string | null
+}
+```
+
+## Field extraction
+
+### `buildFieldExtractionPrompt()`
+
+Build a prompt to extract all fillable fields from an application PDF as structured data.
+
+**Returns:** `string`
+
+**Field types:** `text`, `numeric`, `currency`, `date`, `yes_no`, `table`, `declaration`
+
+## Auto-fill
+
+### `buildAutoFillPrompt(fields, orgContext)`
+
+Build a prompt to match extracted fields against known business context for auto-filling.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `fields` | `{ id, label, fieldType, section }[]` | Extracted application fields |
+| `orgContext` | `{ key, value, category }[]` | Organization context key-value pairs |
+
+**Returns:** `string`
+
+## Question batching
+
+### `buildQuestionBatchPrompt(unfilledFields)`
+
+Build a prompt to organize unfilled fields into topic-based batches for user interaction.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `unfilledFields` | `{ id, label?, text?, fieldType, section, required, condition? }[]` | Fields needing user input |
+
+**Returns:** `string`
+
+## Answer parsing
+
+### `buildAnswerParsingPrompt(questions, emailBody)`
+
+Build a prompt to parse free-text user replies into structured field values.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `questions` | `{ id, label?, text?, fieldType }[]` | Questions that were asked |
+| `emailBody` | `string` | The user's reply text |
+
+**Returns:** `string`
+
+## Email generation
+
+### `buildBatchEmailGenerationPrompt(batchFields, batchIndex, totalBatches, appTitle, totalFieldCount, filledFieldCount, previousBatchSummary?, companyName?)`
+
+Build a prompt to generate an email asking users for missing application information.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `batchFields` | `{ id, label, fieldType, options?, condition? }[]` | Fields in this batch |
+| `batchIndex` | `number` | Current batch number |
+| `totalBatches` | `number` | Total number of batches |
+| `appTitle` | `string \| undefined` | Application title |
+| `totalFieldCount` | `number` | Total fields across all batches |
+| `filledFieldCount` | `number` | Fields already filled |
+| `previousBatchSummary` | `string` | Summary of previous batch (optional) |
+| `companyName` | `string` | Company name for personalization (optional) |
+
+**Returns:** `string`
+
+## Reply classification
+
+### `buildReplyIntentClassificationPrompt(questions, emailBody)`
+
+Build a prompt to classify user reply intent (answering questions, asking for help, etc.).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `questions` | `{ id, label }[]` | Questions from the current batch |
+| `emailBody` | `string` | The user's reply text |
+
+**Returns:** `string`
+
+## Field explanation
+
+### `buildFieldExplanationPrompt(field, question, policyContext?)`
+
+Build a prompt to generate a human-readable explanation of a complex insurance form field.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `field` | `{ id, label, fieldType, options? }` | The field to explain |
+| `question` | `string` | The user's question about the field |
+| `policyContext` | `string` | Optional policy context for more specific explanations |
+
+**Returns:** `string`
+
+## Confirmation
+
+### `buildConfirmationSummaryPrompt(fields, applicationTitle)`
+
+Build a prompt to generate a summary of all filled fields for user review before PDF generation.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `fields` | `{ id, label?, text?, section, fieldType, value? }[]` | All application fields |
+| `applicationTitle` | `string` | Title of the application |
+
+**Returns:** `string`
+
+## PDF mapping
+
+### `buildAcroFormMappingPrompt(extractedFields, acroFormFields)`
+
+Build a prompt to map filled field values to AcroForm field names in a fillable PDF.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `extractedFields` | `{ id, label, value? }[]` | Extracted and filled fields |
+| `acroFormFields` | `{ name, type, options? }[]` | AcroForm fields from the PDF |
+
+**Returns:** `string`
+
+### `buildFlatPdfMappingPrompt(extractedFields)`
+
+Build a prompt to map filled field values to percentage-based page coordinates for flat PDF overlay.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `extractedFields` | `{ id, label, value, fieldType }[]` | Extracted and filled fields |
+
+**Returns:** `string`
+
+## Lookup fill
+
+### `buildLookupFillPrompt(requests, targetFields, availableData)`
+
+Build a prompt to fill fields by looking up values from existing insurance documents or data sources.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `requests` | `{ type, description, targetFieldIds }[]` | Lookup requests |
+| `targetFields` | `{ id, label, fieldType }[]` | Target fields to fill |
+| `availableData` | `string` | Available data to search through |
+
+**Returns:** `string`

@@ -52,7 +52,7 @@ For EACH condition, extract:
 - conditionType: classify as one of: duties_after_loss, notice_requirements, other_insurance, cancellation, nonrenewal, transfer_of_rights, liberalization, arbitration, concealment_fraud, examination_under_oath, legal_action, loss_payment, appraisal, mortgage_holders, policy_territory, separation_of_insureds, other — REQUIRED
 - content: full verbatim condition text — REQUIRED
 - keyValues: extract specific values as key-value pairs (e.g. noticePeriod: "30 days", suitDeadline: "2 years")
-- pageNumber: page number where the condition appears
+- pageNumber: original document page number where the substantive condition text appears
 
 Focus on:
 - Duties after loss / notice of occurrence conditions
@@ -68,6 +68,11 @@ Focus on:
 - Loss payment conditions
 - Mortgage holders clause
 - Any other named conditions
+
+Critical rules:
+- Ignore table-of-contents entries, section indexes, running headers/footers, and page references such as "Appraisal ..... 19".
+- Do not emit a condition unless the page contains substantive condition text, not just a heading or reference.
+- If a condition continues from a prior page, keep the substantive text together and use the page where the condition text appears in this extracted chunk.
 
 Return JSON only.`;
 }

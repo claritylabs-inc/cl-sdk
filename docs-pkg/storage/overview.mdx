@@ -1,0 +1,148 @@
+---
+title: Storage Interfaces
+description: "DocumentStore, MemoryStore, and ApplicationStore — the persistence layer for CL SDK"
+---
+
+import { Callout } from "@/components/ui/callout";
+
+CL SDK defines four storage interfaces that power the query agent, application processing, and extraction pipelines. All interfaces are provider-agnostic — you implement them against your own database.
+
+## DocumentStore
+
+CRUD for `InsuranceDocument` objects produced by the extraction pipeline.
+
+```typescript
+interface DocumentStore {
+  save(doc: InsuranceDocument): Promise<void>;
+  get(id: string): Promise<InsuranceDocument | null>;
+  query(filters: DocumentFilters): Promise<InsuranceDocument[]>;
+  delete(id: string): Promise<void>;
+}
+```
+
+The `query` method accepts optional filters to narrow results:
+
+```typescript
+interface DocumentFilters {
+  type?: "policy" | "quote";
+  carrier?: string;
+  insuredName?: string;
+  policyNumber?: string;
+  quoteNumber?: string;
+}
+```
+
+## MemoryStore
+
+Vector search over document chunks and conversation history. This is the primary retrieval layer for the query agent.
+
+```typescript
+interface MemoryStore {
+  addChunks(chunks: DocumentChunk[]): Promise<void>;
+  search(query: string, options?: { limit?: number; filter?: ChunkFilter }): Promise<DocumentChunk[]>;
+  addTurn(turn: ConversationTurn): Promise<void>;
+  getHistory(conversationId: string, options?: { limit?: number }): Promise<ConversationTurn[]>;
+  searchHistory(query: string, conversationId?: string): Promise<ConversationTurn[]>;
+}
+```
+
+Chunk searches can be narrowed with a `ChunkFilter`:
+
+```typescript
+interface ChunkFilter {
+  documentId?: string;
+  type?: DocumentChunk["type"];
+  metadata?: Record<string, string>;
+}
+```
+
+`search` performs semantic (vector) search over chunk text. Your implementation is responsible for embedding the query and computing similarity — the SDK never imports an embedding provider directly.
+
+## ApplicationStore
+
+Persistent state for the application processing pipeline. Each application moves through statuses (`classifying`, `extracting`, `filling`, `collecting`, `confirming`, `mapped`) and the store persists the current state between user interactions.
+
+```typescript
+interface ApplicationStore {
+  save(state: ApplicationState): Promise<void>;
+  get(id: string): Promise<ApplicationState | null>;
+  list(filters?: ApplicationListFilters): Promise<ApplicationState[]>;
+  delete(id: string): Promise<void>;
+}
+
+interface ApplicationListFilters {
+  status?: ApplicationState["status"];
+  title?: string; // fuzzy match
+}
+```
+
+## BackfillProvider
+
+Vector-based answer reuse for application processing. When a new application is processed, the backfill provider searches previously answered fields to pre-fill matching questions.
+
+```typescript
+interface BackfillProvider {
+  searchPriorAnswers(
+    fields: { id: string; label: string; section: string; fieldType: string }[],
+    options?: { limit?: number },
+  ): Promise<PriorAnswer[]>;
+}
+
+interface PriorAnswer {
+  fieldId: string;
+  value: string;
+  source: string;
+  relevance: number;
+}
+```
+
+The provider uses vector similarity over field labels and section context to find answers from prior applications, extracted policies, and business context.
+
+## How the interfaces connect
+
+The four interfaces form a data flow through the SDK's pipelines:
+
+1. **Extraction** produces an `InsuranceDocument` and `DocumentChunk[]` — save the document to `DocumentStore` and add chunks to `MemoryStore`
+2. **Query agent** reads from both stores — `DocumentStore` for structured document lookups, `MemoryStore` for semantic chunk retrieval and conversation history
+3. **Application pipeline** uses `ApplicationStore` for persistent state across the multi-step processing flow, and `BackfillProvider` to pre-fill fields from prior answers
+4. **Conversation turns** stored in `MemoryStore` enable cross-conversation memory — the query agent can reference earlier interactions
+
+```
+Extraction Pipeline
+    ├─► InsuranceDocument ──► DocumentStore
+    └─► DocumentChunk[]   ──► MemoryStore
+                                  │
+Query Agent ◄─────────────────────┤
+    │                             │
+    └─► ConversationTurn ─────────┘
+
+Application Pipeline
+    ├─► ApplicationState ──► ApplicationStore
+    └─► BackfillProvider (reads prior answers)
+```
+
+## SQLite reference implementation
+
+CL SDK ships a reference SQLite implementation of `DocumentStore` and `MemoryStore` using `better-sqlite3`:
+
+```typescript
+import { createSqliteStore } from "@claritylabs/cl-sdk";
+
+const store = createSqliteStore({
+  path: "./data/store.db",
+  embed: async (text) => {
+    // Your embedding function — returns number[]
+    return await myEmbeddingProvider.embed(text);
+  },
+});
+
+// store.documents: DocumentStore
+// store.memory: MemoryStore
+// store.close(): void
+```
+
+<Callout type="info">
+  The SQLite implementation is a reference for development and testing. For production use, implement the interfaces against your own database (Postgres with pgvector, Pinecone, Convex, etc.).
+</Callout>
+
+The `embed` callback follows the same provider-agnostic pattern as the rest of CL SDK — you wrap your preferred embedding provider (OpenAI, Anthropic, Cohere, etc.) into a plain function `(text: string) => Promise<number[]>`.

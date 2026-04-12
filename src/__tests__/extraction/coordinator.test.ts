@@ -50,6 +50,9 @@ describe("createExtractor", () => {
         object: { documentType: "policy", policyTypes: ["general_liability"], confidence: 0.95 },
       })
       .mockResolvedValueOnce({
+        object: { forms: [] },
+      })
+      .mockResolvedValueOnce({
         object: {
           pages: [
             { localPageNumber: 1, extractorNames: ["carrier_info", "named_insured", "declarations", "coverage_limits"] },
@@ -96,7 +99,7 @@ describe("createExtractor", () => {
       providerOptions: { anthropic: { thinking: true } },
     });
 
-    await extractor.extract("full-pdf-base64", "doc-1");
+    const result = await extractor.extract("full-pdf-base64", "doc-1");
 
     expect(safeGenerateObject).toHaveBeenNthCalledWith(
       1,
@@ -118,7 +121,7 @@ describe("createExtractor", () => {
         maxTokens: 2048,
         providerOptions: {
           anthropic: { thinking: true },
-          pdfBase64: "mapped-pages-pdf-base64",
+          pdfBase64: "full-pdf-base64",
         },
       }),
       expect.any(Object),
@@ -126,6 +129,19 @@ describe("createExtractor", () => {
 
     expect(safeGenerateObject).toHaveBeenNthCalledWith(
       3,
+      generateObject,
+      expect.objectContaining({
+        maxTokens: 2048,
+        providerOptions: {
+          anthropic: { thinking: true },
+          pdfBase64: "mapped-pages-pdf-base64",
+        },
+      }),
+      expect.any(Object),
+    );
+
+    expect(safeGenerateObject).toHaveBeenNthCalledWith(
+      4,
       generateObject,
       expect.objectContaining({
         maxTokens: 1536,
@@ -143,6 +159,13 @@ describe("createExtractor", () => {
         providerOptions: { anthropic: { thinking: true } },
       }),
     );
+    expect(result.reviewReport).toEqual(expect.objectContaining({
+      qualityGateStatus: expect.stringMatching(/passed|warning|failed/),
+      rounds: expect.any(Array),
+      artifacts: expect.any(Array),
+      issues: expect.any(Array),
+      formInventory: expect.any(Array),
+    }));
   });
 
   it("accepts all optional config fields", () => {
@@ -158,5 +181,129 @@ describe("createExtractor", () => {
       providerOptions: { anthropic: {} },
     });
     expect(typeof extractor.extract).toBe("function");
+  });
+
+  it("drops coverage_limits from generic form-language page assignments before planning", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValueOnce({
+        object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
+      })
+      .mockResolvedValueOnce({
+        object: { forms: [] },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          pages: [
+            {
+              localPageNumber: 1,
+              extractorNames: ["carrier_info", "named_insured", "declarations", "coverage_limits"],
+              pageRole: "declarations_schedule",
+              hasScheduleValues: true,
+            },
+            {
+              localPageNumber: 2,
+              extractorNames: ["conditions", "coverage_limits", "sections"],
+              pageRole: "condition_exclusion_form",
+              hasScheduleValues: false,
+              notes: "Generic form text describing how the declarations limit applies",
+            },
+            {
+              localPageNumber: 3,
+              extractorNames: ["endorsements", "coverage_limits", "sections"],
+              pageRole: "endorsement_form",
+              hasScheduleValues: false,
+              notes: "Endorsement text that references limits shown in the declarations",
+            },
+            { localPageNumber: 4, extractorNames: ["sections"], pageRole: "policy_form", hasScheduleValues: false },
+            { localPageNumber: 5, extractorNames: ["sections"], pageRole: "policy_form", hasScheduleValues: false },
+            { localPageNumber: 6, extractorNames: ["sections"], pageRole: "policy_form", hasScheduleValues: false },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        object: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
+      });
+
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+    });
+
+    await extractor.extract("full-pdf-base64", "doc-1");
+
+    const coverageCalls = runExtractor.mock.calls
+      .map(([arg]) => arg)
+      .filter((arg) => arg.name === "coverage_limits");
+
+    expect(coverageCalls).toHaveLength(1);
+    expect(coverageCalls[0]).toEqual(expect.objectContaining({
+      startPage: 1,
+      endPage: 1,
+    }));
+  });
+
+  it("fails before assembly when strict quality gate finds blocking issues", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValueOnce({
+        object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
+      })
+      .mockResolvedValueOnce({
+        object: { forms: [] },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          pages: [
+            {
+              localPageNumber: 1,
+              extractorNames: ["coverage_limits"],
+              pageRole: "declarations_schedule",
+              hasScheduleValues: true,
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        object: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
+      });
+
+    runExtractor.mockImplementation(async ({ name }: { name: string }) => {
+      if (name === "coverage_limits") {
+        return {
+          name,
+          data: {
+            coverages: [
+              {
+                name: "Commercial Property Coverage Form",
+                limit: "",
+                formNumber: "PR5070CF",
+                pageNumber: 1,
+                sectionRef: "Scheduled Coverages",
+                originalContent: "Commercial Property Coverage Form | PR5070CF",
+              },
+            ],
+          },
+          usage: { inputTokens: 20, outputTokens: 10 },
+        };
+      }
+
+      return {
+        name,
+        data: {},
+        usage: { inputTokens: 20, outputTokens: 10 },
+      };
+    });
+
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+      qualityGate: "strict",
+    });
+
+    await expect(extractor.extract("full-pdf-base64", "doc-1")).rejects.toThrow(
+      "Extraction quality gate failed",
+    );
+    expect(assembleDocument).not.toHaveBeenCalled();
   });
 });

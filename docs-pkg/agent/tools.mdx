@@ -1,0 +1,118 @@
+---
+title: Tool Definitions
+description: Schema-only tool definitions for agent function calling
+---
+
+CL SDK exports Claude `tool_use`-compatible tool schemas for common insurance agent operations. These are **schema-only** — CL SDK provides the definitions, and consumers implement the execution logic.
+
+## Available tools
+
+### Document Lookup
+
+Search and retrieve insurance documents by ID, policy number, carrier, or free-text query.
+
+```typescript
+import { DOCUMENT_LOOKUP_TOOL } from "@claritylabs/cl-sdk";
+```
+
+**Input schema:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | `string` | No | Exact document ID |
+| `query` | `string` | No | Free-text search query |
+| `documentType` | `"policy" \| "quote"` | No | Filter by document type |
+
+### COI Generation
+
+Request generation of a Certificate of Insurance for a specific policy.
+
+```typescript
+import { COI_GENERATION_TOOL } from "@claritylabs/cl-sdk";
+```
+
+**Input schema:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `policyId` | `string` | Yes | Policy ID to generate COI for |
+| `holderName` | `string` | Yes | Certificate holder name |
+| `holderAddress` | `string` | No | Certificate holder address |
+| `additionalInsured` | `boolean` | No | Add holder as additional insured |
+
+### Coverage Comparison
+
+Compare coverages across two or more insurance documents.
+
+```typescript
+import { COVERAGE_COMPARISON_TOOL } from "@claritylabs/cl-sdk";
+```
+
+**Input schema:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `documentIds` | `string[]` | Yes | Document IDs to compare |
+| `coverageTypes` | `string[]` | No | Filter to specific coverage types |
+
+## Using all tools
+
+Import all tools as an array:
+
+```typescript
+import { AGENT_TOOLS } from "@claritylabs/cl-sdk";
+
+// AGENT_TOOLS = [DOCUMENT_LOOKUP_TOOL, COI_GENERATION_TOOL, COVERAGE_COMPARISON_TOOL]
+```
+
+## Integration example
+
+```typescript
+import { AGENT_TOOLS, buildAgentSystemPrompt } from "@claritylabs/cl-sdk";
+import { generateText } from "ai";
+
+const systemPrompt = buildAgentSystemPrompt(ctx);
+
+const { text, toolCalls } = await generateText({
+  model: yourModel,
+  system: systemPrompt,
+  tools: Object.fromEntries(
+    AGENT_TOOLS.map(tool => [tool.name, {
+      description: tool.description,
+      parameters: tool.input_schema,
+    }])
+  ),
+  messages: conversationHistory,
+});
+
+// Handle tool calls with your own implementations
+for (const call of toolCalls) {
+  switch (call.toolName) {
+    case "document_lookup":
+      // Query your database
+      break;
+    case "coi_generation":
+      // Generate COI PDF
+      break;
+    case "coverage_comparison":
+      // Build comparison table
+      break;
+  }
+}
+```
+
+## ToolDefinition type
+
+```typescript
+import type { ToolDefinition } from "@claritylabs/cl-sdk";
+
+interface ToolDefinition {
+  name: string;
+  description: string;
+  input_schema: {
+    type: "object";
+    properties: Record<string, unknown>;
+    required?: string[];
+  };
+}
+```

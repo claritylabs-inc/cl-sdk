@@ -1,0 +1,117 @@
+---
+title: PDF Operations
+description: Page utilities, AcroForm filling, and text overlay for PDFs
+---
+
+CL SDK provides PDF page utilities plus two modes for writing data onto PDFs using `pdf-lib`: **AcroForm filling** for fillable PDFs and **text overlay** for flat/scanned PDFs.
+
+## Page utilities
+
+Extract page ranges or get page counts without full parsing — useful for reducing token usage.
+
+```typescript
+import { extractPageRange, getPdfPageCount } from "@claritylabs/cl-sdk";
+
+// Get page count
+const totalPages = await getPdfPageCount(pdfBase64);
+
+// Extract only the declarations pages (pages 1-5) for classification
+const declsOnly = await extractPageRange(pdfBase64, 1, 5);
+
+// Returns the original if the range covers all pages
+const same = await extractPageRange(pdfBase64, 1, totalPages);
+```
+
+## AcroForm fields
+
+### Detect fields
+
+Enumerate all fillable form fields in a PDF:
+
+```typescript
+import { PDFDocument } from "pdf-lib";
+import { getAcroFormFields } from "@claritylabs/cl-sdk";
+
+const pdfDoc = await PDFDocument.load(pdfBytes);
+const fields = getAcroFormFields(pdfDoc);
+
+// [
+//   { name: "insured_name", type: "text" },
+//   { name: "agree_terms", type: "checkbox" },
+//   { name: "state", type: "dropdown", options: ["CA", "NY", "TX"] },
+// ]
+```
+
+Returns an empty array if the PDF has no AcroForm.
+
+**Field types:** `text`, `checkbox`, `dropdown`, `radio`
+
+### Fill and flatten
+
+Fill AcroForm fields by name and flatten the form (makes fields non-editable):
+
+```typescript
+import { fillAcroForm, type FieldMapping } from "@claritylabs/cl-sdk";
+
+const mappings: FieldMapping[] = [
+  { acroFormName: "insured_name", value: "Acme Corp" },
+  { acroFormName: "effective_date", value: "01/01/2025" },
+  { acroFormName: "agree_terms", value: "yes" },  // checks the checkbox
+  { acroFormName: "state", value: "CA" },          // selects dropdown option
+];
+
+const filledPdfBytes = await fillAcroForm(pdfBytes, mappings);
+```
+
+**Checkbox values:** `"yes"`, `"true"`, `"x"`, `"checked"`, `"on"` check the box. Anything else unchecks it.
+
+Fields not found in the PDF or values not in dropdown/radio options are silently skipped.
+
+## Text overlay
+
+For flat or scanned PDFs without form fields, overlay text at specific coordinates:
+
+```typescript
+import { overlayTextOnPdf, type TextOverlay } from "@claritylabs/cl-sdk";
+
+const overlays: TextOverlay[] = [
+  {
+    page: 0,          // 0-indexed page number
+    x: 25.5,          // percentage from left edge (0-100)
+    y: 15.2,          // percentage from top edge (0-100)
+    text: "Acme Corp",
+    fontSize: 10,
+  },
+  {
+    page: 0,
+    x: 60,
+    y: 30,
+    text: "",
+    isCheckmark: true,  // Draws an "X" instead of text
+    fontSize: 12,
+  },
+];
+
+const overlaidPdfBytes = await overlayTextOnPdf(pdfBytes, overlays);
+```
+
+### Coordinate system
+
+- **`x`** — percentage from the left edge (0 = left, 100 = right)
+- **`y`** — percentage from the top edge (0 = top, 100 = bottom)
+- Coordinates are converted internally to pdf-lib's bottom-left origin system
+
+### TextOverlay type
+
+```typescript
+interface TextOverlay {
+  page: number;       // 0-indexed page number
+  x: number;          // percentage from left (0-100)
+  y: number;          // percentage from top (0-100)
+  text: string;
+  fontSize?: number;  // default: 10
+  isCheckmark?: boolean;
+}
+```
+
+Overlays for pages that don't exist are silently skipped.

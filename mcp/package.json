@@ -1,0 +1,41 @@
+{
+  "name": "@claritylabs/cl-sdk-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for CL SDK — search and read SDK documentation",
+  "bin": {
+    "cl-sdk-mcp": "./server.ts"
+  },
+  "files": [
+    "server.ts",
+    "docs-bundle.json",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "npx tsx server.ts --http",
+    "build-docs": "npx tsx build-docs.ts",
+    "prepublishOnly": "npx tsx build-docs.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "gray-matter": "^4.0.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.8.0"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/claritylabs-inc/cl-sdk.git",
+    "directory": "mcp"
+  },
+  "homepage": "https://www.npmjs.com/package/@claritylabs/cl-sdk-mcp",
+  "bugs": {
+    "url": "https://github.com/claritylabs-inc/cl-sdk/issues"
+  },
+  "license": "MIT"
+}

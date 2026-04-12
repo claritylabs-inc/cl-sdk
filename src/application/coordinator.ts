@@ -18,6 +18,8 @@ import { classifyReplyIntent } from "./agents/reply-router";
 import { parseAnswers } from "./agents/answer-parser";
 import { fillFromLookup } from "./agents/lookup-filler";
 import { generateBatchEmail } from "./agents/email-generator";
+import { buildApplicationQualityReport, reviewBatchEmail } from "./quality";
+import { shouldFailQualityGate } from "../core/quality";
 
 export function createApplicationPipeline(config: ApplicationPipelineConfig) {
   const {
@@ -33,6 +35,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     onProgress,
     log,
     providerOptions,
+    qualityGate = "warn",
   } = config;
 
   const limit = pLimit(concurrency);
@@ -65,6 +68,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       title: undefined,
       applicationType: null,
       fields: [],
+      qualityReport: undefined,
       batches: undefined,
       currentBatchIndex: 0,
       status: "classifying",
@@ -94,8 +98,9 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     if (!classifyResult.isApplication) {
       state.status = "complete";
       state.updatedAt = Date.now();
+      state.qualityReport = buildApplicationQualityReport(state);
       await applicationStore?.save(state);
-      return { state, tokenUsage: totalUsage };
+      return { state, tokenUsage: totalUsage, reviewReport: state.qualityReport };
     }
 
     state.applicationType = classifyResult.applicationType;
@@ -124,8 +129,9 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       await log?.("No fields extracted, completing pipeline with empty result");
       state.status = "complete";
       state.updatedAt = Date.now();
+      state.qualityReport = buildApplicationQualityReport(state);
       await applicationStore?.save(state);
-      return { state, tokenUsage: totalUsage };
+      return { state, tokenUsage: totalUsage, reviewReport: state.qualityReport };
     }
 
     state.fields = fields;
@@ -246,13 +252,19 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       state.status = "confirming";
     }
 
+    state.qualityReport = buildApplicationQualityReport(state);
+
     state.updatedAt = Date.now();
     await applicationStore?.save(state);
+
+    if (shouldFailQualityGate(qualityGate, state.qualityReport.qualityGateStatus)) {
+      throw new Error("Application quality gate failed. See state.qualityReport for blocking issues.");
+    }
 
     const filledCount = state.fields.filter((f) => f.value).length;
     onProgress?.(`Application processed: ${filledCount}/${state.fields.length} fields filled, ${state.batches?.length ?? 0} batches to collect.`);
 
-    return { state, tokenUsage: totalUsage };
+    return { state, tokenUsage: totalUsage, reviewReport: state.qualityReport };
   }
 
   /**
@@ -427,6 +439,11 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
             providerOptions,
           );
           trackUsage(emailUsage);
+          const emailReview = reviewBatchEmail(emailText, nextBatchFields);
+          state.qualityReport = {
+            ...(buildApplicationQualityReport(state)),
+            emailReview,
+          };
 
           if (!responseText) {
             responseText = emailText;
@@ -443,7 +460,12 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     }
 
     state.updatedAt = Date.now();
+    state.qualityReport = state.qualityReport ?? buildApplicationQualityReport(state);
     await applicationStore?.save(state);
+
+    if (shouldFailQualityGate(qualityGate, state.qualityReport.qualityGateStatus)) {
+      throw new Error("Application quality gate failed. See state.qualityReport for blocking issues.");
+    }
 
     return {
       state,
@@ -451,6 +473,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       fieldsFilled,
       responseText,
       tokenUsage: totalUsage,
+      reviewReport: state.qualityReport,
     };
   }
 
@@ -486,6 +509,13 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       providerOptions,
     );
     trackUsage(usage);
+
+    const emailReview = reviewBatchEmail(text, batchFields);
+    state.qualityReport = {
+      ...(buildApplicationQualityReport(state)),
+      emailReview,
+    };
+    await applicationStore?.save(state);
 
     return { text, tokenUsage: totalUsage };
   }

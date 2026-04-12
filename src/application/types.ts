@@ -1,8 +1,10 @@
 import type { GenerateText, GenerateObject, TokenUsage, LogFn } from "../core/types";
+import type { QualityGateMode } from "../core/quality";
 import type { DocumentStore, MemoryStore } from "../storage/interfaces";
 import type { AgentContext } from "../schemas/platform";
 import type { ApplicationState, ApplicationField } from "../schemas/application";
 import type { ApplicationStore, BackfillProvider } from "./store";
+import type { ApplicationQualityReport } from "./quality";
 
 export interface ApplicationPipelineConfig {
   generateText: GenerateText;
@@ -30,6 +32,7 @@ export interface ApplicationPipelineConfig {
   onProgress?: (message: string) => void;
   log?: LogFn;
   providerOptions?: Record<string, unknown>;
+  qualityGate?: QualityGateMode;
 }
 
 export interface ProcessApplicationInput {
@@ -46,6 +49,7 @@ export interface ProcessApplicationResult {
   state: ApplicationState;
   /** Token usage across all agent calls */
   tokenUsage: TokenUsage;
+  reviewReport: ApplicationQualityReport;
 }
 
 export interface ProcessReplyInput {
@@ -68,6 +72,7 @@ export interface ProcessReplyResult {
   responseText?: string;
   /** Token usage */
   tokenUsage: TokenUsage;
+  reviewReport: ApplicationQualityReport;
 }
 
 export type { ApplicationState, ApplicationField };

@@ -144,6 +144,44 @@ export const AcroFormMappingSchema = z.object({
 });
 export type AcroFormMapping = z.infer<typeof AcroFormMappingSchema>;
 
+// ── Quality Report (shared schema for serialization) ──
+
+const QualityGateStatusSchema = z.enum(["passed", "warning", "failed"]);
+const QualitySeveritySchema = z.enum(["info", "warning", "blocking"]);
+
+export const ApplicationQualityIssueSchema = z.object({
+  code: z.string(),
+  severity: QualitySeveritySchema,
+  message: z.string(),
+  fieldId: z.string().optional(),
+});
+
+export const ApplicationQualityRoundSchema = z.object({
+  round: z.number(),
+  kind: z.string(),
+  status: QualityGateStatusSchema,
+  summary: z.string().optional(),
+});
+
+export const ApplicationQualityArtifactSchema = z.object({
+  kind: z.string(),
+  label: z.string().optional(),
+  itemCount: z.number().optional(),
+});
+
+export const ApplicationEmailReviewSchema = z.object({
+  issues: z.array(ApplicationQualityIssueSchema),
+  qualityGateStatus: QualityGateStatusSchema,
+});
+
+export const ApplicationQualityReportSchema = z.object({
+  issues: z.array(ApplicationQualityIssueSchema),
+  rounds: z.array(ApplicationQualityRoundSchema).optional(),
+  artifacts: z.array(ApplicationQualityArtifactSchema).optional(),
+  emailReview: ApplicationEmailReviewSchema.optional(),
+  qualityGateStatus: QualityGateStatusSchema,
+});
+
 // ── Application State (persistent) ──
 
 export const ApplicationStateSchema = z.object({
@@ -154,6 +192,7 @@ export const ApplicationStateSchema = z.object({
   fields: z.array(ApplicationFieldSchema),
   batches: z.array(z.array(z.string())).optional(),
   currentBatchIndex: z.number().default(0),
+  qualityReport: ApplicationQualityReportSchema.optional(),
   status: z.enum(["classifying", "extracting", "auto_filling", "batching", "collecting", "confirming", "mapping", "complete"]),
   createdAt: z.number(),
   updatedAt: z.number(),

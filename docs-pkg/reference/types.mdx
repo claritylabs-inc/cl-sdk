@@ -1,0 +1,1097 @@
+---
+title: Type Reference
+description: Complete reference for all exported TypeScript types
+---
+
+import { Callout } from "@/components/ui/callout";
+
+## Provider callbacks
+
+The SDK is provider-agnostic. Consumers wrap their preferred provider (Anthropic, OpenAI, etc.) into these plain callback functions. The SDK never imports or depends on any provider package.
+
+### `GenerateText`
+
+```typescript
+type GenerateText = (params: {
+  prompt: string;
+  system?: string;
+  maxTokens: number;
+  providerOptions?: Record<string, unknown>;
+}) => Promise<{ text: string; usage?: TokenUsage }>;
+```
+
+### `GenerateObject<T>`
+
+```typescript
+type GenerateObject<T = unknown> = (params: {
+  prompt: string;
+  system?: string;
+  schema: ZodSchema<T>;
+  maxTokens: number;
+  providerOptions?: Record<string, unknown>;
+}) => Promise<{ object: T; usage?: TokenUsage }>;
+```
+
+In the extraction pipeline, `providerOptions` can include:
+
+- `pdfBase64` — the PDF to attach to the provider request
+- `images` — rendered page images to attach to the provider request
+
+The coordinator uses the full PDF for classify and plan. Worker extractors use a page-scoped PDF produced by `extractPageRange()`, unless `convertPdfToImages` is enabled.
+
+### `EmbedText`
+
+```typescript
+type EmbedText = (text: string) => Promise<number[]>;
+```
+
+### `ConvertPdfToImagesFn`
+
+```typescript
+type ConvertPdfToImagesFn = (
+  pdfBase64: string,
+  startPage: number,
+  endPage: number,
+) => Promise<Array<{ imageBase64: string; mimeType: string }>>;
+```
+
+### `TokenUsage`
+
+```typescript
+interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+```
+
+### `LogFn`
+
+```typescript
+type LogFn = (message: string) => Promise<void>;
+```
+
+## Extraction types
+
+### `ExtractorConfig`
+
+Configuration for `createExtractor()`. See [Extraction API](/docs/api-reference/extraction) for full details.
+
+```typescript
+interface ExtractorConfig {
+  generateText: GenerateText;
+  generateObject: GenerateObject;
+  convertPdfToImages?: ConvertPdfToImagesFn;
+  concurrency?: number;           // Default: 2
+  maxReviewRounds?: number;       // Default: 2
+  onTokenUsage?: (usage: TokenUsage) => void;
+  onProgress?: (message: string) => void;
+  log?: LogFn;
+  providerOptions?: Record<string, unknown>;
+}
+```
+
+### `ExtractionResult`
+
+```typescript
+interface ExtractionResult {
+  document: InsuranceDocument;
+  chunks: DocumentChunk[];
+  tokenUsage: TokenUsage;
+}
+```
+
+## Document types
+
+### `InsuranceDocument`
+
+Discriminated union of `PolicyDocument | QuoteDocument`.
+
+```typescript
+type InsuranceDocument = PolicyDocument | QuoteDocument;
+```
+
+### `BaseDocument`
+
+Shared fields for all insurance documents. Includes both basic extraction fields and enriched structured data.
+
+```typescript
+interface BaseDocument {
+  id: string;
+  type: "policy" | "quote";
+  carrier: string;
+  security?: string;
+  insuredName: string;
+  premium?: string;
+  summary?: string;
+  policyTypes?: string[];
+  coverages: Coverage[];
+  sections?: Section[];
+
+  // Carrier details
+  carrierLegalName?: string;
+  carrierNaicNumber?: string;
+  carrierAmBestRating?: string;
+  carrierAdmittedStatus?: string;
+  mga?: string;
+  underwriter?: string;
+
+  // Broker/producer
+  brokerAgency?: string;
+  brokerContactName?: string;
+  brokerLicenseNumber?: string;
+
+  // Insured details
+  insuredDba?: string;
+  insuredAddress?: Address;
+  insuredEntityType?: EntityType;
+  insuredFein?: string;
+  insuredSicCode?: string;
+  insuredNaicsCode?: string;
+  additionalNamedInsureds?: NamedInsured[];
+
+  // Policy metadata
+  priorPolicyNumber?: string;
+  programName?: string;
+  isRenewal?: boolean;
+  isPackage?: boolean;
+  coverageForm?: CoverageForm;
+  retroactiveDate?: string;
+  extendedReportingPeriod?: ExtendedReportingPeriod;
+
+  // Enriched structured data
+  enrichedCoverages?: EnrichedCoverage[];
+  endorsements?: Endorsement[];
+  exclusions?: Exclusion[];
+  conditions?: PolicyCondition[];
+  limits?: LimitSchedule;
+  deductibles?: DeductibleSchedule;
+
+  // Schedules
+  locations?: InsuredLocation[];
+  vehicles?: InsuredVehicle[];
+  classifications?: ClassificationCode[];
+  formInventory?: FormReference[];
+
+  // Contacts
+  insurer?: InsurerInfo;
+  producer?: ProducerInfo;
+  claimsContacts?: Contact[];
+  regulatoryContacts?: Contact[];
+  thirdPartyAdministrators?: Contact[];
+
+  // Third-party interests
+  additionalInsureds?: EndorsementParty[];
+  lossPayees?: EndorsementParty[];
+  mortgageHolders?: EndorsementParty[];
+
+  // Financial
+  taxesAndFees?: TaxFeeItem[];
+  totalCost?: string;
+  minimumPremium?: string;
+  depositPremium?: string;
+  paymentPlan?: PaymentPlan;
+  auditType?: AuditType;
+  ratingBasis?: RatingBasis[];
+  premiumByLocation?: LocationPremium[];
+
+  // Loss history
+  lossSummary?: LossSummary;
+  individualClaims?: ClaimRecord[];
+  experienceMod?: ExperienceMod;
+
+  // Cancellation
+  cancellationNoticeDays?: number;
+  nonrenewalNoticeDays?: number;
+}
+```
+
+### `PolicyDocument`
+
+```typescript
+interface PolicyDocument extends BaseDocument {
+  type: "policy";
+  policyNumber: string;
+  effectiveDate: string;
+  expirationDate: string;
+  effectiveTime?: string;
+}
+```
+
+### `QuoteDocument`
+
+```typescript
+interface QuoteDocument extends BaseDocument {
+  type: "quote";
+  quoteNumber: string;
+  proposedEffectiveDate?: string;
+  proposedExpirationDate?: string;
+  quoteExpirationDate?: string;
+  subjectivities?: Subjectivity[];
+  underwritingConditions?: UnderwritingCondition[];
+  premiumBreakdown?: PremiumLine[];
+  enrichedSubjectivities?: EnrichedSubjectivity[];
+  enrichedUnderwritingConditions?: EnrichedUnderwritingCondition[];
+  warrantyRequirements?: string[];
+  lossControlRecommendations?: string[];
+  bindingAuthority?: BindingAuthority;
+}
+```
+
+### `Coverage`
+
+```typescript
+interface Coverage {
+  name: string;
+  limit: string;
+  deductible?: string;
+  pageNumber?: number;
+  sectionRef?: string;
+}
+```
+
+### `Section`
+
+```typescript
+interface Section {
+  title: string;
+  sectionNumber?: string;
+  pageStart: number;
+  pageEnd?: number;
+  type: string;
+  coverageType?: string;
+  content: string;
+  subsections?: Subsection[];
+}
+```
+
+### `Subsection`
+
+```typescript
+interface Subsection {
+  title: string;
+  sectionNumber?: string;
+  pageNumber?: number;
+  content: string;
+}
+```
+
+### `Subjectivity`
+
+```typescript
+interface Subjectivity {
+  description: string;
+  category?: string;
+}
+```
+
+### `UnderwritingCondition`
+
+```typescript
+interface UnderwritingCondition {
+  description: string;
+}
+```
+
+### `PremiumLine`
+
+```typescript
+interface PremiumLine {
+  line: string;
+  amount: string;
+}
+```
+
+## Enriched data types
+
+These types represent the structured data extracted by the focused extractors in the agentic pipeline.
+
+### `EnrichedCoverage`
+
+```typescript
+interface EnrichedCoverage {
+  name: string;
+  coverageCode?: string;
+  formNumber?: string;
+  formEditionDate?: string;
+  limit: string;
+  limitType?: LimitType;
+  deductible?: string;
+  deductibleType?: DeductibleType;
+  sir?: string;
+  sublimit?: string;
+  coinsurance?: string;
+  valuation?: ValuationMethod;
+  territory?: string;
+  trigger?: CoverageTrigger;
+  retroactiveDate?: string;
+  included: boolean;
+  premium?: string;
+  pageNumber?: number;
+  sectionRef?: string;
+}
+```
+
+### `Endorsement`
+
+```typescript
+interface Endorsement {
+  formNumber: string;
+  editionDate?: string;
+  title: string;
+  endorsementType: EndorsementType;
+  effectiveDate?: string;
+  affectedCoverageParts?: string[];
+  namedParties?: EndorsementParty[];
+  keyTerms?: string[];
+  premiumImpact?: string;
+  content: string;
+  pageStart: number;
+  pageEnd?: number;
+}
+```
+
+### `EndorsementParty`
+
+```typescript
+interface EndorsementParty {
+  name: string;
+  role: EndorsementPartyRole;
+  address?: Address;
+  relationship?: string;
+  scope?: string;
+}
+```
+
+### `Exclusion`
+
+```typescript
+interface Exclusion {
+  name: string;
+  formNumber?: string;
+  excludedPerils?: string[];
+  isAbsolute?: boolean;
+  exceptions?: string[];
+  buybackAvailable?: boolean;
+  buybackEndorsement?: string;
+  appliesTo?: string[];
+  content: string;
+  pageNumber?: number;
+}
+```
+
+### `PolicyCondition`
+
+```typescript
+interface PolicyCondition {
+  name: string;
+  conditionType: ConditionType;
+  content: string;
+  keyValues?: Record<string, string>;
+  pageNumber?: number;
+}
+```
+
+### `LimitSchedule`
+
+```typescript
+interface LimitSchedule {
+  perOccurrence?: string;
+  generalAggregate?: string;
+  productsCompletedOpsAggregate?: string;
+  personalAdvertisingInjury?: string;
+  eachEmployee?: string;
+  fireDamage?: string;
+  medicalExpense?: string;
+  combinedSingleLimit?: string;
+  bodilyInjuryPerPerson?: string;
+  bodilyInjuryPerAccident?: string;
+  propertyDamage?: string;
+  eachOccurrenceUmbrella?: string;
+  umbrellaAggregate?: string;
+  umbrellaRetention?: string;
+  statutory?: boolean;
+  employersLiability?: EmployersLiabilityLimits;
+  sublimits?: Sublimit[];
+  sharedLimits?: SharedLimit[];
+  defenseCostTreatment?: DefenseCostTreatment;
+}
+```
+
+### `DeductibleSchedule`
+
+```typescript
+interface DeductibleSchedule {
+  perClaim?: string;
+  perOccurrence?: string;
+  aggregateDeductible?: string;
+  selfInsuredRetention?: string;
+  corridorDeductible?: string;
+  waitingPeriod?: string;
+  appliesTo?: "damages_only" | "damages_and_defense" | "defense_only";
+}
+```
+
+### `InsuredLocation`
+
+```typescript
+interface InsuredLocation {
+  number: number;
+  address: Address;
+  description?: string;
+  buildingValue?: string;
+  contentsValue?: string;
+  businessIncomeValue?: string;
+  constructionType?: string;
+  yearBuilt?: number;
+  squareFootage?: number;
+  protectionClass?: string;
+  sprinklered?: boolean;
+  alarmType?: string;
+  occupancy?: string;
+}
+```
+
+### `InsuredVehicle`
+
+```typescript
+interface InsuredVehicle {
+  number: number;
+  year: number;
+  make: string;
+  model: string;
+  vin: string;
+  costNew?: string;
+  statedValue?: string;
+  garageLocation?: number;
+  coverages?: VehicleCoverage[];
+  radius?: string;
+  vehicleType?: string;
+}
+```
+
+### `VehicleCoverage`
+
+```typescript
+interface VehicleCoverage {
+  type: VehicleCoverageType;
+  limit?: string;
+  deductible?: string;
+  included: boolean;
+}
+```
+
+### `ClassificationCode`
+
+```typescript
+interface ClassificationCode {
+  code: string;
+  description: string;
+  premiumBasis: string;
+  basisAmount?: string;
+  rate?: string;
+  premium?: string;
+  locationNumber?: number;
+}
+```
+
+### `InsurerInfo`
+
+```typescript
+interface InsurerInfo {
+  legalName: string;
+  naicNumber?: string;
+  amBestRating?: string;
+  amBestNumber?: string;
+  admittedStatus?: AdmittedStatus;
+  stateOfDomicile?: string;
+}
+```
+
+### `ProducerInfo`
+
+```typescript
+interface ProducerInfo {
+  agencyName: string;
+  contactName?: string;
+  licenseNumber?: string;
+  phone?: string;
+  email?: string;
+  address?: Address;
+}
+```
+
+### `ClaimRecord`
+
+```typescript
+interface ClaimRecord {
+  dateOfLoss: string;
+  claimNumber?: string;
+  description: string;
+  status: ClaimStatus;
+  paid?: string;
+  reserved?: string;
+  incurred?: string;
+  claimant?: string;
+  coverageLine?: string;
+}
+```
+
+### `LossSummary`
+
+```typescript
+interface LossSummary {
+  period?: string;
+  totalClaims?: number;
+  totalIncurred?: string;
+  totalPaid?: string;
+  totalReserved?: string;
+  lossRatio?: string;
+}
+```
+
+### `ExperienceMod`
+
+```typescript
+interface ExperienceMod {
+  factor: number;
+  effectiveDate?: string;
+  state?: string;
+}
+```
+
+### `EnrichedSubjectivity`
+
+```typescript
+interface EnrichedSubjectivity {
+  description: string;
+  category?: SubjectivityCategory;
+  dueDate?: string;
+  status?: "open" | "satisfied" | "waived";
+  pageNumber?: number;
+}
+```
+
+### `EnrichedUnderwritingCondition`
+
+```typescript
+interface EnrichedUnderwritingCondition {
+  description: string;
+  category?: string;
+  pageNumber?: number;
+}
+```
+
+### `BindingAuthority`
+
+```typescript
+interface BindingAuthority {
+  authorizedBy?: string;
+  method?: string;
+  expiration?: string;
+  conditions?: string[];
+}
+```
+
+### Supporting types
+
+```typescript
+interface Address {
+  street1: string;
+  street2?: string;
+  city: string;
+  state: string;
+  zip: string;
+  country?: string;
+}
+
+interface Contact {
+  name?: string;
+  title?: string;
+  type?: string;
+  phone?: string;
+  fax?: string;
+  email?: string;
+  address?: Address;
+  hours?: string;
+}
+
+interface NamedInsured {
+  name: string;
+  relationship?: string;
+  address?: Address;
+}
+
+interface FormReference {
+  formNumber: string;
+  editionDate?: string;
+  title?: string;
+  formType: "coverage" | "endorsement" | "declarations"
+    | "application" | "notice" | "other";
+}
+
+interface TaxFeeItem {
+  name: string;
+  amount: string;
+  type?: "tax" | "fee" | "surcharge" | "assessment";
+  description?: string;
+}
+
+interface RatingBasis {
+  type: RatingBasisType;
+  amount?: string;
+  description?: string;
+}
+
+interface Sublimit {
+  name: string;
+  limit: string;
+  appliesTo?: string;
+  deductible?: string;
+}
+
+interface SharedLimit {
+  description: string;
+  limit: string;
+  coverageParts: string[];
+}
+
+interface ExtendedReportingPeriod {
+  basicDays?: number;
+  supplementalYears?: number;
+  supplementalPremium?: string;
+}
+
+interface EmployersLiabilityLimits {
+  eachAccident: string;
+  diseasePolicyLimit: string;
+  diseaseEachEmployee: string;
+}
+
+interface PaymentPlan {
+  installments: PaymentInstallment[];
+  financeCharge?: string;
+}
+
+interface PaymentInstallment {
+  dueDate: string;
+  amount: string;
+  description?: string;
+}
+
+interface LocationPremium {
+  locationNumber: number;
+  premium: string;
+  description?: string;
+}
+```
+
+## Storage interfaces
+
+### `DocumentStore`
+
+Interface for persisting extracted insurance documents.
+
+```typescript
+interface DocumentStore {
+  save(doc: InsuranceDocument): Promise<void>;
+  get(id: string): Promise<InsuranceDocument | null>;
+  query(filters: DocumentFilters): Promise<InsuranceDocument[]>;
+  delete(id: string): Promise<void>;
+}
+```
+
+### `MemoryStore`
+
+Interface for vector-based chunk search and conversation history.
+
+```typescript
+interface MemoryStore {
+  addChunks(chunks: DocumentChunk[]): Promise<void>;
+  search(query: string, options?: { limit?: number; filter?: ChunkFilter }): Promise<DocumentChunk[]>;
+  addTurn(turn: ConversationTurn): Promise<void>;
+  getHistory(conversationId: string, options?: { limit?: number }): Promise<ConversationTurn[]>;
+  searchHistory(query: string, conversationId?: string): Promise<ConversationTurn[]>;
+}
+```
+
+## Storage types
+
+### `DocumentChunk`
+
+```typescript
+interface DocumentChunk {
+  /** Deterministic ID: `${documentId}:${type}:${index}` */
+  id: string;
+  /** Source document ID */
+  documentId: string;
+  /** Chunk type for filtering */
+  type: "carrier_info" | "named_insured" | "coverage" | "endorsement"
+    | "exclusion" | "condition" | "section" | "declaration"
+    | "loss_history" | "premium" | "supplementary";
+  /** Human-readable text for embedding */
+  text: string;
+  /** Structured metadata for filtering */
+  metadata: Record<string, string>;
+}
+```
+
+### `ConversationTurn`
+
+```typescript
+interface ConversationTurn {
+  id: string;
+  conversationId: string;
+  role: "user" | "assistant" | "tool";
+  content: string;
+  toolName?: string;
+  toolResult?: string;
+  timestamp: number;
+}
+```
+
+### `ChunkFilter`
+
+```typescript
+interface ChunkFilter {
+  documentId?: string;
+  type?: DocumentChunk["type"];
+  metadata?: Record<string, string>;
+}
+```
+
+### `DocumentFilters`
+
+```typescript
+interface DocumentFilters {
+  type?: "policy" | "quote";
+  carrier?: string;
+  insuredName?: string;
+  policyNumber?: string;
+  quoteNumber?: string;
+}
+```
+
+## Application storage types
+
+### `ApplicationStore`
+
+Persistent storage for application processing state.
+
+```typescript
+interface ApplicationStore {
+  save(state: ApplicationState): Promise<void>;
+  get(id: string): Promise<ApplicationState | null>;
+  list(filters?: ApplicationListFilters): Promise<ApplicationState[]>;
+  delete(id: string): Promise<void>;
+}
+```
+
+### `ApplicationListFilters`
+
+```typescript
+interface ApplicationListFilters {
+  status?: ApplicationState["status"];
+  /** Fuzzy match on title */
+  title?: string;
+}
+```
+
+### `BackfillProvider`
+
+Context provider for auto-fill backfill. Searches previously answered values from stored applications and documents to pre-fill new applications via vector search.
+
+```typescript
+interface BackfillProvider {
+  searchPriorAnswers(
+    fields: Pick<ApplicationField, "id" | "label" | "section" | "fieldType">[],
+    options?: { limit?: number },
+  ): Promise<PriorAnswer[]>;
+}
+```
+
+### `PriorAnswer`
+
+```typescript
+interface PriorAnswer {
+  fieldId: string;
+  value: string;
+  source: string;
+  relevance: number;
+}
+```
+
+## Context keys
+
+### `ContextKeyMapping`
+
+Maps extracted document fields to organization context keys for auto-fill workflows.
+
+```typescript
+interface ContextKeyMapping {
+  extractedField: string;
+  category: "company_info" | "operations" | "financial" | "coverage"
+    | "loss_history" | "premises" | "vehicles" | "employees"
+    | "property_info" | "driver_info" | "vehicle_info" | "pet_info";
+  contextKey: string;
+  description: string;
+}
+```
+
+### `CONTEXT_KEY_MAP`
+
+```typescript
+const CONTEXT_KEY_MAP: ContextKeyMapping[];
+```
+
+Runtime array of all context key mappings. Used to bridge extracted policy data into application auto-fill context.
+
+## Union types
+
+### Policy & coverage classification
+
+```typescript
+type PolicyType =
+  // Commercial lines
+  | "general_liability" | "commercial_property" | "commercial_auto"
+  | "non_owned_auto" | "workers_comp" | "umbrella" | "excess_liability"
+  | "professional_liability" | "cyber" | "epli" | "directors_officers"
+  | "fiduciary_liability" | "crime_fidelity" | "inland_marine"
+  | "builders_risk" | "environmental" | "ocean_marine" | "surety"
+  | "product_liability" | "bop" | "management_liability_package"
+  | "property"
+  // Personal lines
+  | "homeowners_ho3" | "homeowners_ho5" | "renters_ho4" | "condo_ho6"
+  | "dwelling_fire" | "mobile_home" | "personal_auto" | "personal_umbrella"
+  | "flood_nfip" | "flood_private" | "earthquake" | "personal_inland_marine"
+  | "watercraft" | "recreational_vehicle" | "farm_ranch" | "pet"
+  | "travel" | "identity_theft" | "title"
+  // Other
+  | "other";
+
+type EndorsementType =
+  | "additional_insured" | "waiver_of_subrogation" | "primary_noncontributory"
+  | "blanket_additional_insured" | "loss_payee" | "mortgage_holder"
+  | "broadening" | "restriction" | "exclusion" | "amendatory"
+  | "notice_of_cancellation" | "designated_premises" | "classification_change"
+  | "schedule_update" | "deductible_change" | "limit_change"
+  | "territorial_extension" | "other";
+
+type ConditionType =
+  | "duties_after_loss" | "notice_requirements" | "other_insurance"
+  | "cancellation" | "nonrenewal" | "transfer_of_rights" | "liberalization"
+  | "arbitration" | "concealment_fraud" | "examination_under_oath"
+  | "legal_action" | "loss_payment" | "appraisal" | "mortgage_holders"
+  | "policy_territory" | "separation_of_insureds" | "other";
+
+type PolicySectionType =
+  | "declarations" | "insuring_agreement" | "policy_form" | "endorsement"
+  | "application" | "exclusion" | "condition" | "definition" | "schedule"
+  | "notice" | "regulatory" | "other";
+
+type QuoteSectionType =
+  | "terms_summary" | "premium_indication" | "underwriting_condition"
+  | "subjectivity" | "coverage_summary" | "exclusion" | "other";
+```
+
+### Coverage details
+
+```typescript
+type CoverageForm = "occurrence" | "claims_made" | "accident";
+type CoverageTrigger = "occurrence" | "claims_made" | "accident";
+type LimitType =
+  | "per_occurrence" | "per_claim" | "aggregate" | "per_person"
+  | "per_accident" | "statutory" | "blanket" | "scheduled";
+type DeductibleType =
+  | "per_occurrence" | "per_claim" | "aggregate"
+  | "percentage" | "waiting_period";
+type ValuationMethod =
+  | "replacement_cost" | "actual_cash_value"
+  | "agreed_value" | "functional_replacement";
+type DefenseCostTreatment = "inside_limits" | "outside_limits" | "supplementary";
+```
+
+### Entity & status types
+
+```typescript
+type EntityType =
+  | "corporation" | "llc" | "partnership" | "sole_proprietor"
+  | "joint_venture" | "trust" | "nonprofit" | "municipality"
+  | "individual" | "married_couple" | "other";
+type AdmittedStatus = "admitted" | "non_admitted" | "surplus_lines";
+type AuditType =
+  | "annual" | "semi_annual" | "quarterly" | "monthly"
+  | "self" | "physical" | "none";
+type EndorsementPartyRole =
+  | "additional_insured" | "loss_payee" | "mortgage_holder"
+  | "certificate_holder" | "notice_recipient" | "other";
+type ClaimStatus = "open" | "closed" | "reopened";
+type SubjectivityCategory = "pre_binding" | "post_binding" | "information";
+type DocumentType = "policy" | "quote" | "binder" | "endorsement" | "certificate";
+type ChunkType =
+  | "declarations" | "coverage_form" | "endorsement"
+  | "schedule" | "conditions" | "mixed";
+type RatingBasisType =
+  | "payroll" | "revenue" | "area" | "units" | "vehicle_count"
+  | "employee_count" | "per_capita" | "dwelling_value" | "vehicle_value"
+  | "contents_value" | "other";
+type VehicleCoverageType =
+  | "liability" | "collision" | "comprehensive" | "uninsured_motorist"
+  | "underinsured_motorist" | "medical_payments" | "hired_auto"
+  | "non_owned_auto" | "cargo" | "physical_damage";
+```
+
+### Personal lines types
+
+```typescript
+type HomeownersFormType = "HO-3" | "HO-5" | "HO-4" | "HO-6" | "HO-7" | "HO-8";
+type DwellingFireFormType = "DP-1" | "DP-2" | "DP-3";
+type FloodZone = "A" | "AE" | "AH" | "AO" | "AR" | "V" | "VE" | "B" | "C" | "X" | "D";
+type ConstructionType = "frame" | "masonry" | "superior" | "mixed" | "other";
+type RoofType = "asphalt_shingle" | "tile" | "metal" | "slate" | "flat" | "wood_shake" | "other";
+type FoundationType = "basement" | "crawl_space" | "slab" | "pier" | "other";
+type PersonalAutoUsage = "pleasure" | "commute" | "business" | "farm";
+type LossSettlement =
+  | "replacement_cost" | "actual_cash_value"
+  | "extended_replacement_cost" | "guaranteed_replacement_cost";
+type BoatType = "sailboat" | "powerboat" | "pontoon" | "jet_ski" | "kayak_canoe" | "yacht" | "other";
+type RVType = "rv_motorhome" | "travel_trailer" | "atv" | "snowmobile" | "golf_cart" | "dirt_bike" | "other";
+type ScheduledItemCategory =
+  | "jewelry" | "fine_art" | "musical_instruments" | "silverware" | "furs"
+  | "cameras" | "collectibles" | "firearms" | "golf_equipment" | "other";
+type TitlePolicyType = "owners" | "lenders";
+type PetSpecies = "dog" | "cat" | "other";
+```
+
+## Constants
+
+### `POLICY_TYPES`
+
+All 42 policy types as a runtime array, useful for building prompts and validation.
+
+```typescript
+const POLICY_TYPES: PolicyType[];
+```
+
+### `CONTEXT_KEY_MAP`
+
+See [Context keys](#context-keys) above.
+
+## Platform types
+
+### `Platform`
+
+```typescript
+type Platform = "email" | "chat" | "sms" | "slack" | "discord";
+```
+
+### `CommunicationIntent`
+
+```typescript
+type CommunicationIntent = "direct" | "mediated" | "observed";
+```
+
+### `PlatformConfig`
+
+```typescript
+interface PlatformConfig {
+  supportsMarkdown: boolean;
+  supportsLinks: boolean;
+  supportsRichFormatting: boolean;
+  maxResponseLength?: number;
+  signOff?: boolean;
+}
+```
+
+### `AgentContext`
+
+```typescript
+interface AgentContext {
+  platform: Platform;
+  intent: CommunicationIntent;
+  platformConfig?: PlatformConfig;
+  companyName?: string;
+  companyContext?: string;
+  siteUrl: string;
+  userName?: string;
+  coiHandling?: "broker" | "user" | "member" | "ignore";
+  brokerName?: string;
+  brokerContactName?: string;
+  brokerContactEmail?: string;
+  /** Display name for the AI agent. Defaults to "CL-0 Agent". */
+  agentName?: string;
+  /** Custom link guidance for the AI. Replaces default link examples. */
+  linkGuidance?: string;
+}
+```
+
+### `PastConversation`
+
+```typescript
+interface PastConversation {
+  fromName?: string;
+  fromEmail: string;
+  subject: string;
+  body: string;
+  responseBody: string;
+  _creationTime: number;
+  threadId?: string;
+}
+```
+
+### `PLATFORM_CONFIGS`
+
+```typescript
+const PLATFORM_CONFIGS: Record<Platform, PlatformConfig>;
+```
+
+Pre-configured platform settings. See [Platforms & Intents](/docs/agent/platforms).
+
+## Tool types
+
+### `ToolDefinition`
+
+```typescript
+interface ToolDefinition {
+  name: string;
+  description: string;
+  input_schema: {
+    type: "object";
+    properties: Record<string, unknown>;
+    required?: string[];
+  };
+}
+```
+
+## PDF types
+
+### `AcroFormFieldInfo`
+
+```typescript
+interface AcroFormFieldInfo {
+  name: string;
+  type: "text" | "checkbox" | "dropdown" | "radio";
+  options?: string[];
+}
+```
+
+### `FieldMapping`
+
+```typescript
+interface FieldMapping {
+  acroFormName: string;
+  value: string;
+}
+```
+
+### `TextOverlay`
+
+```typescript
+interface TextOverlay {
+  page: number;
+  x: number;
+  y: number;
+  text: string;
+  fontSize?: number;
+  isCheckmark?: boolean;
+}
+```

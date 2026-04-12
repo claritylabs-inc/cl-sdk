@@ -1,0 +1,179 @@
+---
+title: "Quality Gates"
+description: "Quality gate modes, deterministic issue codes, and review reports"
+---
+
+# Quality Gates and Review Reports
+
+**Version:** 1.0
+**Last Updated:** 2026-04-12
+**Scope:** Deterministic quality checks, review reports, and gate modes across all three pipelines
+
+---
+
+## Purpose
+
+Every pipeline in cl-sdk — extraction, application, and query — now produces a structured **quality report** that summarizes deterministic issues found after model-driven extraction or reasoning completes. These reports serve two purposes:
+
+1. **Observability** — surface specific, actionable problems (missing provenance, referential values, TOC artifacts) instead of relying solely on LLM self-review.
+2. **Gating** — optionally block pipeline completion when blocking issues are found, preventing low-quality results from reaching consumers.
+
+---
+
+## Quality Gate Modes
+
+All three pipeline configs accept a `qualityGate` option:
+
+| Mode | Behavior |
+|------|----------|
+| `"off"` | Reports are built but never throw. Issues are logged only. |
+| `"warn"` | **(default)** Reports are built and issues are logged. No throw. |
+| `"strict"` | If the report's `qualityGateStatus` is `"failed"` (any blocking issue), the pipeline throws before assembly/output. |
+
+Gate evaluation logic lives in `src/core/quality.ts`:
+
+```ts
+import { shouldFailQualityGate } from "./core/quality";
+
+// Returns true only when mode === "strict" AND status === "failed"
+shouldFailQualityGate("strict", report.qualityGateStatus);
+```
+
+---
+
+## Shared Types (`src/core/quality.ts`)
+
+All pipeline-specific reports extend a common base:
+
+```ts
+interface UnifiedQualityReport<TIssue extends BaseQualityIssue> {
+  issues: TIssue[];         // All deterministic issues found
+  rounds: QualityRound[];   // LLM review or verification rounds
+  artifacts: QualityArtifact[]; // Summary of pipeline artifacts
+  qualityGateStatus: QualityGateStatus; // "passed" | "warning" | "failed"
+}
+```
+
+`qualityGateStatus` is computed by `evaluateQualityGate()`:
+- `"failed"` — any issue has `severity: "blocking"`
+- `"warning"` — any issue has `severity: "warning"`, or any review round had warnings
+- `"passed"` — neither of the above
+
+---
+
+## Extraction Pipeline (`src/extraction/quality.ts`)
+
+### Report: `ExtractionReviewReport`
+
+Extends `UnifiedQualityReport<QualityIssue>` with:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `reviewRoundRecords` | `ReviewRoundRecord[]` | Raw records from each LLM review loop iteration |
+| `formInventory` | `FormInventoryEntry[]` | Unified form inventory cross-referenced from extraction memory |
+
+### Deterministic Issue Codes
+
+| Code | Severity | Trigger |
+|------|----------|---------|
+| `endorsement_missing_form_number` | blocking | Endorsement extracted without a `formNumber` |
+| `endorsement_form_missing_from_inventory` | warning | Endorsement references a form not present in the form inventory |
+| `generic_form_row_as_coverage` | blocking | Coverage name ends with "Coverage Form" — likely a form header, not a real coverage |
+| `coverage_missing_page_number` | warning | Coverage row has no `pageNumber` provenance |
+| `coverage_missing_section_ref` | warning | Coverage row has no `sectionRef` provenance |
+| `coverage_missing_original_content` | warning | Coverage row has no `originalContent` source text |
+| `coverage_referential_value` | warning | Limit or deductible contains referential language ("shown in the declarations", "as stated") |
+| `coverage_form_missing_from_inventory` | warning | Coverage references a form number absent from form inventory |
+| `coverage_precedence_conflict` | warning | Same coverage extracted from multiple sources with conflicting limit/deductible values |
+| `exclusion_missing_page_number` | warning | Exclusion has no `pageNumber` provenance |
+| `exclusion_toc_artifact` | blocking | Exclusion content matches a table-of-contents pattern (dotted leader + page number) |
+| `condition_missing_page_number` | warning | Condition has no `pageNumber` provenance |
+| `condition_toc_artifact` | blocking | Condition content matches a table-of-contents pattern |
+| `section_short_fragment` | warning | Section content is under 120 characters on a single page — likely an orphan continuation fragment |
+
+### Form Inventory Cross-Reference
+
+The report builds a unified `formInventory` by collecting form numbers from:
+- The dedicated form inventory extraction phase
+- Endorsement `formNumber` fields
+- Coverage `formNumber` fields
+- Exclusion `formNumber` fields
+
+Each entry records which extractors contributed it (`sources` array) and page span when available.
+
+---
+
+## Application Pipeline (`src/application/quality.ts`)
+
+### Report: `ApplicationQualityReport`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `issues` | `ApplicationQualityIssue[]` | All deterministic issues |
+| `rounds` | `QualityRound[]` | Currently empty (reserved for future multi-pass extraction) |
+| `artifacts` | `QualityArtifact[]` | Summary: field count |
+| `emailReview` | `ApplicationEmailReview` | Optional review of generated batch collection emails |
+| `qualityGateStatus` | `QualityGateStatus` | Gate result |
+
+### Deterministic Issue Codes
+
+| Code | Severity | Trigger |
+|------|----------|---------|
+| `duplicate_field_id` | blocking | Two fields share the same `id` |
+| `required_field_unfilled` | warning | A required field has no value |
+| `filled_field_missing_source` | blocking | A filled field has no `source` provenance |
+| `filled_field_vague_source` | warning | Source is vague ("unknown", "existing records", etc.) |
+| `filled_field_low_confidence` | warning | Confidence is `"low"` or missing |
+| `email_missing_field_prompt` | warning | Generated batch email does not mention a field label (checked for labels ≥6 chars) |
+
+### Email Review
+
+When `generateBatchEmail` produces collection emails, `reviewBatchEmail()` checks that every batch field label appears in the email text. Missing labels produce `email_missing_field_prompt` warnings.
+
+---
+
+## Query Pipeline (`src/query/quality.ts`)
+
+### Report: `QueryReviewReport`
+
+Extends `UnifiedQualityReport<QueryReviewIssue>` with:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `verifyRounds` | `QueryVerifyRoundRecord[]` | Raw records from each verification loop iteration |
+
+### Deterministic Issue Codes
+
+| Code | Severity | Trigger |
+|------|----------|---------|
+| `subanswer_missing_citations` | blocking | Sub-answer claims an answer but provides no citations |
+| `subanswer_high_confidence_without_citations` | blocking | Sub-answer has confidence ≥ 0.85 with no citations |
+| `citation_missing_from_evidence` | blocking | Citation's `chunkId`/`documentId` does not match any retrieved evidence |
+| `citation_quote_not_in_evidence` | warning | Citation quote not found verbatim in the evidence text |
+| `final_answer_missing_citations` | blocking | Final answer has non-trivial confidence but no citations |
+| `final_answer_unknown_citation` | warning | Final answer cites something not present in any sub-answer |
+
+---
+
+## Usage Example
+
+```ts
+import { createExtractor } from "cl-sdk/extraction/coordinator";
+
+const extractor = createExtractor({
+  generateText,
+  generateObject,
+  qualityGate: "strict", // throw on blocking issues
+  log: console.log,
+});
+
+try {
+  const result = await extractor.extract(pdfBase64, "doc-1");
+  console.log(result.reviewReport.qualityGateStatus); // "passed" or "warning"
+  console.log(result.reviewReport.issues);             // deterministic issues
+  console.log(result.reviewReport.formInventory);      // cross-referenced forms
+} catch (err) {
+  // qualityGate: "strict" — blocking issues found
+  console.error(err.message);
+}
+```

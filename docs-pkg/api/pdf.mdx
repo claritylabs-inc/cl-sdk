@@ -1,0 +1,110 @@
+---
+title: PDF Operations API
+description: Complete reference for PDF utility, form filling, and text overlay functions
+---
+
+## Page utilities
+
+### `extractPageRange(pdfBase64, startPage, endPage)`
+
+Extract a page range from a PDF and return as base64. Useful for reducing API token usage by only sending relevant pages.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `pdfBase64` | `string` | Full PDF as base64 string |
+| `startPage` | `number` | First page to include (1-indexed) |
+| `endPage` | `number` | Last page to include (1-indexed, clamped to total pages) |
+
+**Returns:** `Promise<string>` — base64 string of the trimmed PDF, or the original if the range covers all pages.
+
+```typescript
+import { extractPageRange, getPdfPageCount } from "@claritylabs/cl-sdk";
+
+const pageCount = await getPdfPageCount(pdfBase64);
+// Only send the first 10 pages to reduce token usage
+const trimmed = await extractPageRange(pdfBase64, 1, Math.min(10, pageCount));
+```
+
+---
+
+### `getPdfPageCount(pdfBase64)`
+
+Get the page count of a PDF without fully parsing it.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `pdfBase64` | `string` | PDF as base64 string |
+
+**Returns:** `Promise<number>`
+
+---
+
+## AcroForm
+
+### `getAcroFormFields(pdfDoc)`
+
+Enumerate all AcroForm fields from a PDF document.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `pdfDoc` | `PDFDocument` | A pdf-lib `PDFDocument` instance |
+
+**Returns:** `AcroFormFieldInfo[]` — empty array if no form fields exist.
+
+```typescript
+interface AcroFormFieldInfo {
+  name: string;
+  type: "text" | "checkbox" | "dropdown" | "radio";
+  options?: string[];  // For dropdown and radio fields
+}
+```
+
+---
+
+### `fillAcroForm(pdfBytes, mappings)`
+
+Fill AcroForm fields by name and flatten the form.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `pdfBytes` | `Uint8Array` | Raw PDF bytes |
+| `mappings` | `FieldMapping[]` | Field name to value mappings |
+
+**Returns:** `Promise<Uint8Array>` — the filled and flattened PDF bytes.
+
+```typescript
+interface FieldMapping {
+  acroFormName: string;
+  value: string;
+}
+```
+
+**Checkbox values:** `"yes"`, `"true"`, `"x"`, `"checked"`, `"on"` → checked. Anything else → unchecked.
+
+Missing fields and invalid dropdown/radio values are silently skipped.
+
+## Text overlay
+
+### `overlayTextOnPdf(pdfBytes, overlays)`
+
+Overlay text at specified coordinates on a flat PDF.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `pdfBytes` | `Uint8Array` | Raw PDF bytes |
+| `overlays` | `TextOverlay[]` | Text overlays to apply |
+
+**Returns:** `Promise<Uint8Array>` — the modified PDF bytes.
+
+```typescript
+interface TextOverlay {
+  page: number;         // 0-indexed page number
+  x: number;            // percentage from left edge (0-100)
+  y: number;            // percentage from top edge (0-100)
+  text: string;
+  fontSize?: number;    // default: 10
+  isCheckmark?: boolean; // draws "X" instead of text
+}
+```
+
+Uses Helvetica font. Overlays targeting non-existent pages are skipped.

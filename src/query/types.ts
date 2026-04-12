@@ -1,7 +1,9 @@
 import type { GenerateText, GenerateObject, TokenUsage, LogFn } from "../core/types";
+import type { QualityGateMode } from "../core/quality";
 import type { DocumentStore, MemoryStore } from "../storage/interfaces";
 import type { AgentContext } from "../schemas/platform";
 import type { QueryResult, Citation, QueryIntent } from "../schemas/query";
+import type { QueryReviewReport } from "./quality";
 
 export interface QueryConfig {
   generateText: GenerateText;
@@ -15,6 +17,7 @@ export interface QueryConfig {
   onProgress?: (message: string) => void;
   log?: LogFn;
   providerOptions?: Record<string, unknown>;
+  qualityGate?: QualityGateMode;
 }
 
 export interface QueryInput {
@@ -25,6 +28,7 @@ export interface QueryInput {
 
 export interface QueryOutput extends QueryResult {
   tokenUsage: TokenUsage;
+  reviewReport: QueryReviewReport;
 }
 
 export type { QueryResult, Citation, QueryIntent };

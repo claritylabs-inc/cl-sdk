@@ -1,0 +1,70 @@
+---
+title: Citations & Provenance
+description: How the query agent tracks and reports source references
+---
+
+Every factual claim in a query agent response is backed by a citation that traces to a specific source in your document store.
+
+## Citation structure
+
+```typescript
+interface Citation {
+  index: number;            // Display number: [1], [2], etc.
+  chunkId: string;          // Source chunk ID, e.g. "doc-123:coverage:2"
+  documentId: string;       // Parent document ID
+  documentType?: "policy" | "quote";
+  field?: string;           // Specific field path, e.g. "coverages[0].deductible"
+  quote: string;            // Exact text from source that supports the claim
+  relevance: number;        // 0-1 similarity score from retrieval
+}
+```
+
+## How citations flow through the pipeline
+
+### 1. Retrieval produces evidence items
+
+Each evidence item carries a source reference — chunk ID for semantic search results, document ID for structured lookups, or turn ID for conversation history.
+
+### 2. Reasoners create citations from evidence
+
+When a reasoner answers a sub-question, it references specific evidence items. Each factual claim gets a citation with the source ID and an exact quote from the evidence text.
+
+### 3. Verifier checks grounding
+
+The verifier confirms that:
+- Every claim has at least one citation
+- Each citation references evidence that actually supports the claim
+- No claims extrapolate beyond what the evidence states
+
+Ungrounded claims are flagged and can trigger re-retrieval.
+
+### 4. Responder deduplicates and formats
+
+The final response merges citations from all sub-answers, deduplicates references to the same chunk, and assigns sequential index numbers for inline display.
+
+## Using citations in your UI
+
+```typescript
+const result = await agent.query({ question: "..." });
+
+// The answer contains inline references like [1], [2]
+console.log(result.answer);
+// "The GL policy has a $1,000 per-occurrence deductible [1] with a $2M aggregate limit [2]."
+
+// Citations array provides the source details
+for (const cite of result.citations) {
+  console.log(`[${cite.index}] ${cite.documentId} — "${cite.quote}"`);
+}
+```
+
+## Query intents
+
+The classifier assigns one of five intents, which influences retrieval strategy and reasoning prompts:
+
+| Intent | Description | Retrieval focus |
+|--------|-------------|-----------------|
+| `policy_question` | Questions about specific coverage, limits, deductibles, endorsements | Coverage and declaration chunks |
+| `coverage_comparison` | Comparing coverages across multiple documents | Coverage chunks from multiple documents |
+| `document_search` | Looking for a specific document by carrier, number, or name | Structured document lookup |
+| `claims_inquiry` | Questions about claims history or loss experience | Loss history chunks |
+| `general_knowledge` | Insurance concepts not tied to a specific document | Broader chunk search + general knowledge |

@@ -69,13 +69,21 @@ function mergeCoverageLimits(
   const merged = mergeShallowPreferPresent(existing, incoming);
   const existingCoverages = Array.isArray(existing.coverages) ? existing.coverages as Record<string, unknown>[] : [];
   const incomingCoverages = Array.isArray(incoming.coverages) ? incoming.coverages as Record<string, unknown>[] : [];
-
-  merged.coverages = mergeUniqueObjects(existingCoverages, incomingCoverages, (coverage) => [
+  const coverageKey = (coverage: Record<string, unknown>) => [
     String(coverage.name ?? "").toLowerCase(),
     String(coverage.limit ?? "").toLowerCase(),
     String(coverage.deductible ?? "").toLowerCase(),
     String(coverage.formNumber ?? "").toLowerCase(),
-  ].join("|"));
+  ].join("|");
+
+  const byKey = new Map<string, Record<string, unknown>>();
+  for (const coverage of [...existingCoverages, ...incomingCoverages]) {
+    const key = coverageKey(coverage);
+    const current = byKey.get(key);
+    byKey.set(key, current ? mergeShallowPreferPresent(current, coverage) : coverage);
+  }
+
+  merged.coverages = [...byKey.values()];
 
   return merged;
 }

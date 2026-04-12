@@ -10,6 +10,14 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
   const chunks: DocumentChunk[] = [];
   const docId = doc.id;
 
+  function stringMetadata(entries: Record<string, string | number | undefined | null>): Record<string, string> {
+    return Object.fromEntries(
+      Object.entries(entries)
+        .filter(([, value]) => value !== undefined && value !== null && String(value).length > 0)
+        .map(([key, value]) => [key, String(value)]),
+    );
+  }
+
   // Carrier info chunk
   chunks.push({
     id: `${docId}:carrier_info:0`,
@@ -22,7 +30,7 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
       doc.carrierAmBestRating ? `AM Best: ${doc.carrierAmBestRating}` : null,
       doc.mga ? `MGA: ${doc.mga}` : null,
     ].filter(Boolean).join("\n"),
-    metadata: { carrier: doc.carrier, documentType: doc.type },
+    metadata: stringMetadata({ carrier: doc.carrier, documentType: doc.type }),
   });
 
   // Named insured chunk
@@ -36,7 +44,7 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
       doc.insuredFein ? `FEIN: ${doc.insuredFein}` : null,
       doc.insuredAddress ? `Address: ${doc.insuredAddress.street1}, ${doc.insuredAddress.city}, ${doc.insuredAddress.state} ${doc.insuredAddress.zip}` : null,
     ].filter(Boolean).join("\n"),
-    metadata: { insuredName: doc.insuredName, documentType: doc.type },
+    metadata: stringMetadata({ insuredName: doc.insuredName, documentType: doc.type }),
   });
 
   // Coverage chunks — one per coverage
@@ -45,8 +53,25 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
       id: `${docId}:coverage:${i}`,
       documentId: docId,
       type: "coverage",
-      text: `Coverage: ${cov.name}\nLimit: ${cov.limit}${cov.deductible ? `\nDeductible: ${cov.deductible}` : ""}`,
-      metadata: { coverageName: cov.name, limit: cov.limit, documentType: doc.type },
+      text: [
+        `Coverage: ${cov.name}`,
+        `Limit: ${cov.limit}`,
+        cov.limitValueType ? `Limit Type: ${cov.limitValueType}` : null,
+        cov.deductible ? `Deductible: ${cov.deductible}` : null,
+        cov.deductibleValueType ? `Deductible Type: ${cov.deductibleValueType}` : null,
+        cov.originalContent ? `Source: ${cov.originalContent}` : null,
+      ].filter(Boolean).join("\n"),
+      metadata: stringMetadata({
+        coverageName: cov.name,
+        limit: cov.limit,
+        limitValueType: cov.limitValueType,
+        deductible: cov.deductible,
+        deductibleValueType: cov.deductibleValueType,
+        formNumber: cov.formNumber,
+        pageNumber: cov.pageNumber,
+        sectionRef: cov.sectionRef,
+        documentType: doc.type,
+      }),
     });
   });
 
@@ -57,7 +82,13 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
       documentId: docId,
       type: "endorsement",
       text: `Endorsement: ${end.title}\n${end.content}`.trim(),
-      metadata: { endorsementType: end.endorsementType, formNumber: end.formNumber, documentType: doc.type },
+      metadata: stringMetadata({
+        endorsementType: end.endorsementType,
+        formNumber: end.formNumber,
+        pageStart: end.pageStart,
+        pageEnd: end.pageEnd,
+        documentType: doc.type,
+      }),
     });
   });
 
@@ -68,7 +99,7 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
       documentId: docId,
       type: "exclusion",
       text: `Exclusion: ${exc.name}\n${exc.content}`.trim(),
-      metadata: { documentType: doc.type },
+      metadata: stringMetadata({ formNumber: exc.formNumber, pageNumber: exc.pageNumber, documentType: doc.type }),
     });
   });
 
@@ -79,7 +110,7 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
       documentId: docId,
       type: "section",
       text: `Section: ${sec.title}\n${sec.content}`,
-      metadata: { sectionType: sec.type, documentType: doc.type },
+      metadata: stringMetadata({ sectionType: sec.type, pageStart: sec.pageStart, pageEnd: sec.pageEnd, documentType: doc.type }),
     });
   });
 
@@ -90,7 +121,7 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
       documentId: docId,
       type: "premium",
       text: `Premium: ${doc.premium}${doc.totalCost ? `\nTotal Cost: ${doc.totalCost}` : ""}`,
-      metadata: { premium: doc.premium, documentType: doc.type },
+      metadata: stringMetadata({ premium: doc.premium, documentType: doc.type }),
     });
   }
 

@@ -17,12 +17,15 @@ import { retrieve, type RetrieverConfig } from "./retriever";
 import { reason, type ReasonerConfig } from "./reasoner";
 import { verify, type VerifierConfig } from "./verifier";
 import type { QueryConfig, QueryInput, QueryOutput } from "./types";
+import { buildQueryReviewReport, type QueryReviewReport, type QueryVerifyRoundRecord } from "./quality";
+import { shouldFailQualityGate } from "../core/quality";
 
 /** Internal state checkpointed between query phases. */
 export interface QueryState {
   classification?: QueryClassifyResult;
   evidence?: EvidenceItem[];
   subAnswers?: SubAnswer[];
+  reviewReport?: QueryReviewReport;
 }
 
 export function createQueryAgent(config: QueryConfig) {
@@ -38,6 +41,7 @@ export function createQueryAgent(config: QueryConfig) {
     onProgress,
     log,
     providerOptions,
+    qualityGate = "warn",
   } = config;
 
   const limit = pLimit(concurrency);
@@ -126,6 +130,7 @@ export function createQueryAgent(config: QueryConfig) {
     onProgress?.("Verifying answer grounding...");
     const verifierConfig: VerifierConfig = { generateObject, providerOptions };
 
+    const verifyRounds: QueryVerifyRoundRecord[] = [];
     for (let round = 0; round < maxVerifyRounds; round++) {
       const { result: verifyResult, usage } = await safeVerify(
         question,
@@ -134,6 +139,12 @@ export function createQueryAgent(config: QueryConfig) {
         verifierConfig,
       );
       trackUsage(usage);
+      verifyRounds.push({
+        round: round + 1,
+        approved: verifyResult.approved,
+        issues: verifyResult.issues,
+        retrySubQuestions: verifyResult.retrySubQuestions,
+      });
 
       if (verifyResult.approved) {
         onProgress?.("Verification passed.");
@@ -205,6 +216,28 @@ export function createQueryAgent(config: QueryConfig) {
       context?.platform,
     );
 
+    const reviewReport = buildQueryReviewReport({
+      subAnswers,
+      evidence: allEvidence,
+      finalResult: queryResult,
+      verifyRounds,
+    });
+
+    await pipelineCtx.save("review", {
+      classification,
+      evidence: allEvidence,
+      subAnswers,
+      reviewReport,
+    });
+
+    if (reviewReport.issues.length > 0) {
+      await log?.(`Query deterministic review issues: ${reviewReport.issues.map((issue) => issue.message).join("; ")}`);
+    }
+
+    if (shouldFailQualityGate(qualityGate, reviewReport.qualityGateStatus)) {
+      throw new Error("Query quality gate failed. See reviewReport for blocking issues.");
+    }
+
     // Store the conversation turn
     if (conversationId) {
       try {
@@ -227,7 +260,7 @@ export function createQueryAgent(config: QueryConfig) {
       }
     }
 
-    return { ...queryResult, tokenUsage: totalUsage };
+    return { ...queryResult, tokenUsage: totalUsage, reviewReport };
   }
 
   async function classify(

@@ -1,0 +1,134 @@
+---
+title: Document Chunks
+description: "How CL SDK breaks documents into retrieval-friendly chunks for vector search"
+---
+
+The extraction pipeline produces structured `InsuranceDocument` objects, but the query agent needs smaller, focused pieces of text for semantic search. The `chunkDocument` function bridges these two worlds.
+
+## DocumentChunk structure
+
+```typescript
+interface DocumentChunk {
+  id: string;           // Deterministic: ${documentId}:${type}:${index}
+  documentId: string;
+  type:
+    | "carrier_info" | "named_insured" | "coverage"
+    | "endorsement" | "exclusion" | "condition"
+    | "section" | "declaration" | "loss_history"
+    | "premium" | "supplementary";
+  text: string;         // Human-readable text for embedding
+  metadata: Record<string, string>;  // Structured metadata for filtering
+}
+```
+
+Each chunk is a self-contained piece of information with enough context to be useful in isolation. The `text` field is what gets embedded for vector search, while `metadata` supports structured filtering.
+
+## Chunk types
+
+| Type | Content | Metadata |
+|------|---------|----------|
+| `carrier_info` | Carrier name, legal name, NAIC, AM Best, MGA | `carrier`, `documentType` |
+| `named_insured` | Insured name, DBA, FEIN, address | `insuredName`, `documentType` |
+| `coverage` | Coverage name, limit, deductible (one chunk per coverage) | `coverageName`, `limit`, `documentType` |
+| `endorsement` | Endorsement title and content | `endorsementType`, `formNumber`, `documentType` |
+| `exclusion` | Exclusion name and content | `documentType` |
+| `section` | Section title and content | `sectionType`, `documentType` |
+| `premium` | Premium and total cost | `premium`, `documentType` |
+
+Coverages produce one chunk per coverage item — a policy with 12 coverages generates 12 separate coverage chunks. This ensures each coverage can be retrieved independently when answering specific coverage questions.
+
+## Deterministic IDs
+
+Every chunk ID follows the pattern `${documentId}:${type}:${index}`:
+
+```
+doc-123:carrier_info:0
+doc-123:named_insured:0
+doc-123:coverage:0
+doc-123:coverage:1
+doc-123:coverage:2
+doc-123:endorsement:0
+doc-123:endorsement:1
+doc-123:premium:0
+```
+
+This format provides three guarantees:
+
+- **Reproducible** — re-extracting the same document produces the same chunk IDs, enabling upsert patterns without duplicates
+- **Traceable** — citations from the query agent reference chunk IDs, making it easy to trace answers back to their source
+- **Filterable** — the type segment supports efficient filtering by chunk type
+
+## Using chunkDocument
+
+The extraction pipeline returns chunks alongside the document:
+
+```typescript
+import { createExtractor } from "@claritylabs/cl-sdk";
+
+const extractor = createExtractor({
+  generateText,
+  generateObject,
+});
+
+const { document, chunks } = await extractor.extract(pdfBase64, "doc-123");
+
+// document: InsuranceDocument — save to DocumentStore
+await documentStore.save(document);
+
+// chunks: DocumentChunk[] — add to MemoryStore
+await memoryStore.addChunks(chunks);
+```
+
+You can also chunk a document independently:
+
+```typescript
+import { chunkDocument } from "@claritylabs/cl-sdk";
+
+const chunks = chunkDocument(document);
+await memoryStore.addChunks(chunks);
+```
+
+## ConversationTurn
+
+The `MemoryStore` also tracks conversation history as turns:
+
+```typescript
+interface ConversationTurn {
+  id: string;
+  conversationId: string;
+  role: "user" | "assistant" | "tool";
+  content: string;
+  toolName?: string;
+  toolResult?: string;
+  timestamp: number;
+}
+```
+
+The query agent stores each interaction as conversation turns, enabling:
+
+- **Context continuity** — follow-up questions reference earlier turns via `getHistory`
+- **Cross-conversation search** — `searchHistory` finds relevant prior conversations by semantic similarity
+
+## How chunks flow through the system
+
+```
+1. Extraction
+   extractFromPdf() → InsuranceDocument
+   chunkDocument()  → DocumentChunk[]
+
+2. Storage
+   DocumentStore.save(document)
+   MemoryStore.addChunks(chunks)
+
+3. Retrieval (Query Agent)
+   MemoryStore.search("what is the GL limit?", {
+     filter: { type: "coverage" }
+   })
+   → Returns matching coverage chunks
+
+4. Citations
+   Query response references chunk IDs:
+   "The general liability limit is $1,000,000 [doc-123:coverage:0]"
+```
+
+The chunk type filter is particularly useful during query retrieval — when the query agent classifies a question as coverage-related, it can filter to `coverage` chunks to improve precision and reduce noise from unrelated document sections.
