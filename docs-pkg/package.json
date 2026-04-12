@@ -9,7 +9,8 @@
   },
   "files": [
     "**/*.mdx",
-    "meta.json"
+    "meta.json",
+    "README.md"
   ],
   "publishConfig": {
     "registry": "https://registry.npmjs.org",
