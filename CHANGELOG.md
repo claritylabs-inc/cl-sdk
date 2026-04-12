@@ -1,3 +1,10 @@
+## [0.2.1](https://github.com/claritylabs-inc/cl-sdk/compare/v0.2.0...v0.2.1) (2026-04-12)
+
+
+### Bug Fixes
+
+* trigger patch release for README update ([f67d463](https://github.com/claritylabs-inc/cl-sdk/commit/f67d463b88d33f3dba5a275388bc61ee38fcf9bb))
+
 # [0.2.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.1.0...v0.2.0) (2026-04-12)
 
 
