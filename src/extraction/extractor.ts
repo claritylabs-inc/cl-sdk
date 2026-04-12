@@ -25,6 +25,13 @@ export interface ExtractorResult<T> {
 
 /**
  * Run a single focused extractor against a page range of a PDF.
+ *
+ * The PDF content is passed to `generateObject` via `providerOptions`:
+ * - If `convertPdfToImages` is provided: converts pages to images, passes as `providerOptions.images`
+ * - Otherwise: extracts the page range as PDF, passes as `providerOptions.pdfBase64`
+ *
+ * The consumer's `generateObject` callback must handle these fields to deliver
+ * the document content to the model (e.g. as multi-part message content).
  */
 export async function runExtractor<T>(params: ExtractorParams<T>): Promise<ExtractorResult<T>> {
   const {
@@ -40,11 +47,19 @@ export async function runExtractor<T>(params: ExtractorParams<T>): Promise<Extra
     providerOptions,
   } = params;
 
-  const pagesPdf = await extractPageRange(pdfBase64, startPage, endPage);
+  // Build provider options with PDF content for the model
+  const extractorProviderOptions: Record<string, unknown> = { ...providerOptions };
+  let fullPrompt: string;
 
-  const fullPrompt = convertPdfToImages
-    ? `${prompt}\n\n[Document pages ${startPage}-${endPage} are provided as images above.]`
-    : `${prompt}\n\n[Document pages ${startPage}-${endPage} are provided as a PDF file above.]`;
+  if (convertPdfToImages) {
+    const images = await convertPdfToImages(pdfBase64, startPage, endPage);
+    extractorProviderOptions.images = images;
+    fullPrompt = `${prompt}\n\n[Document pages ${startPage}-${endPage} are provided as images.]`;
+  } else {
+    const pagesPdf = await extractPageRange(pdfBase64, startPage, endPage);
+    extractorProviderOptions.pdfBase64 = pagesPdf;
+    fullPrompt = `${prompt}\n\n[Document pages ${startPage}-${endPage} are provided as a PDF file.]`;
+  }
 
   const strictSchema = toStrictSchema(schema) as typeof schema;
 
@@ -53,7 +68,7 @@ export async function runExtractor<T>(params: ExtractorParams<T>): Promise<Extra
       prompt: fullPrompt,
       schema: strictSchema,
       maxTokens,
-      providerOptions,
+      providerOptions: extractorProviderOptions,
     })
   );
 

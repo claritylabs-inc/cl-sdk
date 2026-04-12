@@ -117,7 +117,7 @@ export function createExtractor(config: ExtractorConfig) {
           prompt: buildClassifyPrompt(),
           schema: ClassifyResultSchema,
           maxTokens: 512,
-          providerOptions,
+          providerOptions: { ...providerOptions, pdfBase64 },
         },
         {
           fallback: { documentType: "policy" as const, policyTypes: ["other" as const], confidence: 0 },
@@ -169,7 +169,7 @@ export function createExtractor(config: ExtractorConfig) {
           prompt: buildPlanPrompt(templateHints),
           schema: ExtractionPlanSchema,
           maxTokens: 2048,
-          providerOptions,
+          providerOptions: { ...providerOptions, pdfBase64 },
         },
         {
           fallback: {

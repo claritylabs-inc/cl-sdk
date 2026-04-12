@@ -11,7 +11,16 @@ export type GenerateText = (params: {
   usage?: TokenUsage;
 }>;
 
-/** Callback to generate a typed object from a prompt + Zod schema. Provider-agnostic. */
+/**
+ * Callback to generate a typed object from a prompt + Zod schema. Provider-agnostic.
+ *
+ * The extraction pipeline passes document content via `providerOptions`:
+ * - `providerOptions.pdfBase64` — base64-encoded PDF to include as document context
+ * - `providerOptions.images` — `Array<{ imageBase64: string; mimeType: string }>` page images
+ *
+ * Your callback should check for these fields and include them as multi-part
+ * message content (e.g. file/image parts) when calling your AI provider.
+ */
 export type GenerateObject<T = unknown> = (params: {
   prompt: string;
   system?: string;
