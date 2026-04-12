@@ -1,3 +1,10 @@
+## [0.8.1](https://github.com/claritylabs-inc/cl-sdk/compare/v0.8.0...v0.8.1) (2026-04-12)
+
+
+### Bug Fixes
+
+* pass PDF content through extraction callbacks ([cc4df91](https://github.com/claritylabs-inc/cl-sdk/commit/cc4df91f70b342b10941e8f42f6cf04d4746ea24))
+
 # [0.8.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.7.5...v0.8.0) (2026-04-12)
 
 
