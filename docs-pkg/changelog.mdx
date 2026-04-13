@@ -5,6 +5,32 @@ description: Release history for @claritylabs/cl-sdk
 
 All notable changes to `@claritylabs/cl-sdk` are documented here.
 
+## v0.11.0 — Declarations Promotion & Summary Generation
+
+### Added
+
+- **Declarations-to-schema promotion pass** — new Phase 7 in the extraction pipeline. After assembly, a promotion pass fills top-level typed fields from extracted declarations and coverage arrays. This bridges the gap between detailed extraction (100+ declaration fields, dozens of coverages) and the typed `InsuranceDocument` schema. Runs seven sub-passes with no model calls:
+  - **Carrier field mapping** — `naicNumber` → `carrierNaicNumber`, `admittedStatus` → `carrierAdmittedStatus`, `amBestRating` → `carrierAmBestRating`; builds `insurer` sub-object
+  - **Broker promotion** — declarations broker/agent/producer → `brokerAgency`, `brokerContactName`, `producer`
+  - **Loss payee / mortgage holder promotion** — declarations → `lossPayees[]`, `mortgageHolders[]`
+  - **Location promotion** — groups declaration location fields → `locations[]`
+  - **Limits synthesis** — coverage names → `limits` schedule (GL, auto, umbrella, WC patterns)
+  - **Deductible synthesis** — most common deductible → `deductibles.perOccurrence`; detects SIR and aggregate
+  - **Premium fallback** — declarations premium → `premium` when extractor missed it
+  - New file: `src/extraction/promote.ts`
+- **Summary generation** — new Phase 8. Generates a 1–3 sentence AI summary of the assembled document. Appears as `summary` on the final `InsuranceDocument`. Gracefully skipped on failure.
+  - New file: `src/prompts/coordinator/summarize.ts`
+- **Broker extraction in `carrier_info`** — extractor now captures `brokerAgency`, `brokerContactName`, and `brokerLicenseNumber` alongside carrier data
+- **Loss payee / mortgage holder extraction in `named_insured`** — extractor now captures `lossPayees[]` and `mortgageHolders[]` alongside insured data
+
+### Fixed
+
+- **Field name inconsistency** — carrier extractor output used short names (`naicNumber`, `admittedStatus`) that didn't match the `PolicyDocument` schema's prefixed names (`carrierNaicNumber`, `carrierAdmittedStatus`). The promotion pass now maps these correctly.
+
+### Changed
+
+- Pipeline now runs **10 phases** (was 8): Classify → Page Map → Plan → Extract → Review → Assemble → **Promote** → **Summarize** → Format → Chunk
+
 ## v0.7.x — Schema Compatibility & Resilience
 
 ### Added

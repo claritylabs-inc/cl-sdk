@@ -5,7 +5,7 @@ description: Turn insurance PDFs into structured data with the agentic extractio
 
 import { Callout } from "@/components/ui/callout";
 
-CL SDK's extraction pipeline uses an agentic coordinator/worker pattern to process insurance documents. It classifies the document, maps pages to focused extractors, builds deterministic tasks, dispatches focused extractors in parallel, merges repeated extractor runs, reviews for completeness and quality, and assembles a fully typed `InsuranceDocument` with retrieval-ready chunks.
+CL SDK's extraction pipeline uses an agentic coordinator/worker pattern to process insurance documents. It classifies the document, maps pages to focused extractors, builds deterministic tasks, dispatches focused extractors in parallel, merges repeated extractor runs, reviews for completeness and quality, assembles a fully typed `InsuranceDocument`, promotes declarations data into typed top-level fields, generates a document summary, and produces retrieval-ready chunks.
 
 ## Quick start
 
@@ -33,7 +33,7 @@ CL SDK is provider-agnostic. You supply plain callback functions (`GenerateText`
 
 ## Pipeline overview
 
-The pipeline runs eight phases sequentially. Extraction and review dispatch work in parallel internally.
+The pipeline runs ten phases sequentially. Extraction and review dispatch work in parallel internally.
 
 ```mermaid
 flowchart TD
@@ -44,9 +44,11 @@ flowchart TD
     E --> F[5. Review]
     F -->|gaps found| E
     F -->|complete| G[6. Assemble]
-    G --> H[7. Format]
-    H --> I[8. Chunk]
-    I --> J[InsuranceDocument + DocumentChunks]
+    G --> H[7. Promote]
+    H --> I[8. Summarize]
+    I --> J[9. Format]
+    J --> K[10. Chunk]
+    K --> L[InsuranceDocument + DocumentChunks]
 ```
 
 ## Phase 1: Classify
@@ -127,8 +129,8 @@ If the same extractor runs multiple times, results merge instead of overwrite. T
 
 | Extractor | Domain | What it extracts |
 |-----------|--------|------------------|
-| `carrier_info` | Carrier | Carrier name, NAIC, AM Best, MGA, underwriter, broker |
-| `named_insured` | Insured | Insured name, DBA, address, entity type, FEIN, SIC/NAICS |
+| `carrier_info` | Carrier | Carrier name, NAIC, AM Best, MGA, underwriter, broker/producer agency and license |
+| `named_insured` | Insured | Insured name, DBA, address, entity type, FEIN, SIC/NAICS, loss payees, mortgage holders |
 | `declarations` | Declarations | Line-specific structured declarations (varies by policy type) |
 | `coverage_limits` | Coverages | Coverage names, limits, deductibles, forms, triggers |
 | `endorsements` | Endorsements | Form numbers, titles, types, content, affected parties |
@@ -155,7 +157,37 @@ Typical quality issues include generic placeholders like "shown in declarations"
 
 The assembler merges all extractor results from the in-memory `Map` into a single validated `InsuranceDocument` (either `PolicyDocument` or `QuoteDocument`).
 
-## Phase 7: Format
+## Phase 7: Promote
+
+After assembly, a promotion pass fills in top-level typed fields from data that was extracted but not directly surfaced. The extractors do detailed work — 100+ declaration fields, dozens of coverages — but the initial assembly only spreads flat results. The promotion pass bridges this gap.
+
+The promoter runs seven sub-passes, all pure data transformations with no model calls:
+
+| Sub-pass | What it does |
+|----------|-------------|
+| **Carrier field mapping** | Maps extractor short names to canonical schema names (`naicNumber` → `carrierNaicNumber`, `admittedStatus` → `carrierAdmittedStatus`, `amBestRating` → `carrierAmBestRating`). Also builds the structured `insurer` sub-object. |
+| **Broker promotion** | Scans declarations for broker/agent/producer fields and promotes to `brokerAgency`, `brokerContactName`, `brokerLicenseNumber`, and the structured `producer` object. Falls back to declarations if the carrier extractor didn't capture broker data. |
+| **Loss payee / mortgage holder promotion** | Scans declarations for loss payees and mortgage holders and populates `lossPayees[]` and `mortgageHolders[]` as `EndorsementParty` objects. |
+| **Location promotion** | Groups location-related declaration fields (address, construction type, occupancy, building value, etc.) by location number and populates the `locations[]` array. |
+| **Limits synthesis** | Maps well-known coverage names (e.g. "Each Occurrence", "General Aggregate", "Products/Completed Operations Aggregate") from the `coverages[]` array into the structured `limits` schedule. Handles GL, auto, umbrella, workers comp, and employers liability patterns. |
+| **Deductible synthesis** | Finds the most common deductible across coverages as the base `perOccurrence` deductible. Detects self-insured retentions and aggregate deductibles. |
+| **Premium fallback** | If the premium extractor didn't find premium data (e.g. it was assigned to the wrong pages), promotes premium values from declarations fields. |
+
+All sub-passes are idempotent — they never overwrite fields that already have values from direct extraction.
+
+<Callout type="info">
+  The promotion pass runs in `src/extraction/promote.ts` and is called automatically by `assembleDocument()`. It produces no model calls and adds no latency.
+</Callout>
+
+## Phase 8: Summarize
+
+After promotion, the pipeline generates a 1–3 sentence summary of the document using a model call. The summary captures the essential facts a broker or underwriter would want at a glance: who is insured, by whom, key coverages, policy period, and premium.
+
+The summarizer receives a compact snapshot of the assembled document (not the full PDF), so it adds minimal token cost. The `summary` field appears on the final `InsuranceDocument`.
+
+If summary generation fails, the pipeline continues without it — the field remains `undefined`.
+
+## Phase 9: Format
 
 After assembly, a formatting agent pass cleans up markdown in all content-bearing string fields — section content, subsection content, endorsement content, exclusion content, condition content, and the document summary.
 
@@ -175,7 +207,7 @@ Content fields are collected and batched (up to 20 per model call) for efficient
   The formatter only fixes formatting — it never changes the meaning or substance of extracted content. Dollar amounts, dates, policy numbers, and technical terms are preserved exactly as extracted.
 </Callout>
 
-## Phase 8: Chunk
+## Phase 10: Chunk
 
 The formatted document is broken into retrieval-ready `DocumentChunk` objects via `chunkDocument()`. Chunks inherit the cleaned formatting, ensuring consistent rendering in downstream applications like query results and chat UIs.
 

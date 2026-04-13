@@ -17,6 +17,7 @@ import { type ExtractionPlan } from "../prompts/coordinator/plan";
 import { buildFormInventoryPrompt, FormInventorySchema, type FormInventoryResult } from "../prompts/coordinator/form-inventory";
 import { buildPageMapPrompt, PageMapChunkSchema, formatFormInventoryForPageMap, type PageAssignment } from "../prompts/coordinator/page-map";
 import { buildReviewPrompt, ReviewResultSchema, type ReviewResult } from "../prompts/coordinator/review";
+import { buildSummaryPrompt, SummaryResultSchema, type SummaryResult } from "../prompts/coordinator/summarize";
 import { getExtractor } from "../prompts/extractors/index";
 import { buildExtractionReviewReport, toReviewRoundRecord, type ExtractionReviewReport, type ReviewRoundRecord } from "./quality";
 import { shouldFailQualityGate } from "../core/quality";
@@ -714,7 +715,35 @@ export function createExtractor(config: ExtractorConfig) {
       document,
     });
 
-    // Step 8: Format markdown content
+    // Step 8: Generate summary
+    if (!document.summary) {
+      onProgress?.("Generating document summary...");
+      try {
+        const summaryResponse = await safeGenerateObject(
+          generateObject as GenerateObject<SummaryResult>,
+          {
+            prompt: buildSummaryPrompt(document),
+            schema: SummaryResultSchema,
+            maxTokens: 512,
+            providerOptions,
+          },
+          {
+            fallback: { summary: "" },
+            log,
+            onError: (err, attempt) =>
+              log?.(`Summary attempt ${attempt + 1} failed: ${err instanceof Error ? err.message : String(err)}`),
+          },
+        );
+        trackUsage(summaryResponse.usage);
+        if (summaryResponse.object.summary) {
+          (document as Record<string, unknown>).summary = summaryResponse.object.summary;
+        }
+      } catch (error) {
+        await log?.(`Summary generation failed, skipping: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    // Step 9: Format markdown content
     onProgress?.("Formatting extracted content...");
     const formatResult = await formatDocumentContent(document, generateText, {
       providerOptions,

@@ -5,7 +5,7 @@ description: Working with InsuranceDocument, DocumentChunk, and token usage outp
 
 import { Callout } from "@/components/ui/callout";
 
-The extraction pipeline returns a fully typed `ExtractionResult` containing the structured document, retrieval-ready chunks, cumulative token usage, and usage-reporting metadata. No post-processing or normalization step is needed — results are ready for persistence and querying.
+The extraction pipeline returns a fully typed `ExtractionResult` containing the structured document, retrieval-ready chunks, cumulative token usage, and usage-reporting metadata. The pipeline's promotion pass automatically fills top-level typed fields from declarations data and coverage arrays, so no post-processing or normalization step is needed — results are ready for persistence and querying.
 
 ## ExtractionResult
 
@@ -66,7 +66,7 @@ These fields appear on both `PolicyDocument` and `QuoteDocument`:
 | `policyTypes` | `string[]?` | Lines of business |
 | `premium` | `string?` | Total premium |
 | `totalCost` | `string?` | Premium + taxes + fees |
-| `summary` | `string?` | AI-generated summary |
+| `summary` | `string?` | AI-generated 1–3 sentence overview (populated by the Summarize phase) |
 | `coverages` | `Coverage[]` | Coverage details with limits |
 | `enrichedCoverages` | `EnrichedCoverage[]?` | Detailed coverage data |
 | `endorsements` | `Endorsement[]?` | Structured endorsements |
@@ -74,9 +74,9 @@ These fields appear on both `PolicyDocument` and `QuoteDocument`:
 | `conditions` | `PolicyCondition[]?` | Structured conditions |
 | `declarations` | `Declarations?` | Line-specific structured declarations |
 | `sections` | `Section[]?` | Raw document sections |
-| `limits` | `LimitSchedule?` | Structured limits schedule |
-| `deductibles` | `DeductibleSchedule?` | Structured deductible schedule |
-| `locations` | `InsuredLocation[]?` | Insured premises |
+| `limits` | `LimitSchedule?` | Structured limits schedule (synthesized from coverages by Promote phase) |
+| `deductibles` | `DeductibleSchedule?` | Structured deductible schedule (synthesized from coverages by Promote phase) |
+| `locations` | `InsuredLocation[]?` | Insured premises (promoted from declarations by Promote phase) |
 | `vehicles` | `InsuredVehicle[]?` | Insured vehicles |
 | `classifications` | `ClassificationCode[]?` | Rating class codes |
 | `formInventory` | `FormReference[]?` | All form numbers |
@@ -89,8 +89,8 @@ These fields appear on both `PolicyDocument` and `QuoteDocument`:
 | `regulatoryContacts` | `Contact[]?` | Regulatory contacts |
 | `thirdPartyAdministrators` | `Contact[]?` | TPA contacts |
 | `additionalInsureds` | `EndorsementParty[]?` | Additional insureds |
-| `lossPayees` | `EndorsementParty[]?` | Loss payees |
-| `mortgageHolders` | `EndorsementParty[]?` | Mortgage holders |
+| `lossPayees` | `EndorsementParty[]?` | Loss payees (promoted from declarations and named insured extractor) |
+| `mortgageHolders` | `EndorsementParty[]?` | Mortgage holders (promoted from declarations and named insured extractor) |
 | `paymentPlan` | `PaymentPlan?` | Payment plan details |
 | `lossSummary` | `LossSummary?` | Loss history summary |
 | `individualClaims` | `ClaimRecord[]?` | Individual claim records |
@@ -244,6 +244,20 @@ console.log(`Usage reported for ${usageReporting.callsWithUsage}/${usageReportin
 ```
 
 For per-call tracking, use the `onTokenUsage` callback in `ExtractorConfig`. If some provider calls omit usage, `usageReporting.callsMissingUsage` will make that visible.
+
+## Declarations promotion
+
+The pipeline's Promote phase bridges the gap between raw extraction and typed output. Extractors capture detailed data — often 100+ declaration fields, dozens of coverages with individual limits and deductibles — but the initial assembly only spreads flat results. The promotion pass scans this data and fills typed top-level fields:
+
+- **Carrier fields** — Maps extractor short names (`naicNumber`, `admittedStatus`, `amBestRating`) to canonical schema names (`carrierNaicNumber`, `carrierAdmittedStatus`, `carrierAmBestRating`)
+- **Broker/producer** — Promotes broker data from declarations or carrier extractor into `brokerAgency`, `brokerContactName`, `producer`
+- **Loss payees and mortgage holders** — Promotes from declarations into `lossPayees[]` and `mortgageHolders[]`
+- **Locations** — Groups location-related declaration fields by location number into `locations[]`
+- **Limits schedule** — Synthesizes `limits` from well-known coverage name patterns (GL, auto, umbrella, workers comp)
+- **Deductible schedule** — Finds the base deductible and SIR from coverage data into `deductibles`
+- **Premium fallback** — Promotes premium from declarations if the premium extractor missed it
+
+All sub-passes are idempotent — they never overwrite values that were directly extracted.
 
 ## Null handling
 

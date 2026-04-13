@@ -1,5 +1,6 @@
 import type { PolicyDocument, QuoteDocument, InsuranceDocument } from "../schemas/document";
 import { sanitizeNulls } from "../core/sanitize";
+import { promoteExtractedFields } from "./promote";
 
 /**
  * Assemble extracted results from shared memory into a validated document.
@@ -31,6 +32,13 @@ export function assembleDocument(
     policyTypes: (classify as any)?.policyTypes,
     ...sanitizeNulls(carrier ?? {}),
     ...sanitizeNulls(insured ?? {}),
+    // Map named_insured extractor's loss payees/mortgage holders to EndorsementParty shape
+    ...(Array.isArray((insured as any)?.lossPayees) && (insured as any).lossPayees.length > 0
+      ? { lossPayees: (insured as any).lossPayees.map((lp: any) => ({ ...lp, role: "loss_payee" })) }
+      : {}),
+    ...(Array.isArray((insured as any)?.mortgageHolders) && (insured as any).mortgageHolders.length > 0
+      ? { mortgageHolders: (insured as any).mortgageHolders.map((mh: any) => ({ ...mh, role: "mortgage_holder" })) }
+      : {}),
     ...sanitizeNulls(coverages ?? {}),
     ...sanitizeNulls(premium ?? {}),
     ...sanitizeNulls(supplementary ?? {}),
@@ -43,8 +51,10 @@ export function assembleDocument(
     ...sanitizeNulls(lossHistory ?? {}),
   };
 
+  let doc: InsuranceDocument;
+
   if (documentType === "policy") {
-    return {
+    doc = {
       ...base,
       type: "policy",
       policyNumber: (carrier as any)?.policyNumber ?? (insured as any)?.policyNumber ?? "Unknown",
@@ -52,16 +62,22 @@ export function assembleDocument(
       expirationDate: (carrier as any)?.expirationDate,
       policyTermType: (carrier as any)?.policyTermType,
     } as PolicyDocument;
+  } else {
+    doc = {
+      ...base,
+      type: "quote",
+      quoteNumber: (carrier as any)?.quoteNumber ?? "Unknown",
+      proposedEffectiveDate: (carrier as any)?.proposedEffectiveDate,
+      proposedExpirationDate: (carrier as any)?.proposedExpirationDate,
+      subjectivities: (coverages as any)?.subjectivities,
+      underwritingConditions: (coverages as any)?.underwritingConditions,
+      premiumBreakdown: (premium as any)?.premiumBreakdown,
+    } as QuoteDocument;
   }
 
-  return {
-    ...base,
-    type: "quote",
-    quoteNumber: (carrier as any)?.quoteNumber ?? "Unknown",
-    proposedEffectiveDate: (carrier as any)?.proposedEffectiveDate,
-    proposedExpirationDate: (carrier as any)?.proposedExpirationDate,
-    subjectivities: (coverages as any)?.subjectivities,
-    underwritingConditions: (coverages as any)?.underwritingConditions,
-    premiumBreakdown: (premium as any)?.premiumBreakdown,
-  } as QuoteDocument;
+  // Promote declarations → top-level typed fields, fix field name mapping,
+  // synthesize limits/deductibles from coverages
+  promoteExtractedFields(doc);
+
+  return doc;
 }

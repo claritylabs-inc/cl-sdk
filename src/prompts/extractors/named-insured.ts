@@ -40,6 +40,24 @@ export const NamedInsuredSchema = z.object({
     )
     .optional()
     .describe("Additional named insureds listed on the policy"),
+  lossPayees: z
+    .array(
+      z.object({
+        name: z.string(),
+        address: AddressSchema.optional(),
+      }),
+    )
+    .optional()
+    .describe("Loss payees listed on the policy"),
+  mortgageHolders: z
+    .array(
+      z.object({
+        name: z.string(),
+        address: AddressSchema.optional(),
+      }),
+    )
+    .optional()
+    .describe("Mortgage holders / lienholders listed on the policy"),
 });
 
 export type NamedInsuredResult = z.infer<typeof NamedInsuredSchema>;
@@ -53,8 +71,10 @@ Focus on:
 - FEIN (Federal Employer Identification Number) if listed
 - SIC code and NAICS code if listed
 - ALL additional named insureds with their relationship (subsidiary, affiliate, etc.) and address if provided
+- ALL loss payees with name and address (e.g. "Loss Payee: BMO Bank of Montreal")
+- ALL mortgage holders / lienholders / mortgagees with name and address
 
-Look on the declarations page, named insured schedule, and any endorsements that add or modify named insureds.
+Look on the declarations page, named insured schedule, loss payee schedule, mortgagee schedule, and any endorsements that add or modify named insureds, loss payees, or mortgage holders.
 
 Return JSON only.`;
 }

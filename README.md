@@ -12,7 +12,7 @@ npm install @claritylabs/cl-sdk pdf-lib zod
 
 ## What It Does
 
-- **Document Extraction** — Agentic pipeline with 11 focused extractors that turns insurance PDFs into structured data with page-level provenance and quality gates
+- **Document Extraction** — Agentic pipeline with 11 focused extractors that turns insurance PDFs into structured data with page-level provenance, quality gates, and automatic declarations-to-schema promotion (limits, deductibles, locations, broker, loss payees, summary)
 - **Query Agent** — Citation-backed question answering over stored documents with sub-question decomposition and grounding verification
 - **Application Processing** — Eight focused agents handle intake — field extraction, auto-fill from prior answers, topic-based question batching, and PDF mapping
 - **Agent System** — Composable prompt modules for building insurance-aware conversational agents across email, chat, SMS, Slack, and Discord
