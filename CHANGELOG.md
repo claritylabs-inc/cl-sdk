@@ -1,3 +1,10 @@
+## [0.13.1](https://github.com/claritylabs-inc/cl-sdk/compare/v0.13.0...v0.13.1) (2026-04-13)
+
+
+### Bug Fixes
+
+* deduplicate supplementary facts against already-extracted structured data ([9cccdf0](https://github.com/claritylabs-inc/cl-sdk/commit/9cccdf0c9f40ae96f0deb5b23733b4189551d7cd))
+
 # [0.13.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.12.0...v0.13.0) (2026-04-13)
 
 
