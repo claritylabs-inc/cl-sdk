@@ -1,3 +1,10 @@
+# [0.14.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.13.1...v0.14.0) (2026-04-13)
+
+
+### Features
+
+* comprehensive RAG chunking for all extracted document data ([55116bb](https://github.com/claritylabs-inc/cl-sdk/commit/55116bb53e200ddea76402e1fbb769df2afc1ee3))
+
 ## [0.13.1](https://github.com/claritylabs-inc/cl-sdk/compare/v0.13.0...v0.13.1) (2026-04-13)
 
 
