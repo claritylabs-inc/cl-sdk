@@ -31,6 +31,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install semantic-release (CI-only)
+        run: npm install --no-save semantic-release@25 @semantic-release/changelog@6 @semantic-release/git@10
+
       - name: Build package
         run: npm run build
 
