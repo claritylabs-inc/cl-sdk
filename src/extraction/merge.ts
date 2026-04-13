@@ -5,6 +5,44 @@ function isPresent(value: unknown): boolean {
   return true;
 }
 
+function normalizeText(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function mergeUniqueStrings(existing: unknown, incoming: unknown): string[] | undefined {
+  const values = [
+    ...(Array.isArray(existing) ? existing : []),
+    ...(Array.isArray(incoming) ? incoming : []),
+  ]
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean);
+
+  if (values.length === 0) return undefined;
+
+  const seen = new Set<string>();
+  const merged: string[] = [];
+
+  for (const value of values) {
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(value);
+  }
+
+  return merged;
+}
+
+function pickPreferredText(existing: unknown, incoming: unknown): string | undefined {
+  const current = typeof existing === "string" ? existing.trim() : "";
+  const next = typeof incoming === "string" ? incoming.trim() : "";
+
+  if (!current) return next || undefined;
+  if (!next) return current;
+  if (current.toLowerCase().includes(next.toLowerCase())) return current;
+  if (next.toLowerCase().includes(current.toLowerCase())) return next;
+  return next.length > current.length ? next : current;
+}
+
 function dedupeByKey<T>(items: T[], keyFn: (item: T) => string): T[] {
   const seen = new Set<string>();
   const merged: T[] = [];
@@ -118,6 +156,87 @@ function mergeArrayPayload(
   return merged;
 }
 
+function getMergedAbsoluteFlag(existing: Record<string, unknown>, incoming: Record<string, unknown>): boolean | undefined {
+  const mergedExceptions = mergeUniqueStrings(existing.exceptions, incoming.exceptions);
+  if (mergedExceptions && mergedExceptions.length > 0) return false;
+
+  const existingAbsolute = typeof existing.isAbsolute === "boolean" ? existing.isAbsolute : undefined;
+  const incomingAbsolute = typeof incoming.isAbsolute === "boolean" ? incoming.isAbsolute : undefined;
+
+  if (existingAbsolute === false || incomingAbsolute === false) return false;
+  if (existingAbsolute === true || incomingAbsolute === true) return true;
+  return undefined;
+}
+
+function mergeExclusion(
+  existing: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = mergeShallowPreferPresent(existing, incoming);
+
+  merged.excludedPerils = mergeUniqueStrings(existing.excludedPerils, incoming.excludedPerils);
+  merged.exceptions = mergeUniqueStrings(existing.exceptions, incoming.exceptions);
+  merged.appliesTo = mergeUniqueStrings(existing.appliesTo, incoming.appliesTo);
+  merged.content = pickPreferredText(existing.content, incoming.content);
+  merged.isAbsolute = getMergedAbsoluteFlag(existing, incoming);
+
+  const existingBuyback = typeof existing.buybackAvailable === "boolean" ? existing.buybackAvailable : undefined;
+  const incomingBuyback = typeof incoming.buybackAvailable === "boolean" ? incoming.buybackAvailable : undefined;
+  if (existingBuyback === true || incomingBuyback === true) {
+    merged.buybackAvailable = true;
+  } else if (existingBuyback === false || incomingBuyback === false) {
+    merged.buybackAvailable = false;
+  }
+
+  const existingPage = typeof existing.pageNumber === "number" ? existing.pageNumber : undefined;
+  const incomingPage = typeof incoming.pageNumber === "number" ? incoming.pageNumber : undefined;
+  if (existingPage !== undefined && incomingPage !== undefined) {
+    merged.pageNumber = Math.min(existingPage, incomingPage);
+  } else if (existingPage !== undefined || incomingPage !== undefined) {
+    merged.pageNumber = existingPage ?? incomingPage;
+  }
+
+  return merged;
+}
+
+function exclusionKey(item: Record<string, unknown>): string {
+  const normalizedName = normalizeText(item.name);
+  const normalizedForm = normalizeText(item.formNumber);
+  const normalizedAppliesTo = mergeUniqueStrings(item.appliesTo, [])
+    ?.map((value) => value.toLowerCase())
+    .sort()
+    .join("|") ?? "";
+  const normalizedPerils = mergeUniqueStrings(item.excludedPerils, [])
+    ?.map((value) => value.toLowerCase())
+    .sort()
+    .join("|") ?? "";
+
+  if (normalizedName || normalizedForm) {
+    return ["named", normalizedName, normalizedForm].join("|");
+  }
+
+  return ["fallback", normalizedAppliesTo, normalizedPerils, normalizeText(item.content)].join("|");
+}
+
+function mergeExclusions(
+  existing: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = mergeShallowPreferPresent(existing, incoming);
+  const existingItems = Array.isArray(existing.exclusions) ? existing.exclusions as Record<string, unknown>[] : [];
+  const incomingItems = Array.isArray(incoming.exclusions) ? incoming.exclusions as Record<string, unknown>[] : [];
+
+  const byKey = new Map<string, Record<string, unknown>>();
+  for (const exclusion of [...existingItems, ...incomingItems]) {
+    const key = exclusionKey(exclusion);
+    const current = byKey.get(key);
+    byKey.set(key, current ? mergeExclusion(current, exclusion) : exclusion);
+  }
+
+  merged.exclusions = [...byKey.values()];
+  return merged;
+}
+
 export function mergeExtractorResult(
   extractorName: string,
   existing: unknown,
@@ -148,11 +267,7 @@ export function mergeExtractorResult(
         String(item.pageStart ?? ""),
       ].join("|"));
     case "exclusions":
-      return mergeArrayPayload(current, next, "exclusions", (item) => [
-        String(item.name ?? "").toLowerCase(),
-        String(item.formNumber ?? "").toLowerCase(),
-        String(item.pageNumber ?? ""),
-      ].join("|"));
+      return mergeExclusions(current, next);
     case "conditions":
       return mergeArrayPayload(current, next, "conditions", (item) => [
         String(item.name ?? "").toLowerCase(),

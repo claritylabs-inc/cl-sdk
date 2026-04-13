@@ -179,8 +179,122 @@ describe("createExtractor", () => {
       onProgress: vi.fn(),
       log: vi.fn(),
       providerOptions: { anthropic: {} },
+      reconciliation: { exclusions: true },
     });
     expect(typeof extractor.extract).toBe("function");
+  });
+
+  it("optionally reconciles exclusions after deterministic merge and before review", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValueOnce({
+        object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
+      })
+      .mockResolvedValueOnce({
+        object: { forms: [] },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          pages: [
+            { localPageNumber: 1, extractorNames: ["exclusions"] },
+            { localPageNumber: 2, extractorNames: ["sections"] },
+            { localPageNumber: 3, extractorNames: ["exclusions"] },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          exclusions: [
+            {
+              name: "Nuclear Hazard",
+              excludedPerils: ["Nuclear reaction", "Radioactive contamination"],
+              isAbsolute: false,
+              exceptions: ["If nuclear hazard results in fire, we will pay for the loss or damage caused by that fire."],
+              content: "Reconciled nuclear hazard exclusion",
+              pageNumber: 13,
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        object: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
+      });
+
+    runExtractor
+      .mockResolvedValueOnce({
+        name: "exclusions",
+        data: {
+          exclusions: [
+            {
+              name: "Nuclear Hazard",
+              formNumber: "FORM-A",
+              excludedPerils: ["Nuclear reaction"],
+              isAbsolute: true,
+              content: "Base exclusion text",
+              pageNumber: 13,
+            },
+          ],
+        },
+        usage: { inputTokens: 10, outputTokens: 5 },
+      })
+      .mockResolvedValueOnce({
+        name: "exclusions",
+        data: {
+          exclusions: [
+            {
+              name: "Nuclear Hazard",
+              formNumber: "FORM-B",
+              excludedPerils: ["Radioactive contamination"],
+              isAbsolute: false,
+              exceptions: ["If nuclear hazard results in fire, we will pay for the loss or damage caused by that fire."],
+              content: "Additive carveback text",
+              pageNumber: 14,
+            },
+          ],
+        },
+        usage: { inputTokens: 10, outputTokens: 5 },
+      });
+
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+      reconciliation: { exclusions: true },
+    });
+
+    await extractor.extract("full-pdf-base64", "doc-1");
+
+    expect(safeGenerateObject).toHaveBeenNthCalledWith(
+      4,
+      expect.any(Function),
+      expect.objectContaining({
+        maxTokens: 4096,
+        prompt: expect.stringContaining("reconciling insurance exclusions"),
+      }),
+      expect.any(Object),
+    );
+    expect(safeGenerateObject).toHaveBeenNthCalledWith(
+      5,
+      expect.any(Function),
+      expect.objectContaining({
+        maxTokens: 1536,
+      }),
+      expect.any(Object),
+    );
+    expect(assembleDocument).toHaveBeenCalledWith(
+      "doc-1",
+      "policy",
+      expect.any(Map),
+    );
+    const assembledMemory = assembleDocument.mock.calls[0][2] as Map<string, unknown>;
+    expect(assembledMemory.get("exclusions")).toEqual({
+      exclusions: [
+        expect.objectContaining({
+          name: "Nuclear Hazard",
+          isAbsolute: false,
+          content: "Reconciled nuclear hazard exclusion",
+        }),
+      ],
+    });
   });
 
   it("drops coverage_limits from generic form-language page assignments before planning", async () => {

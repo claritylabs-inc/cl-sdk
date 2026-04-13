@@ -30,16 +30,17 @@ const extractor = createExtractor({
 const { document, chunks, tokenUsage, usageReporting } = await extractor.extract(pdfBase64);
 ```
 
-The pipeline runs eight phases automatically:
+The pipeline runs nine phases automatically:
 
 1. **Classify** -- detect document type (policy/quote) and identify policy types, using the full PDF from `providerOptions.pdfBase64`
 2. **Page map** -- map each page to focused extractors using page-scoped PDFs
 3. **Plan** -- build deterministic extraction tasks from the page map and template hints
 4. **Extract** -- dispatch focused extractors in parallel (concurrency-limited), with each worker receiving a page-scoped PDF from `extractPageRange()` via `providerOptions.pdfBase64` or `providerOptions.images`
-5. **Review** -- check completeness and quality against template requirements, dispatch additional extractors for gaps (up to `maxReviewRounds`)
-6. **Assemble** -- merge all extractor results into an `InsuranceDocument`
-7. **Format** -- clean up markdown formatting in content fields (pipe tables, space-aligned tables, sub-items, whitespace)
-8. **Chunk** -- break the formatted document into `DocumentChunk[]` for vector storage
+5. **Reconcile** -- optionally run focused post-merge reconciliation passes on deterministically merged artifacts such as `exclusions`
+6. **Review** -- check completeness and quality against template requirements, dispatch additional extractors for gaps (up to `maxReviewRounds`)
+7. **Assemble** -- merge all extractor results into an `InsuranceDocument`
+8. **Format** -- clean up markdown formatting in content fields (pipe tables, space-aligned tables, sub-items, whitespace)
+9. **Chunk** -- break the formatted document into `DocumentChunk[]` for vector storage
 
 <Callout type="info">
   The `extract` method accepts an optional `documentId`. If omitted, a timestamped ID is generated automatically.
@@ -143,8 +144,14 @@ interface ExtractorConfig {
    *  For extraction, this is also where the coordinator/worker pipeline passes PDF or image content to your callback.
    */
   providerOptions?: Record<string, unknown>;
+  /** Optional post-merge reconciliation passes for artifacts with deterministic mergers */
+  reconciliation?: {
+    exclusions?: boolean;
+  };
 }
 ```
+
+When `reconciliation.exclusions` is enabled, the coordinator sends the merged exclusions payload through a focused reconciliation prompt before the review phase. This is useful when deterministic merging preserves additive overlap, such as one exclusion entry containing the base exclusion language and another adding an ensuing-fire carveback or exception.
 
 ### `ExtractionResult`
 

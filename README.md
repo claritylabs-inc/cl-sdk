@@ -12,7 +12,7 @@ npm install @claritylabs/cl-sdk pdf-lib zod
 
 ## What It Does
 
-- **Document Extraction** — Agentic pipeline with 11 focused extractors that turns insurance PDFs into structured data with page-level provenance and quality gates
+- **Document Extraction** — Agentic pipeline with 11 focused extractors, deterministic merging, optional reconciliation passes, and quality gates
 - **Query Agent** — Citation-backed question answering over stored documents with sub-question decomposition and grounding verification
 - **Application Processing** — Eight focused agents handle intake — field extraction, auto-fill from prior answers, topic-based question batching, and PDF mapping
 - **Agent System** — Composable prompt modules for building insurance-aware conversational agents across email, chat, SMS, Slack, and Discord
@@ -33,6 +33,9 @@ const extractor = createExtractor({
     const result = await yourProvider.generateStructured({ prompt, system, schema, maxTokens, providerOptions });
     return { object: result.object, usage: result.usage };
   },
+  reconciliation: {
+    exclusions: true,
+  },
 });
 
 const result = await extractor.extract(pdfBase64);
@@ -40,6 +43,8 @@ console.log(result.document);     // Typed InsuranceDocument
 console.log(result.chunks);       // DocumentChunk[] for vector storage
 console.log(result.reviewReport); // Quality gate results
 ```
+
+`reconciliation.exclusions` runs an optional post-merge pass before review to combine overlapping exclusion entries when deterministic merging leaves additive carvebacks or exceptions split across multiple records.
 
 See the [full documentation](https://cl-sdk.claritylabs.inc/docs) for architecture, provider setup, API reference, and more.
 

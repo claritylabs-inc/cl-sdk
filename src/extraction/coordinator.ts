@@ -17,6 +17,8 @@ import { type ExtractionPlan } from "../prompts/coordinator/plan";
 import { buildFormInventoryPrompt, FormInventorySchema, type FormInventoryResult } from "../prompts/coordinator/form-inventory";
 import { buildPageMapPrompt, PageMapChunkSchema, formatFormInventoryForPageMap, type PageAssignment } from "../prompts/coordinator/page-map";
 import { buildReviewPrompt, ReviewResultSchema, type ReviewResult } from "../prompts/coordinator/review";
+import { buildReconcileExclusionsPrompt, ExclusionsSchema } from "../prompts/coordinator/reconcile-exclusions";
+import type { ExclusionsResult } from "../prompts/extractors/exclusions";
 import { getExtractor } from "../prompts/extractors/index";
 import { buildExtractionReviewReport, toReviewRoundRecord, type ExtractionReviewReport, type ReviewRoundRecord } from "./quality";
 import { shouldFailQualityGate } from "../core/quality";
@@ -45,6 +47,9 @@ export interface ExtractorConfig {
   log?: LogFn;
   providerOptions?: Record<string, unknown>;
   qualityGate?: QualityGateMode;
+  reconciliation?: {
+    exclusions?: boolean;
+  };
   /** Optional checkpoint persistence callback. */
   onCheckpointSave?: (checkpoint: PipelineCheckpoint<ExtractionState>) => Promise<void>;
 }
@@ -80,6 +85,7 @@ export function createExtractor(config: ExtractorConfig) {
     log,
     providerOptions,
     qualityGate = "warn",
+    reconciliation,
     onCheckpointSave,
   } = config;
 
@@ -104,6 +110,37 @@ export function createExtractor(config: ExtractorConfig) {
   function mergeMemoryResult(name: string, data: unknown, memory: Map<string, unknown>) {
     const existing = memory.get(name);
     memory.set(name, mergeExtractorResult(name, existing, data));
+  }
+
+  async function reconcileMergedArtifacts(memory: Map<string, unknown>) {
+    if (reconciliation?.exclusions) {
+      const current = memory.get("exclusions") as { exclusions?: Array<Record<string, unknown>> } | undefined;
+      const exclusions = current?.exclusions ?? [];
+
+      if (exclusions.length >= 2) {
+        const currentResult: ExclusionsResult = {
+          exclusions: exclusions as ExclusionsResult["exclusions"],
+        };
+        onProgress?.("Reconciling merged exclusions...");
+        const reconcileResponse = await safeGenerateObject(
+          generateObject as GenerateObject<ExclusionsResult>,
+          {
+            prompt: buildReconcileExclusionsPrompt(JSON.stringify(exclusions, null, 2)),
+            schema: ExclusionsSchema,
+            maxTokens: 4096,
+            providerOptions,
+          },
+          {
+            fallback: currentResult,
+            log,
+            onError: (err, attempt) =>
+              log?.(`Exclusion reconciliation attempt ${attempt + 1} failed: ${err instanceof Error ? err.message : String(err)}`),
+          },
+        );
+        trackUsage(reconcileResponse.usage);
+        memory.set("exclusions", reconcileResponse.object);
+      }
+    }
   }
 
   function summarizeExtraction(memory: Map<string, unknown>): string {
@@ -547,6 +584,8 @@ export function createExtractor(config: ExtractorConfig) {
         }
       }
 
+      await reconcileMergedArtifacts(memory);
+
       await pipelineCtx.save("extract", {
         id,
         pageCount,
@@ -630,6 +669,8 @@ export function createExtractor(config: ExtractorConfig) {
             mergeMemoryResult(result.name, result.data, memory);
           }
         }
+
+        await reconcileMergedArtifacts(memory);
       }
 
       reviewReport = buildExtractionReviewReport({

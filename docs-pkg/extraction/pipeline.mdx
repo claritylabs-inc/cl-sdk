@@ -5,7 +5,7 @@ description: Turn insurance PDFs into structured data with the agentic extractio
 
 import { Callout } from "@/components/ui/callout";
 
-CL SDK's extraction pipeline uses an agentic coordinator/worker pattern to process insurance documents. It classifies the document, maps pages to focused extractors, builds deterministic tasks, dispatches focused extractors in parallel, merges repeated extractor runs, reviews for completeness and quality, and assembles a fully typed `InsuranceDocument` with retrieval-ready chunks.
+CL SDK's extraction pipeline uses an agentic coordinator/worker pattern to process insurance documents. It classifies the document, maps pages to focused extractors, builds deterministic tasks, dispatches focused extractors in parallel, merges repeated extractor runs, optionally reconciles merged artifacts, reviews for completeness and quality, and assembles a fully typed `InsuranceDocument` with retrieval-ready chunks.
 
 ## Quick start
 
@@ -33,7 +33,7 @@ CL SDK is provider-agnostic. You supply plain callback functions (`GenerateText`
 
 ## Pipeline overview
 
-The pipeline runs eight phases sequentially. Extraction and review dispatch work in parallel internally.
+The pipeline runs nine phases sequentially. Extraction and review dispatch work in parallel internally.
 
 ```mermaid
 flowchart TD
@@ -41,11 +41,12 @@ flowchart TD
     B --> C[2. Page Map]
     C --> D[3. Plan]
     D --> E[4. Extract + Merge]
-    E --> F[5. Review]
+    E --> R[5. Optional Reconcile]
+    R --> F[6. Review]
     F -->|gaps found| E
-    F -->|complete| G[6. Assemble]
-    G --> H[7. Format]
-    H --> I[8. Chunk]
+    F -->|complete| G[7. Assemble]
+    G --> H[8. Format]
+    H --> I[9. Chunk]
     I --> J[InsuranceDocument + DocumentChunks]
 ```
 
@@ -123,6 +124,16 @@ Before each worker callback is invoked, the SDK slices the assigned page range w
 
 If the same extractor runs multiple times, results merge instead of overwrite. This is especially important for `coverage_limits`, `endorsements`, `exclusions`, `conditions`, `sections`, and `declarations`.
 
+### Optional reconciliation passes
+
+After deterministic merging, the coordinator can run targeted reconciliation passes for artifacts that benefit from semantic consolidation. These passes are opt-in through `ExtractorConfig.reconciliation`.
+
+The first built-in reconciler is:
+
+- `reconciliation.exclusions` — sends the merged exclusions payload through a focused reconciliation prompt before review. This is intended for cases where deterministic merging leaves additive overlap, such as a base exclusion appearing separately from a carveback, exception, or narrower applicability clause.
+
+This keeps the default pipeline predictable while allowing higher-recall cleanup where deterministic rules alone are not enough.
+
 ### The 11 focused extractors
 
 | Extractor | Domain | What it extracts |
@@ -141,7 +152,17 @@ If the same extractor runs multiple times, results merge instead of overwrite. T
 
 Each extractor is defined with `{ buildPrompt(), schema, maxTokens }` and accessed via `getExtractor(name)`.
 
-## Phase 5: Review
+## Phase 5: Optional Reconciliation
+
+If enabled, reconciliation runs after extraction/merge and again after any review-triggered follow-up extractors. Reconciliation operates on the merged artifact, not on raw page chunks, so it is narrowly scoped and cheaper than adding a second general extraction pass.
+
+Today, exclusions are the main target because insurance forms often restate the same exclusion in slightly different ways across base forms and endorsements. The reconciler is expected to:
+
+- combine semantically identical exclusions
+- preserve additive exceptions, carvebacks, and applicability
+- keep distinct form-specific exclusions separate when they are substantively different
+
+## Phase 6: Review
 
 After initial extraction, a review loop (up to `maxReviewRounds`, default 2) checks completeness and quality against the template's `required` fields. The reviewer compares what has been extracted against what is expected, sees the document again, and receives a summary of extracted outputs and page assignments.
 
@@ -151,11 +172,11 @@ If gaps or quality issues are found, the reviewer generates additional extractio
 
 Typical quality issues include generic placeholders like "shown in declarations", "per schedule", and values that look copied from generic form wording instead of declaration-specific schedules.
 
-## Phase 6: Assemble
+## Phase 7: Assemble
 
 The assembler merges all extractor results from the in-memory `Map` into a single validated `InsuranceDocument` (either `PolicyDocument` or `QuoteDocument`).
 
-## Phase 7: Format
+## Phase 8: Format
 
 After assembly, a formatting agent pass cleans up markdown in all content-bearing string fields — section content, subsection content, endorsement content, exclusion content, condition content, and the document summary.
 
@@ -175,7 +196,7 @@ Content fields are collected and batched (up to 20 per model call) for efficient
   The formatter only fixes formatting — it never changes the meaning or substance of extracted content. Dollar amounts, dates, policy numbers, and technical terms are preserved exactly as extracted.
 </Callout>
 
-## Phase 8: Chunk
+## Phase 9: Chunk
 
 The formatted document is broken into retrieval-ready `DocumentChunk` objects via `chunkDocument()`. Chunks inherit the cleaned formatting, ensuring consistent rendering in downstream applications like query results and chat UIs.
 
@@ -211,6 +232,7 @@ interface ExtractorConfig {
   onProgress?: (message: string) => void;        // Progress message callback
   log?: LogFn;                                   // Debug logging callback
   providerOptions?: Record<string, unknown>;     // Pass-through to provider
+  reconciliation?: { exclusions?: boolean };     // Optional post-merge reconciliation passes
 }
 ```
 
