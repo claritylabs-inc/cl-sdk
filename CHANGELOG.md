@@ -1,3 +1,10 @@
+# [0.12.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.11.0...v0.12.0) (2026-04-13)
+
+
+### Features
+
+* add multimodal query attachment support ([7d3ec7f](https://github.com/claritylabs-inc/cl-sdk/commit/7d3ec7fbfc8282012ec6882f82b2471434ba89fb))
+
 # [0.11.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.10.3...v0.11.0) (2026-04-13)
 
 
