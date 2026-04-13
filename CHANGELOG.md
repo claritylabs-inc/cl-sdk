@@ -1,3 +1,10 @@
+## [0.10.2](https://github.com/claritylabs-inc/cl-sdk/compare/v0.10.1...v0.10.2) (2026-04-13)
+
+
+### Bug Fixes
+
+* trigger docs and mcp publish workflows after releases ([3022b5e](https://github.com/claritylabs-inc/cl-sdk/commit/3022b5e2e311548539871fc1a7629ed17b222abc))
+
 ## [0.10.1](https://github.com/claritylabs-inc/cl-sdk/compare/v0.10.0...v0.10.1) (2026-04-13)
 
 
