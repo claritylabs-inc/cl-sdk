@@ -19,6 +19,7 @@ import { buildPageMapPrompt, PageMapChunkSchema, formatFormInventoryForPageMap, 
 import { buildReviewPrompt, ReviewResultSchema, type ReviewResult } from "../prompts/coordinator/review";
 import { buildSummaryPrompt, SummaryResultSchema, type SummaryResult } from "../prompts/coordinator/summarize";
 import { getExtractor } from "../prompts/extractors/index";
+import { buildSupplementaryPrompt, SupplementarySchema } from "../prompts/extractors/supplementary";
 import { buildExtractionReviewReport, toReviewRoundRecord, type ExtractionReviewReport, type ReviewRoundRecord } from "./quality";
 import { shouldFailQualityGate } from "../core/quality";
 import type { FormInventoryEntry } from "../prompts/coordinator/form-inventory";
@@ -135,6 +136,44 @@ export function createExtractor(config: ExtractorConfig) {
       conditionCount: Array.isArray(conditionResult?.conditions) ? conditionResult.conditions.length : 0,
       sectionCount: Array.isArray(sectionResult?.sections) ? sectionResult.sections.length : 0,
     }, null, 2);
+  }
+
+  function buildAlreadyExtractedSummary(memory: Map<string, unknown>): string {
+    const lines: string[] = [];
+
+    const declarationResult = memory.get("declarations") as Record<string, unknown> | undefined;
+    if (Array.isArray(declarationResult?.fields)) {
+      for (const field of declarationResult.fields as Array<Record<string, unknown>>) {
+        if (field.key && field.value) {
+          const subject = field.subject ? ` [${field.subject}]` : "";
+          lines.push(`- ${field.key}${subject}: ${field.value}`);
+        }
+      }
+    }
+
+    const coverageResult = memory.get("coverage_limits") as Record<string, unknown> | undefined;
+    if (Array.isArray(coverageResult?.coverages)) {
+      for (const cov of coverageResult.coverages as Array<Record<string, unknown>>) {
+        const parts = [cov.name, cov.limit && `limit=${cov.limit}`, cov.deductible && `deductible=${cov.deductible}`].filter(Boolean);
+        if (parts.length > 0) lines.push(`- coverage: ${parts.join(", ")}`);
+      }
+    }
+
+    const namedInsured = memory.get("named_insured") as Record<string, unknown> | undefined;
+    if (namedInsured) {
+      for (const [key, value] of Object.entries(namedInsured)) {
+        if (value && typeof value === "string") lines.push(`- ${key}: ${value}`);
+      }
+    }
+
+    const carrierInfo = memory.get("carrier_info") as Record<string, unknown> | undefined;
+    if (carrierInfo) {
+      for (const [key, value] of Object.entries(carrierInfo)) {
+        if (value && typeof value === "string") lines.push(`- ${key}: ${value}`);
+      }
+    }
+
+    return lines.length > 0 ? lines.join("\n") : "";
   }
 
   function formatPageMapSummary(pageAssignments: PageAssignment[]): string {
@@ -580,20 +619,20 @@ export function createExtractor(config: ExtractorConfig) {
         }
       }
 
-      const supplementaryExtractor = getExtractor("supplementary");
-      if (supplementaryExtractor) {
+      {
         onProgress?.("Extracting supplementary retrieval facts...");
         try {
+          const alreadyExtractedSummary = buildAlreadyExtractedSummary(memory);
           const supplementaryResult = await runExtractor({
             name: "supplementary",
-            prompt: supplementaryExtractor.buildPrompt(),
-            schema: supplementaryExtractor.schema,
+            prompt: buildSupplementaryPrompt(alreadyExtractedSummary),
+            schema: SupplementarySchema,
             pdfBase64,
             startPage: 1,
             endPage: pageCount,
             generateObject,
             convertPdfToImages,
-            maxTokens: supplementaryExtractor.maxTokens ?? 4096,
+            maxTokens: 4096,
             providerOptions,
           });
           trackUsage(supplementaryResult.usage);

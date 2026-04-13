@@ -44,9 +44,13 @@ export const SupplementarySchema = z.object({
 
 export type SupplementaryResult = z.infer<typeof SupplementarySchema>;
 
-export function buildSupplementaryPrompt(): string {
-  return `You are an expert insurance document analyst. Extract supplementary, retrieval-only information from this document.
+export function buildSupplementaryPrompt(alreadyExtractedSummary?: string): string {
+  const exclusionBlock = alreadyExtractedSummary
+    ? `\n\nIMPORTANT — The following facts have ALREADY been captured by prior extraction passes. Do NOT re-extract any of these. Your job is to find ADDITIONAL information that is missing from this list:\n\n${alreadyExtractedSummary}\n`
+    : "";
 
+  return `You are an expert insurance document analyst. Extract supplementary, retrieval-only information from this document that is NOT already captured in the structured extraction results.
+${exclusionBlock}
 Focus on:
 - Regulatory contacts: state department of insurance, regulatory bodies, ombudsman offices — with phone, email, address
 - Claims contacts: how to report claims, claims department contact info, hours of operation
@@ -60,8 +64,10 @@ Focus on:
 Look for regulatory notices, complaint contact sections, claims reporting instructions, and cancellation/nonrenewal provisions throughout the document.
 
 For auxiliaryFacts:
+- ONLY capture facts that are NOT already present in the structured extraction results above.
+- Do not duplicate information that has already been extracted — no policy numbers, insured names, addresses, coverage limits, deductibles, or any other field that appears in the already-extracted data.
 - Capture concrete, policy-specific facts as structured key/value pairs.
-- Prioritize facts that agents may need later but that are often omitted from strict schemas: policyholder names, insured person names, driver names, ages, dates of birth, marital status, garaging information, lienholders, household members, vehicle assignments, schedule row details, and other discrete identifiers.
+- Prioritize facts that agents may need later but that are often omitted from strict schemas: policyholder names, insured person names, driver names, ages, dates of birth, marital status, garaging information, lienholders, household members, vehicle assignments, schedule row details, and other discrete identifiers — but ONLY if they are not already in the extracted data.
 - Use short normalized keys like "policyholder_name", "policyholder_age", "insured_name", "driver_age", "driver_date_of_birth", "garaging_zip", "vehicle_principal_driver".
 - Use subject when the fact belongs to a specific person, vehicle, property, or scheduled item.
 - Do not invent facts.
