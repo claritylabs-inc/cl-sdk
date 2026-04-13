@@ -1,3 +1,10 @@
+# [0.13.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.12.0...v0.13.0) (2026-04-13)
+
+
+### Features
+
+* add hidden supplementary fact extraction pass ([8db7245](https://github.com/claritylabs-inc/cl-sdk/commit/8db7245dbb87b5845bec903151d2cc30e06d610b))
+
 # [0.12.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.11.0...v0.12.0) (2026-04-13)
 
 
