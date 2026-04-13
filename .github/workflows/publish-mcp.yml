@@ -7,6 +7,9 @@ on:
       - "mcp/**"
       - "docs-pkg/**"
       - ".github/workflows/publish-mcp.yml"
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
   workflow_dispatch:
 
 concurrency:
@@ -19,6 +22,7 @@ permissions:
 
 jobs:
   publish:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
