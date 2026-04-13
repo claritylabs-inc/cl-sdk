@@ -1,3 +1,10 @@
+## [0.10.3](https://github.com/claritylabs-inc/cl-sdk/compare/v0.10.2...v0.10.3) (2026-04-13)
+
+
+### Bug Fixes
+
+* broaden section-aware extraction planning and preserve limit types ([b0b0aed](https://github.com/claritylabs-inc/cl-sdk/commit/b0b0aed433b486f36f0fc762cbfdfee2e44aa249))
+
 ## [0.10.2](https://github.com/claritylabs-inc/cl-sdk/compare/v0.10.1...v0.10.2) (2026-04-13)
 
 
