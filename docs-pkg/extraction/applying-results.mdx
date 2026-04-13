@@ -88,6 +88,7 @@ These fields appear on both `PolicyDocument` and `QuoteDocument`:
 | `claimsContacts` | `Contact[]?` | Claims contact information |
 | `regulatoryContacts` | `Contact[]?` | Regulatory contacts |
 | `thirdPartyAdministrators` | `Contact[]?` | TPA contacts |
+| `supplementaryFacts` | `{ key: string; value: string; subject?: string; context?: string }[]?` | Hidden retrieval-only facts captured by the full-document supplementary pass |
 | `additionalInsureds` | `EndorsementParty[]?` | Additional insureds |
 | `lossPayees` | `EndorsementParty[]?` | Loss payees (promoted from declarations and named insured extractor) |
 | `mortgageHolders` | `EndorsementParty[]?` | Mortgage holders (promoted from declarations and named insured extractor) |
@@ -185,7 +186,39 @@ interface DocumentChunk {
 | `declaration` | Declarations extractor | Line-specific declaration data |
 | `loss_history` | Loss history extractor | Loss runs and claim records |
 | `premium` | Premium breakdown extractor | Premium, taxes, fees, payment plans |
-| `supplementary` | Supplementary extractor | Regulatory context, TPA, contacts |
+| `supplementary` | Supplementary extractor | Regulatory context, TPA, contacts, and hidden retrieval-only facts |
+
+### Hidden supplementary facts
+
+The extraction pipeline runs a second-pass `supplementary` extraction across the full document after the page-mapped strict extractors finish. The goal is to preserve useful facts that do not belong in the primary visible schema but are still valuable for memory and retrieval.
+
+Those facts are stored on the document as `supplementaryFacts` and are also embedded into the `supplementary` chunk type for vector search.
+
+Typical examples include:
+
+- `policyholder_name`
+- `insured_name`
+- `driver_age`
+- `driver_date_of_birth`
+- `garaging_zip`
+- `vehicle_principal_driver`
+
+Each fact is a structured record:
+
+```typescript
+{
+  key: string;
+  value: string;
+  subject?: string;
+  context?: string;
+}
+```
+
+Use `subject` to associate the fact with a specific person, vehicle, or scheduled item, and `context` to keep light provenance such as `"Driver Schedule"` or `"Named Insured"`.
+
+<Callout type="info">
+`supplementaryFacts` are intended for hidden memory and retrieval workflows. The SDK stores them on the returned document for persistence, but consumer applications typically should not render them by default.
+</Callout>
 
 ### Deterministic chunk IDs
 

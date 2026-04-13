@@ -5,7 +5,7 @@ description: Turn insurance PDFs into structured data with the agentic extractio
 
 import { Callout } from "@/components/ui/callout";
 
-CL SDK's extraction pipeline uses an agentic coordinator/worker pattern to process insurance documents. It classifies the document, maps pages to focused extractors, builds deterministic tasks, dispatches focused extractors in parallel, merges repeated extractor runs, reviews for completeness and quality, assembles a fully typed `InsuranceDocument`, promotes declarations data into typed top-level fields, generates a document summary, and produces retrieval-ready chunks.
+CL SDK's extraction pipeline uses an agentic coordinator/worker pattern to process insurance documents. It classifies the document, maps pages to focused extractors, builds deterministic tasks, dispatches focused extractors in parallel, runs a full-document supplementary pass for hidden retrieval facts, merges repeated extractor runs, reviews for completeness and quality, assembles a fully typed `InsuranceDocument`, promotes declarations data into typed top-level fields, generates a document summary, and produces retrieval-ready chunks.
 
 ## Quick start
 
@@ -123,7 +123,7 @@ Results accumulate in an in-memory `Map` keyed by extractor name.
 
 Before each worker callback is invoked, the SDK slices the assigned page range with `extractPageRange()` and passes that page-scoped PDF through `providerOptions.pdfBase64`. If `convertPdfToImages` is configured, it passes `providerOptions.images` instead.
 
-If the same extractor runs multiple times, results merge instead of overwrite. This is especially important for `coverage_limits`, `endorsements`, `exclusions`, `conditions`, `sections`, and `declarations`.
+If the same extractor runs multiple times, results merge instead of overwrite. This is especially important for `coverage_limits`, `endorsements`, `exclusions`, `conditions`, `sections`, `declarations`, and `supplementary`.
 
 ### The 11 focused extractors
 
@@ -138,10 +138,31 @@ If the same extractor runs multiple times, results merge instead of overwrite. T
 | `conditions` | Conditions | Duties after loss, cancellation, other insurance, etc. |
 | `premium_breakdown` | Premium | Premiums, taxes, fees, payment plans, rating basis |
 | `loss_history` | Loss history | Loss runs, claim records, experience modification |
-| `supplementary` | Supplementary | Regulatory context, contacts, TPA, claims contacts |
+| `supplementary` | Supplementary | Regulatory context, contacts, TPA, claims contacts, and hidden retrieval-only facts |
 | `sections` | Sections | Raw section content (fallback for unmatched sections) |
 
 Each extractor is defined with `{ buildPrompt(), schema, maxTokens }` and accessed via `getExtractor(name)`.
+
+### Hidden supplementary facts pass
+
+After the page-mapped extractor tasks complete, the coordinator runs a full-document `supplementary` pass across the entire PDF. This pass is intended for memory and retrieval rather than consumer-facing structured output.
+
+The pass still captures regulatory contacts and notice periods, but it also emits `auxiliaryFacts`: normalized key/value facts that do not fit the strict primary schema.
+
+Typical `auxiliaryFacts` include:
+
+- policyholder names
+- insured or driver names
+- ages and dates of birth
+- marital status
+- garaging ZIPs
+- vehicle-to-driver assignments
+- household members
+- lienholder and schedule row details
+
+Each auxiliary fact can include optional `subject` and `context` fields so downstream agents can distinguish document-level facts from person-specific or schedule-specific facts.
+
+This data is assembled onto the final document as `supplementaryFacts` and chunked for vector retrieval, but it is meant to remain hidden from normal consumer UI rendering unless your application explicitly chooses to surface it.
 
 ## Phase 5: Review
 
@@ -210,6 +231,8 @@ Content fields are collected and batched (up to 20 per model call) for efficient
 ## Phase 10: Chunk
 
 The formatted document is broken into retrieval-ready `DocumentChunk` objects via `chunkDocument()`. Chunks inherit the cleaned formatting, ensuring consistent rendering in downstream applications like query results and chat UIs.
+
+If supplementary data exists, `chunkDocument()` also emits a `supplementary` chunk containing claims and regulatory contacts plus any hidden `supplementaryFacts`, making those facts searchable by agents without polluting the primary visible fields.
 
 The final `ExtractionResult` contains:
 

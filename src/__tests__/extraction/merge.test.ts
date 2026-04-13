@@ -112,4 +112,33 @@ describe("mergeExtractorResult", () => {
       "Common Conditions",
     ]);
   });
+
+  it("deduplicates supplementary auxiliary facts and contacts across passes", () => {
+    const merged = mergeExtractorResult(
+      "supplementary",
+      {
+        auxiliaryFacts: [
+          { key: "policyholder_age", value: "42", subject: "Jane Doe", context: "Driver Schedule" },
+        ],
+        claimsContacts: [
+          { name: "Claims Dept", phone: "800-555-1212" },
+        ],
+      },
+      {
+        auxiliaryFacts: [
+          { key: "policyholder_age", value: "42", subject: "Jane Doe", context: "Driver Schedule" },
+          { key: "insured_name", value: "John Doe", context: "Named Insured" },
+        ],
+        claimsContacts: [
+          { name: "Claims Dept", phone: "800-555-1212" },
+        ],
+      },
+    ) as {
+      auxiliaryFacts: Array<{ key: string; value: string }>;
+      claimsContacts: Array<{ name: string; phone: string }>;
+    };
+
+    expect(merged.auxiliaryFacts).toHaveLength(2);
+    expect(merged.claimsContacts).toHaveLength(1);
+  });
 });

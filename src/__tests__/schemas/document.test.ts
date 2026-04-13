@@ -50,10 +50,14 @@ describe("document schemas", () => {
         zip: "62701",
       },
       cancellationNoticeDays: 30,
+      supplementaryFacts: [
+        { key: "policyholder_age", value: "42", subject: "Jane Doe", context: "Driver Schedule" },
+      ],
     };
     const result = PolicyDocumentSchema.parse(enrichedPolicy);
     expect(result.carrierLegalName).toBe("Acme Insurance Co.");
     expect(result.cancellationNoticeDays).toBe(30);
+    expect(result.supplementaryFacts).toHaveLength(1);
   });
 
   it("accepts quote with enriched fields", () => {

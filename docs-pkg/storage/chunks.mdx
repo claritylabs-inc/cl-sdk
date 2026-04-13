@@ -34,8 +34,11 @@ Each chunk is a self-contained piece of information with enough context to be us
 | `exclusion` | Exclusion name and content | `documentType` |
 | `section` | Section title and content | `sectionType`, `documentType` |
 | `premium` | Premium and total cost | `premium`, `documentType` |
+| `supplementary` | Claims/regulatory contacts plus hidden retrieval-only facts | `documentType`, `supplementaryFactCount` |
 
 Coverages produce one chunk per coverage item — a policy with 12 coverages generates 12 separate coverage chunks. This ensures each coverage can be retrieved independently when answering specific coverage questions.
+
+When the extraction pipeline captures `supplementaryFacts`, `chunkDocument()` also emits a single `supplementary` chunk. This chunk is designed for agent retrieval, not for front-end rendering. It lets vector search find facts like driver ages, policyholder names, garaging ZIPs, and vehicle-to-driver assignments without forcing those fields into the strict visible schema.
 
 ## Deterministic IDs
 

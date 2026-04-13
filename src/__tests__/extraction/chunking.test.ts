@@ -34,6 +34,9 @@ describe("chunkDocument", () => {
         pageStart: 10,
       },
     ],
+    supplementaryFacts: [
+      { key: "policyholder_age", value: "42", subject: "Jane Doe", context: "Driver Schedule" },
+    ],
   };
 
   it("creates carrier_info chunk", () => {
@@ -66,5 +69,14 @@ describe("chunkDocument", () => {
     const chunks1 = chunkDocument(doc);
     const chunks2 = chunkDocument(doc);
     expect(chunks1.map((c) => c.id)).toEqual(chunks2.map((c) => c.id));
+  });
+
+  it("creates a supplementary chunk for retrieval-only facts", () => {
+    const chunks = chunkDocument(doc);
+    const supplementary = chunks.find((c) => c.type === "supplementary");
+    expect(supplementary).toBeDefined();
+    expect(supplementary!.text).toContain("policyholder_age: 42");
+    expect(supplementary!.text).toContain("Subject: Jane Doe");
+    expect(supplementary!.metadata.supplementaryFactCount).toBe("1");
   });
 });

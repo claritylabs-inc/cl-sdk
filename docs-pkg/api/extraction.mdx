@@ -47,6 +47,10 @@ The pipeline runs ten phases automatically:
   The `extract` method accepts an optional `documentId`. If omitted, a timestamped ID is generated automatically.
 </Callout>
 
+<Callout type="info">
+  After the page-mapped extractor tasks complete, the coordinator also runs a full-document `supplementary` pass to capture hidden retrieval-only facts such as personal auto driver names, ages, DOBs, garaging details, and other structured key/value facts that do not belong in the strict primary schema.
+</Callout>
+
 ---
 
 ### `chunkDocument(doc)`
@@ -67,6 +71,8 @@ const chunks = chunkDocument(document);
 ```
 
 Chunk types include: `carrier_info`, `named_insured`, `coverage`, `endorsement`, `exclusion`, `condition`, `section`, `declaration`, `loss_history`, `premium`, `supplementary`.
+
+The `supplementary` chunk type includes both contact-style supplementary data and hidden retrieval-only facts from `document.supplementaryFacts`.
 
 ---
 
@@ -166,6 +172,8 @@ interface ExtractionResult {
   };
 }
 ```
+
+`ExtractionResult.document` may include `supplementaryFacts?: Array<{ key: string; value: string; subject?: string; context?: string }>` when the supplementary pass finds extra retrievable facts.
 
 ### `ExtractorDef`
 

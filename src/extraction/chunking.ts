@@ -125,5 +125,44 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
     });
   }
 
+  const supplementaryLines = [
+    ...(doc.claimsContacts?.map((contact) => `Claims Contact: ${[
+      contact.name,
+      contact.phone,
+      contact.email,
+      contact.hours,
+    ].filter(Boolean).join(" | ")}`) ?? []),
+    ...(doc.regulatoryContacts?.map((contact) => `Regulatory Contact: ${[
+      contact.name,
+      contact.phone,
+      contact.email,
+    ].filter(Boolean).join(" | ")}`) ?? []),
+    ...(doc.thirdPartyAdministrators?.map((contact) => `TPA: ${[
+      contact.name,
+      contact.phone,
+      contact.email,
+    ].filter(Boolean).join(" | ")}`) ?? []),
+    ...(doc.supplementaryFacts?.map((fact) => [
+      fact.subject ? `Subject: ${fact.subject}` : null,
+      `${fact.key}: ${fact.value}`,
+      fact.context ? `Context: ${fact.context}` : null,
+    ].filter(Boolean).join(" | ")) ?? []),
+    doc.cancellationNoticeDays != null ? `Cancellation Notice Days: ${doc.cancellationNoticeDays}` : null,
+    doc.nonrenewalNoticeDays != null ? `Nonrenewal Notice Days: ${doc.nonrenewalNoticeDays}` : null,
+  ].filter((line): line is string => Boolean(line));
+
+  if (supplementaryLines.length > 0) {
+    chunks.push({
+      id: `${docId}:supplementary:0`,
+      documentId: docId,
+      type: "supplementary",
+      text: supplementaryLines.join("\n"),
+      metadata: stringMetadata({
+        documentType: doc.type,
+        supplementaryFactCount: doc.supplementaryFacts?.length,
+      }),
+    });
+  }
+
   return chunks;
 }

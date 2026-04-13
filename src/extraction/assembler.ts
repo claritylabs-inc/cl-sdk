@@ -42,6 +42,7 @@ export function assembleDocument(
     ...sanitizeNulls(coverages ?? {}),
     ...sanitizeNulls(premium ?? {}),
     ...sanitizeNulls(supplementary ?? {}),
+    supplementaryFacts: (supplementary as any)?.auxiliaryFacts,
     endorsements: (endorsements as any)?.endorsements,
     exclusions: (exclusions as any)?.exclusions,
     conditions: (conditions as any)?.conditions,

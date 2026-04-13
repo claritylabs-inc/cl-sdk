@@ -74,6 +74,14 @@ export const PremiumLineSchema = z.object({
 });
 export type PremiumLine = z.infer<typeof PremiumLineSchema>;
 
+export const AuxiliaryFactSchema = z.object({
+  key: z.string(),
+  value: z.string(),
+  subject: z.string().optional(),
+  context: z.string().optional(),
+});
+export type AuxiliaryFact = z.infer<typeof AuxiliaryFactSchema>;
+
 // ── Base document fields (shared between policy and quote) ──
 
 const BaseDocumentFields = {
@@ -151,6 +159,7 @@ const BaseDocumentFields = {
 
   cancellationNoticeDays: z.number().optional(),
   nonrenewalNoticeDays: z.number().optional(),
+  supplementaryFacts: z.array(AuxiliaryFactSchema).optional(),
 };
 
 // ── PolicyDocument ──

@@ -159,6 +159,15 @@ describe("createExtractor", () => {
         providerOptions: { anthropic: { thinking: true } },
       }),
     );
+    expect(runExtractor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "supplementary",
+        startPage: 1,
+        endPage: 6,
+        pdfBase64: "full-pdf-base64",
+        providerOptions: { anthropic: { thinking: true } },
+      }),
+    );
     expect(result.reviewReport).toEqual(expect.objectContaining({
       qualityGateStatus: expect.stringMatching(/passed|warning|failed/),
       rounds: expect.any(Array),

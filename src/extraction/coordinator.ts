@@ -580,6 +580,29 @@ export function createExtractor(config: ExtractorConfig) {
         }
       }
 
+      const supplementaryExtractor = getExtractor("supplementary");
+      if (supplementaryExtractor) {
+        onProgress?.("Extracting supplementary retrieval facts...");
+        try {
+          const supplementaryResult = await runExtractor({
+            name: "supplementary",
+            prompt: supplementaryExtractor.buildPrompt(),
+            schema: supplementaryExtractor.schema,
+            pdfBase64,
+            startPage: 1,
+            endPage: pageCount,
+            generateObject,
+            convertPdfToImages,
+            maxTokens: supplementaryExtractor.maxTokens ?? 4096,
+            providerOptions,
+          });
+          trackUsage(supplementaryResult.usage);
+          mergeMemoryResult(supplementaryResult.name, supplementaryResult.data, memory);
+        } catch (error) {
+          await log?.(`Supplementary extractor failed: ${error}`);
+        }
+      }
+
       await pipelineCtx.save("extract", {
         id,
         pageCount,

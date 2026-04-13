@@ -119,6 +119,39 @@ function mergeArrayPayload(
   return merged;
 }
 
+function mergeSupplementary(
+  existing: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = mergeShallowPreferPresent(existing, incoming);
+  const mergeContactArray = (arrayKey: string) => {
+    const existingItems = Array.isArray(existing[arrayKey]) ? existing[arrayKey] as Record<string, unknown>[] : [];
+    const incomingItems = Array.isArray(incoming[arrayKey]) ? incoming[arrayKey] as Record<string, unknown>[] : [];
+    merged[arrayKey] = mergeUniqueObjects(existingItems, incomingItems, (item) => [
+      String(item.name ?? "").toLowerCase(),
+      String(item.phone ?? "").toLowerCase(),
+      String(item.email ?? "").toLowerCase(),
+      String(item.address ?? "").toLowerCase(),
+      String(item.type ?? "").toLowerCase(),
+    ].join("|"));
+  };
+
+  mergeContactArray("regulatoryContacts");
+  mergeContactArray("claimsContacts");
+  mergeContactArray("thirdPartyAdministrators");
+
+  const existingFacts = Array.isArray(existing.auxiliaryFacts) ? existing.auxiliaryFacts as Record<string, unknown>[] : [];
+  const incomingFacts = Array.isArray(incoming.auxiliaryFacts) ? incoming.auxiliaryFacts as Record<string, unknown>[] : [];
+  merged.auxiliaryFacts = mergeUniqueObjects(existingFacts, incomingFacts, (item) => [
+    String(item.key ?? "").toLowerCase(),
+    String(item.value ?? "").toLowerCase(),
+    String(item.subject ?? "").toLowerCase(),
+    String(item.context ?? "").toLowerCase(),
+  ].join("|"));
+
+  return merged;
+}
+
 export function mergeExtractorResult(
   extractorName: string,
   existing: unknown,
@@ -135,9 +168,10 @@ export function mergeExtractorResult(
     case "carrier_info":
     case "named_insured":
     case "loss_history":
-    case "supplementary":
     case "premium_breakdown":
       return mergeShallowPreferPresent(current, next);
+    case "supplementary":
+      return mergeSupplementary(current, next);
     case "coverage_limits":
       return mergeCoverageLimits(current, next);
     case "declarations":
