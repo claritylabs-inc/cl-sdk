@@ -1,3 +1,10 @@
+## [0.10.1](https://github.com/claritylabs-inc/cl-sdk/compare/v0.10.0...v0.10.1) (2026-04-13)
+
+
+### Bug Fixes
+
+* trigger release for exclusion reconciliation ([82a4a16](https://github.com/claritylabs-inc/cl-sdk/commit/82a4a1631baac73a58412946827b8c9ee6f3b479))
+
 # [0.10.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.9.0...v0.10.0) (2026-04-12)
 
 
