@@ -72,6 +72,7 @@ For extraction calls, CL SDK uses `providerOptions` to carry document content in
 - classify and plan calls include the full PDF in `providerOptions.pdfBase64`
 - worker extractor calls include a page-scoped PDF in `providerOptions.pdfBase64`
 - if you configure `convertPdfToImages`, worker extractor calls include `providerOptions.images` instead
+- multimodal query calls may include `providerOptions.attachments`, `providerOptions.pdfBase64`, and `providerOptions.images`
 
 Your callback must attach those values to the actual model request. Prompt text alone does not provide the document.
 
@@ -124,6 +125,31 @@ const result = await agent.query({
 console.log(result.answer);     // "The General Liability deductible is $1,000 per occurrence."
 console.log(result.citations);  // [{ chunkId: "...", text: "...", pages: [3] }]
 ```
+
+You can also attach inbound context directly to the question:
+
+```typescript
+const result = await agent.query({
+  question: "What should we ask next about this damage, and is there any policy context?",
+  conversationId: "conv-1",
+  attachments: [
+    {
+      kind: "image",
+      name: "damage.jpg",
+      mimeType: "image/jpeg",
+      base64: damagePhotoBase64,
+    },
+    {
+      kind: "pdf",
+      name: "coi.pdf",
+      mimeType: "application/pdf",
+      base64: coiPdfBase64,
+    },
+  ],
+});
+```
+
+The query pipeline interprets those attachments into evidence first, then combines that evidence with stored document chunks and conversation history before answering.
 
 ## Process an application
 

@@ -8,6 +8,7 @@ description: Complete reference for the query agent pipeline
 ### `createQueryAgent(config)`
 
 Create a query agent that answers questions against stored documents with citation-backed provenance.
+It also supports per-query multimodal attachments such as photos, PDFs, and raw text snippets.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -40,6 +41,7 @@ Run the full query pipeline: classify, retrieve, reason, verify, respond.
 | `input.question` | `string` | The user's question |
 | `input.conversationId` | `string?` | Conversation ID for history context |
 | `input.context` | `AgentContext?` | Platform and user context |
+| `input.attachments` | `QueryAttachment[]?` | Optional inbound files or text context to interpret and combine with stored evidence |
 
 **Returns:** `Promise<QueryOutput>`
 
@@ -55,6 +57,36 @@ console.log(result.confidence);  // 0-1 confidence score
 console.log(result.intent);      // "policy_question"
 console.log(result.followUp);    // Optional follow-up suggestion
 console.log(result.tokenUsage);  // { inputTokens, outputTokens }
+console.log(result.reviewReport); // Deterministic grounding/citation quality report
+```
+
+### Multimodal example
+
+```typescript
+const result = await agent.query({
+  question: "What else do we need to know about this, and does it match the stored policy?",
+  conversationId: "conv-123",
+  attachments: [
+    {
+      kind: "image",
+      name: "wall-damage.jpg",
+      mimeType: "image/jpeg",
+      base64: damagePhotoBase64,
+      description: "Photo the tenant texted in",
+    },
+    {
+      kind: "pdf",
+      name: "coi.pdf",
+      mimeType: "application/pdf",
+      base64: coiPdfBase64,
+    },
+    {
+      kind: "text",
+      name: "email-context",
+      text: "Carrier asked whether the certificate holder needs waiver of subrogation.",
+    },
+  ],
+});
 ```
 
 ---
@@ -76,6 +108,7 @@ interface QueryConfig {
   onProgress?: (message: string) => void;
   log?: LogFn;
   providerOptions?: Record<string, unknown>;
+  qualityGate?: "off" | "warn" | "error";
 }
 ```
 
@@ -86,6 +119,21 @@ interface QueryInput {
   question: string;
   conversationId?: string;
   context?: AgentContext;
+  attachments?: QueryAttachment[];
+}
+```
+
+### `QueryAttachment`
+
+```typescript
+interface QueryAttachment {
+  id?: string;
+  kind: "image" | "pdf" | "text";
+  name?: string;
+  mimeType?: string;
+  base64?: string;      // image/pdf content
+  text?: string;        // text attachment content
+  description?: string; // optional caller hint
 }
 ```
 
@@ -99,6 +147,7 @@ interface QueryOutput {
   confidence: number;
   followUp?: string;
   tokenUsage: TokenUsage;
+  reviewReport: QueryReviewReport;
 }
 ```
 
@@ -133,9 +182,13 @@ type QueryIntent =
 
 These are exported for advanced use (custom pipelines, testing):
 
-### `buildQueryClassifyPrompt(question, conversationContext?)`
+### `buildQueryClassifyPrompt(question, conversationContext?, attachmentContext?)`
 
 Build the classification prompt for intent detection and sub-question decomposition.
+
+### `buildInterpretAttachmentPrompt(question, attachment)`
+
+Build the attachment interpretation prompt used for inbound image/PDF/text context.
 
 ### `buildReasonPrompt(subQuestion, intent, evidence)`
 
@@ -148,3 +201,13 @@ Build the verification prompt for grounding, consistency, and completeness check
 ### `buildRespondPrompt(originalQuestion, subAnswersJson, platform?)`
 
 Build the final response formatting prompt with platform-specific formatting guidance.
+
+## Provider callback requirements for attachments
+
+The query agent can pass multimodal payloads through `providerOptions` when attachments are present:
+
+- `providerOptions.attachments` for the raw attachment list
+- `providerOptions.pdfBase64` for PDF attachments
+- `providerOptions.images` for image attachments
+
+Your `generateObject` callback must translate those fields into actual provider-specific file or image parts. If it does not, attachment-aware queries will silently degrade into text-only behavior.

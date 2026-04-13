@@ -23,7 +23,7 @@ interface Citation {
 
 ### 1. Retrieval produces evidence items
 
-Each evidence item carries a source reference — chunk ID for semantic search results, document ID for structured lookups, or turn ID for conversation history.
+Each evidence item carries a source reference — chunk ID for semantic search results, document ID for structured lookups, turn ID for conversation history, or an attachment ID for inbound multimodal context.
 
 ### 2. Reasoners create citations from evidence
 
@@ -56,6 +56,8 @@ for (const cite of result.citations) {
   console.log(`[${cite.index}] ${cite.documentId} — "${cite.quote}"`);
 }
 ```
+
+For attachment-derived citations, `chunkId` and `documentId` may refer to a synthetic attachment source such as `attachment-1`. That still gives you a stable provenance handle you can map back to the original inbound file in your application layer.
 
 ## Query intents
 

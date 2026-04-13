@@ -13,7 +13,7 @@ npm install @claritylabs/cl-sdk pdf-lib zod
 ## What It Does
 
 - **Document Extraction** — Agentic pipeline with 11 focused extractors that turns insurance PDFs into structured data with page-level provenance, quality gates, and automatic declarations-to-schema promotion (limits, deductibles, locations, broker, loss payees, summary)
-- **Query Agent** — Citation-backed question answering over stored documents with sub-question decomposition and grounding verification
+- **Query Agent** — Citation-backed question answering over stored documents and inbound photos/PDFs/text with sub-question decomposition and grounding verification
 - **Application Processing** — Eight focused agents handle intake — field extraction, auto-fill from prior answers, topic-based question batching, and PDF mapping
 - **Agent System** — Composable prompt modules for building insurance-aware conversational agents across email, chat, SMS, Slack, and Discord
 - **Storage** — DocumentStore and MemoryStore interfaces with SQLite reference implementation
@@ -42,6 +42,54 @@ console.log(result.reviewReport); // Quality gate results
 ```
 
 See the [full documentation](https://cl-sdk.claritylabs.inc/docs) for architecture, provider setup, API reference, and more.
+
+## Multimodal Querying
+
+`createQueryAgent()` now accepts user-supplied attachments on each query. This is meant for flows like:
+
+- an SMS user texting a photo of apartment damage
+- a broker or insured emailing a COI or other PDF for context
+- a caller pasting text from an email thread alongside a question
+
+```typescript
+import { createQueryAgent } from "@claritylabs/cl-sdk";
+
+const agent = createQueryAgent({
+  generateText,
+  generateObject,
+  documentStore,
+  memoryStore,
+});
+
+const result = await agent.query({
+  question: "What details do we still need, and does this relate to the stored policy?",
+  conversationId: "conv-123",
+  attachments: [
+    {
+      kind: "image",
+      name: "damage.jpg",
+      mimeType: "image/jpeg",
+      base64: damagePhotoBase64,
+    },
+    {
+      kind: "pdf",
+      name: "coi.pdf",
+      mimeType: "application/pdf",
+      base64: coiPdfBase64,
+    },
+  ],
+});
+```
+
+The query pipeline first interprets each attachment into structured evidence, then combines that with retrieved chunks, document lookups, and conversation history before answering.
+
+Important: your `generateObject` callback must actually forward multimodal payloads from `providerOptions` to the model request:
+
+- `providerOptions.attachments` for generic image/pdf/text inputs
+- `providerOptions.pdfBase64` for PDF inputs
+- `providerOptions.images` for image inputs
+
+If your callback ignores those fields, the model will only see the text prompt.
 
 ## Development
 

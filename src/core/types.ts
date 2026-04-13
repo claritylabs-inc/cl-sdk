@@ -14,9 +14,11 @@ export type GenerateText = (params: {
 /**
  * Callback to generate a typed object from a prompt + Zod schema. Provider-agnostic.
  *
- * The extraction pipeline passes document content via `providerOptions`:
+ * The extraction and query pipelines may pass document content via `providerOptions`:
  * - `providerOptions.pdfBase64` — base64-encoded PDF to include as document context
  * - `providerOptions.images` — `Array<{ imageBase64: string; mimeType: string }>` page images
+ * - `providerOptions.attachments` — generic multimodal attachments such as
+ *   `Array<{ kind: "image" | "pdf" | "text"; name?: string; mimeType?: string; base64?: string; text?: string; description?: string }>`
  *
  * Your callback should check for these fields and include them as multi-part
  * message content (e.g. file/image parts) when calling your AI provider.

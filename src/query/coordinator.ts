@@ -19,10 +19,12 @@ import { verify, type VerifierConfig } from "./verifier";
 import type { QueryConfig, QueryInput, QueryOutput } from "./types";
 import { buildQueryReviewReport, type QueryReviewReport, type QueryVerifyRoundRecord } from "./quality";
 import { shouldFailQualityGate } from "../core/quality";
+import { interpretAttachments } from "./multimodal";
 
 /** Internal state checkpointed between query phases. */
 export interface QueryState {
   classification?: QueryClassifyResult;
+  attachmentEvidence?: EvidenceItem[];
   evidence?: EvidenceItem[];
   subAnswers?: SubAnswer[];
   reviewReport?: QueryReviewReport;
@@ -57,16 +59,28 @@ export function createQueryAgent(config: QueryConfig) {
 
   async function query(input: QueryInput): Promise<QueryOutput> {
     totalUsage = { inputTokens: 0, outputTokens: 0 };
-    const { question, conversationId, context } = input;
+    const { question, conversationId, context, attachments } = input;
 
     const pipelineCtx = createPipelineContext<QueryState>({
       id: `query-${Date.now()}`,
     });
 
+    // -- Phase 0: Interpret attachments --
+    onProgress?.("Interpreting attachments...");
+    const { evidence: attachmentEvidence, contextSummary: attachmentContext } = await interpretAttachments({
+      attachments,
+      question,
+      generateObject,
+      providerOptions,
+      log,
+      onUsage: trackUsage,
+    });
+    await pipelineCtx.save("attachments", { attachmentEvidence });
+
     // -- Phase 1: Classify --
     onProgress?.("Classifying query...");
-    const classification = await classify(question, conversationId);
-    await pipelineCtx.save("classify", { classification });
+    const classification = await classify(question, conversationId, attachmentContext);
+    await pipelineCtx.save("classify", { classification, attachmentEvidence });
 
     // -- Phase 2: Retrieve (parallel) --
     onProgress?.(`Retrieving evidence for ${classification.subQuestions.length} sub-question(s)...`);
@@ -83,8 +97,8 @@ export function createQueryAgent(config: QueryConfig) {
       ),
     );
 
-    const allEvidence: EvidenceItem[] = retrievalResults.flatMap((r) => r.evidence);
-    await pipelineCtx.save("retrieve", { classification, evidence: allEvidence });
+    const allEvidence: EvidenceItem[] = [...attachmentEvidence, ...retrievalResults.flatMap((r) => r.evidence)];
+    await pipelineCtx.save("retrieve", { classification, attachmentEvidence, evidence: allEvidence });
 
     // -- Phase 3: Reason (parallel, with isolation) --
     onProgress?.("Reasoning over evidence...");
@@ -97,7 +111,7 @@ export function createQueryAgent(config: QueryConfig) {
           const { subAnswer, usage } = await reason(
             sq.question,
             sq.intent,
-            retrievalResults[i].evidence,
+            [...attachmentEvidence, ...retrievalResults[i].evidence],
             reasonerConfig,
           );
           trackUsage(usage);
@@ -124,7 +138,7 @@ export function createQueryAgent(config: QueryConfig) {
       }
     }
 
-    await pipelineCtx.save("reason", { classification, evidence: allEvidence, subAnswers });
+    await pipelineCtx.save("reason", { classification, attachmentEvidence, evidence: allEvidence, subAnswers });
 
     // -- Phase 4: Verify (with retry loop) --
     onProgress?.("Verifying answer grounding...");
@@ -182,7 +196,7 @@ export function createQueryAgent(config: QueryConfig) {
                 const { subAnswer, usage: u } = await reason(
                   sq.question,
                   sq.intent,
-                  retryRetrievals[i].evidence,
+                  [...attachmentEvidence, ...retryRetrievals[i].evidence],
                   reasonerConfig,
                 );
                 trackUsage(u);
@@ -225,6 +239,7 @@ export function createQueryAgent(config: QueryConfig) {
 
     await pipelineCtx.save("review", {
       classification,
+      attachmentEvidence,
       evidence: allEvidence,
       subAnswers,
       reviewReport,
@@ -266,6 +281,7 @@ export function createQueryAgent(config: QueryConfig) {
   async function classify(
     question: string,
     conversationId?: string,
+    attachmentContext?: string,
   ): Promise<QueryClassifyResult> {
     let conversationContext: string | undefined;
     if (conversationId) {
@@ -281,7 +297,7 @@ export function createQueryAgent(config: QueryConfig) {
       }
     }
 
-    const prompt = buildQueryClassifyPrompt(question, conversationContext);
+    const prompt = buildQueryClassifyPrompt(question, conversationContext, attachmentContext);
 
     const { object, usage } = await safeGenerateObject(
       generateObject as GenerateObject<QueryClassifyResult>,

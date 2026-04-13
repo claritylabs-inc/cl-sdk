@@ -11,6 +11,22 @@ export const QueryIntentSchema = z.enum([
 ]);
 export type QueryIntent = z.infer<typeof QueryIntentSchema>;
 
+// ── Query Attachments ──
+
+export const QueryAttachmentKindSchema = z.enum(["image", "pdf", "text"]);
+export type QueryAttachmentKind = z.infer<typeof QueryAttachmentKindSchema>;
+
+export const QueryAttachmentSchema = z.object({
+  id: z.string().optional().describe("Optional stable attachment ID from the caller"),
+  kind: QueryAttachmentKindSchema,
+  name: z.string().optional().describe("Original filename or user-facing label"),
+  mimeType: z.string().optional().describe("MIME type such as image/jpeg or application/pdf"),
+  base64: z.string().optional().describe("Base64-encoded file content for image/pdf attachments"),
+  text: z.string().optional().describe("Plain-text attachment content when available"),
+  description: z.string().optional().describe("Caller-provided description of the attachment"),
+});
+export type QueryAttachment = z.infer<typeof QueryAttachmentSchema>;
+
 // ── Classify Result (Phase 1 output) ──
 
 export const SubQuestionSchema = z.object({
@@ -45,15 +61,30 @@ export type QueryClassifyResult = z.infer<typeof QueryClassifyResultSchema>;
 // ── Evidence (Phase 2 output) ──
 
 export const EvidenceItemSchema = z.object({
-  source: z.enum(["chunk", "document", "conversation"]),
+  source: z.enum(["chunk", "document", "conversation", "attachment"]),
   chunkId: z.string().optional(),
   documentId: z.string().optional(),
   turnId: z.string().optional(),
+  attachmentId: z.string().optional(),
   text: z.string().describe("Text excerpt from the source"),
   relevance: z.number().min(0).max(1),
   metadata: z.array(z.object({ key: z.string(), value: z.string() })).optional(),
 });
 export type EvidenceItem = z.infer<typeof EvidenceItemSchema>;
+
+export const AttachmentInterpretationSchema = z.object({
+  summary: z
+    .string()
+    .describe("Concise summary of what the attachment shows or contains"),
+  extractedFacts: z
+    .array(z.string())
+    .describe("Specific observable or document facts grounded in the attachment"),
+  recommendedFocus: z
+    .array(z.string())
+    .describe("Important details to incorporate when answering follow-up questions"),
+  confidence: z.number().min(0).max(1),
+});
+export type AttachmentInterpretation = z.infer<typeof AttachmentInterpretationSchema>;
 
 export const RetrievalResultSchema = z.object({
   subQuestion: z.string(),

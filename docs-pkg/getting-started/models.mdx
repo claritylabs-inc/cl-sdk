@@ -40,12 +40,14 @@ type ConvertPdfToImagesFn = (
 ) => Promise<Array<{ imageBase64: string; mimeType: string }>>;
 ```
 
-For extraction calls, `providerOptions` is also the document transport layer:
+For extraction and multimodal query calls, `providerOptions` is also the document transport layer:
 
 - `providerOptions.pdfBase64` carries the PDF to include as a file/document part
 - `providerOptions.images` carries rendered page images to include as image parts
+- `providerOptions.attachments` carries generic query attachments such as inbound photos, PDFs, and text snippets
 - classify and plan receive the full PDF
 - worker extractors receive a page-scoped PDF produced by `extractPageRange()`, unless `convertPdfToImages` is enabled
+- query attachment interpretation calls may set both `providerOptions.attachments` and the convenience fields above for the current attachment
 
 ## Provider examples
 
@@ -83,6 +85,30 @@ For extraction calls, `providerOptions` is also the document transport layer:
             ...(providerOptions?.pdfBase64
               ? [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: providerOptions.pdfBase64 } }]
               : []),
+            ...((providerOptions?.attachments as Array<{
+              kind: "image" | "pdf" | "text";
+              name?: string;
+              mimeType?: string;
+              base64?: string;
+              text?: string;
+            }> | undefined)?.flatMap((attachment) => {
+              if (attachment.kind === "pdf" && attachment.base64) {
+                return [{
+                  type: "document" as const,
+                  source: { type: "base64" as const, media_type: attachment.mimeType ?? "application/pdf", data: attachment.base64 },
+                }];
+              }
+              if (attachment.kind === "image" && attachment.base64) {
+                return [{
+                  type: "image" as const,
+                  source: { type: "base64" as const, media_type: attachment.mimeType ?? "image/jpeg", data: attachment.base64 },
+                }];
+              }
+              if (attachment.kind === "text" && attachment.text) {
+                return [{ type: "text" as const, text: attachment.text }];
+              }
+              return [];
+            }) ?? []),
             ...((providerOptions?.images as Array<{ imageBase64: string; mimeType: string }> | undefined)?.map((img) => ({
               type: "image",
               source: { type: "base64", media_type: img.mimeType, data: img.imageBase64 },
@@ -140,6 +166,33 @@ For extraction calls, `providerOptions` is also the document transport layer:
               ...(providerOptions?.pdfBase64
                 ? [{ type: "file" as const, file: { filename: "document.pdf", file_data: `data:application/pdf;base64,${providerOptions.pdfBase64}` } }]
                 : []),
+              ...((providerOptions?.attachments as Array<{
+                kind: "image" | "pdf" | "text";
+                name?: string;
+                mimeType?: string;
+                base64?: string;
+                text?: string;
+              }> | undefined)?.flatMap((attachment) => {
+                if (attachment.kind === "pdf" && attachment.base64) {
+                  return [{
+                    type: "file" as const,
+                    file: {
+                      filename: attachment.name ?? "attachment.pdf",
+                      file_data: `data:${attachment.mimeType ?? "application/pdf"};base64,${attachment.base64}`,
+                    },
+                  }];
+                }
+                if (attachment.kind === "image" && attachment.base64) {
+                  return [{
+                    type: "image_url" as const,
+                    image_url: { url: `data:${attachment.mimeType ?? "image/jpeg"};base64,${attachment.base64}` },
+                  }];
+                }
+                if (attachment.kind === "text" && attachment.text) {
+                  return [{ type: "text" as const, text: attachment.text }];
+                }
+                return [];
+              }) ?? []),
               ...((providerOptions?.images as Array<{ imageBase64: string; mimeType: string }> | undefined)?.map((img) => ({
                 type: "image_url" as const,
                 image_url: { url: `data:${img.mimeType};base64,${img.imageBase64}` },
@@ -253,7 +306,17 @@ const generateText = async ({ prompt, system, maxTokens, providerOptions }) => {
 
 The SDK passes `providerOptions` from its internal pipeline calls, so your callback can decide how to handle them.
 
-For the extraction pipeline, that includes the document itself. If your callback ignores `providerOptions.pdfBase64` or `providerOptions.images`, the model will not actually see the PDF pages even if the prompt says they were provided.
+For the extraction pipeline, that includes the document itself. For the query pipeline, that can also include inbound attachments. If your callback ignores `providerOptions.pdfBase64`, `providerOptions.images`, or `providerOptions.attachments`, the model will not actually see those files even if the prompt says they were provided.
+
+## Multimodal query callbacks
+
+When you call `agent.query({ attachments: [...] })`, CL SDK interprets those attachments before classification and reasoning. During that interpretation step, your `generateObject` callback may receive:
+
+- `providerOptions.attachments` with the raw attachment metadata/content
+- `providerOptions.pdfBase64` for a PDF attachment
+- `providerOptions.images` for an image attachment
+
+That means your callback should support both extraction-style document transport and query-style inbound attachment transport if you want multimodal QA to work.
 
 ## When each callback is needed
 

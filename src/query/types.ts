@@ -2,7 +2,7 @@ import type { GenerateText, GenerateObject, TokenUsage, LogFn } from "../core/ty
 import type { QualityGateMode } from "../core/quality";
 import type { DocumentStore, MemoryStore } from "../storage/interfaces";
 import type { AgentContext } from "../schemas/platform";
-import type { QueryResult, Citation, QueryIntent } from "../schemas/query";
+import type { QueryResult, Citation, QueryIntent, QueryAttachment } from "../schemas/query";
 import type { QueryReviewReport } from "./quality";
 
 export interface QueryConfig {
@@ -24,6 +24,7 @@ export interface QueryInput {
   question: string;
   conversationId?: string;
   context?: AgentContext;
+  attachments?: QueryAttachment[];
 }
 
 export interface QueryOutput extends QueryResult {
@@ -31,4 +32,4 @@ export interface QueryOutput extends QueryResult {
   reviewReport: QueryReviewReport;
 }
 
-export type { QueryResult, Citation, QueryIntent };
+export type { QueryResult, Citation, QueryIntent, QueryAttachment };

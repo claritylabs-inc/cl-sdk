@@ -79,6 +79,7 @@ export * from "./schemas/query";
 
 // ── Query prompts ──
 export { buildQueryClassifyPrompt } from "./prompts/query/classify";
+export { buildInterpretAttachmentPrompt } from "./prompts/query/interpret-attachment";
 export { buildReasonPrompt } from "./prompts/query/reason";
 export { buildVerifyPrompt } from "./prompts/query/verify";
 export { buildRespondPrompt } from "./prompts/query/respond";

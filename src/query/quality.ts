@@ -22,7 +22,7 @@ export interface QueryReviewReport extends UnifiedQualityReport<QueryReviewIssue
 }
 
 function sourceIdForEvidence(evidence: EvidenceItem): string | undefined {
-  return evidence.chunkId ?? evidence.documentId ?? evidence.turnId;
+  return evidence.chunkId ?? evidence.documentId ?? evidence.turnId ?? evidence.attachmentId;
 }
 
 function citationSourceId(citation: Citation): string | undefined {

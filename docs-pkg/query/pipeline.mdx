@@ -3,7 +3,7 @@ title: Query Pipeline
 description: How the query agent answers questions with citation-backed provenance
 ---
 
-The query agent pipeline answers user questions against stored insurance documents. It mirrors the extraction pipeline's coordinator/worker pattern — a classifier decomposes questions, retrievers pull evidence in parallel, reasoners answer from evidence only, and a verifier checks grounding before composing the final response.
+The query agent pipeline answers user questions against stored insurance documents and inbound multimodal context. It mirrors the extraction pipeline's coordinator/worker pattern — attachments are interpreted first, a classifier decomposes questions, retrievers pull evidence in parallel, reasoners answer from evidence only, and a verifier checks grounding before composing the final response.
 
 ## Quick start
 
@@ -27,21 +27,62 @@ console.log(result.citations);  // [{ index: 1, chunkId: "doc-456:coverage:0", q
 console.log(result.confidence); // 0.92
 ```
 
+You can also pass inbound attachments with the question:
+
+```typescript
+const result = await agent.query({
+  question: "What details should we collect from this photo, and is there policy context?",
+  conversationId: "conv-123",
+  attachments: [
+    {
+      kind: "image",
+      name: "damage.jpg",
+      mimeType: "image/jpeg",
+      base64: damagePhotoBase64,
+    },
+    {
+      kind: "pdf",
+      name: "coi.pdf",
+      mimeType: "application/pdf",
+      base64: coiPdfBase64,
+    },
+  ],
+});
+```
+
 ## Pipeline phases
 
-The pipeline runs five phases, with parallel dispatch in phases 2 and 3:
+The pipeline runs six phases, with parallel dispatch in phases 3 and 4:
 
 ```mermaid
 flowchart LR
-  Q[User Question] --> C[1. Classify]
-  C --> R[2. Retrieve]
-  R --> RE[3. Reason]
-  RE --> V[4. Verify]
-  V --> RS[5. Respond]
+  Q[User Question + Attachments] --> A[1. Interpret Attachments]
+  A --> C[2. Classify]
+  C --> R[3. Retrieve]
+  R --> RE[4. Reason]
+  RE --> V[5. Verify]
+  V --> RS[6. Respond]
   V -.->|retry| R
 ```
 
-### Phase 1: Classify
+### Phase 1: Interpret attachments
+
+If `input.attachments` are present, the pipeline interprets each image, PDF, or text payload into synthetic evidence before any retrieval happens.
+
+This is what enables flows like:
+
+- tenant texts a damage photo over SMS
+- insured emails a COI PDF and asks what is missing
+- operations forwards an email body plus attachments into Prism
+
+Each attachment becomes an `EvidenceItem` with:
+
+- attachment-derived summary text
+- extracted facts
+- follow-up details worth asking about
+- a stable source ID that can be cited downstream
+
+### Phase 2: Classify
 
 The classifier analyzes the question and produces:
 
@@ -51,7 +92,9 @@ The classifier analyzes the question and produces:
 
 Simple questions produce one sub-question. Complex questions like "compare the deductibles on my GL and auto policies" decompose into multiple sub-questions, each targeting different documents.
 
-### Phase 2: Retrieve (parallel)
+When attachments are present, the classifier also sees an attachment summary so it can route questions correctly even when the crucial context is visual or comes from an inbound PDF.
+
+### Phase 3: Retrieve (parallel)
 
 For each sub-question, a retriever runs in parallel (concurrency-limited, default 3):
 
@@ -59,11 +102,11 @@ For each sub-question, a retriever runs in parallel (concurrency-limited, defaul
 2. **Document lookup** — structured query by carrier, policy number, insured name, or document type
 3. **Conversation history** — search prior conversation turns for context
 
-Each retriever returns ranked `EvidenceItem` objects with source references and relevance scores.
+Each retriever returns ranked `EvidenceItem` objects with source references and relevance scores. Attachment evidence from phase 1 is then merged into the retrieved evidence set.
 
-### Phase 3: Reason (parallel)
+### Phase 4: Reason (parallel)
 
-For each sub-question, a reasoner receives **only the retrieved evidence** — never the full document. This forces grounding. The reasoner produces a `SubAnswer` with:
+For each sub-question, a reasoner receives **only the evidence set** — attachment evidence plus retrieved chunk/document/conversation evidence, but never the full raw corpus. This forces grounding. The reasoner produces a `SubAnswer` with:
 
 - Text answer to the sub-question
 - Citations referencing specific evidence items
@@ -72,7 +115,7 @@ For each sub-question, a reasoner receives **only the retrieved evidence** — n
 
 Reasoning prompts are intent-specific. Coverage questions get prompts tuned for interpreting limits, deductibles, and endorsements. Claims questions get prompts tuned for dates, amounts, and statuses.
 
-### Phase 4: Verify
+### Phase 5: Verify
 
 The verifier checks all sub-answers for:
 
@@ -82,7 +125,7 @@ The verifier checks all sub-answers for:
 
 If issues are found and the verify round limit hasn't been reached, the verifier triggers re-retrieval with broader context and re-reasoning for flagged sub-questions.
 
-### Phase 5: Respond
+### Phase 6: Respond
 
 The responder merges verified sub-answers into a single natural-language response with:
 
@@ -118,9 +161,19 @@ const agent = createQueryAgent({
 });
 ```
 
+## Attachment transport requirements
+
+Attachment-aware querying depends on your `generateObject` callback correctly forwarding multimodal content from `providerOptions` into the provider request:
+
+- `providerOptions.attachments` contains the generic raw attachment payloads
+- `providerOptions.pdfBase64` is set for PDF attachments
+- `providerOptions.images` is set for image attachments
+
+If your callback ignores those values, attachment interpretation will not have access to the actual file contents.
+
 ## Evidence-first design
 
-The key architectural decision is that reasoners only see retrieved evidence, never full documents. This:
+The key architectural decision is that reasoners only see evidence, never full documents. This:
 
 - **Forces grounding** — the model can't hallucinate from vague document knowledge
 - **Enables citation tracking** — every claim traces to a specific chunk
