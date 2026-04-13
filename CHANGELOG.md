@@ -1,3 +1,10 @@
+# [0.11.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.10.3...v0.11.0) (2026-04-13)
+
+
+### Features
+
+* add declarations-to-schema promotion pass and summary generation ([2a92461](https://github.com/claritylabs-inc/cl-sdk/commit/2a924619845542a6263e0fb8aa6703450a97c809))
+
 ## [0.10.3](https://github.com/claritylabs-inc/cl-sdk/compare/v0.10.2...v0.10.3) (2026-04-13)
 
 
