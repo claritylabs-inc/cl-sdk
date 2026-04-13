@@ -56,6 +56,40 @@ describe("mergeExtractorResult", () => {
     });
   });
 
+  it("keeps occurrence and aggregate coverage rows separate when other values match", () => {
+    const merged = mergeExtractorResult(
+      "coverage_limits",
+      {
+        coverages: [
+          {
+            name: "Causes Of Loss - Earthquake",
+            limitType: "per_occurrence",
+            limit: "$425,804",
+            deductible: "$50,000 / 5%",
+            formNumber: "PR080END",
+          },
+        ],
+      },
+      {
+        coverages: [
+          {
+            name: "Causes Of Loss - Earthquake",
+            limitType: "aggregate",
+            limit: "$425,804",
+            deductible: "$50,000 / 5%",
+            formNumber: "PR080END",
+          },
+        ],
+      },
+    ) as { coverages: Array<{ name: string; limitType?: string }> };
+
+    expect(merged.coverages).toHaveLength(2);
+    expect(merged.coverages.map((coverage) => coverage.limitType)).toEqual([
+      "per_occurrence",
+      "aggregate",
+    ]);
+  });
+
   it("deduplicates repeated sections when merging follow-up extractor runs", () => {
     const merged = mergeExtractorResult(
       "sections",

@@ -20,6 +20,7 @@ import { buildReviewPrompt, ReviewResultSchema, type ReviewResult } from "../pro
 import { getExtractor } from "../prompts/extractors/index";
 import { buildExtractionReviewReport, toReviewRoundRecord, type ExtractionReviewReport, type ReviewRoundRecord } from "./quality";
 import { shouldFailQualityGate } from "../core/quality";
+import type { FormInventoryEntry } from "../prompts/coordinator/form-inventory";
 
 /** Internal state checkpointed between extraction phases. */
 export interface ExtractionState {
@@ -259,6 +260,7 @@ export function createExtractor(config: ExtractorConfig) {
   function buildPlanFromPageAssignments(
     pageAssignments: PageAssignment[],
     pageCount: number,
+    formInventory?: FormInventoryResult,
   ): ExtractionPlan {
     const extractorPages = new Map<string, number[]>();
 
@@ -279,9 +281,39 @@ export function createExtractor(config: ExtractorConfig) {
       }
     }
 
+    const contextualExtractors = new Set(["conditions", "exclusions", "endorsements"]);
+    const contextualForms = (formInventory?.forms ?? []).filter((form): form is FormInventoryEntry & { pageStart: number; pageEnd: number } =>
+      form.pageStart != null && (form.pageEnd ?? form.pageStart) != null,
+    );
+
+    const expandPagesToFormRanges = (extractorName: string, pages: number[]): number[] => {
+      if (!contextualExtractors.has(extractorName)) return pages;
+
+      const expanded = new Set<number>(pages);
+      for (const page of pages) {
+        for (const form of contextualForms) {
+          const pageStart = form.pageStart;
+          const pageEnd = form.pageEnd ?? form.pageStart;
+          const formType = form.formType;
+          const supportsContextualExpansion = extractorName === "endorsements"
+            ? formType === "endorsement"
+            : formType === "coverage" || formType === "endorsement";
+
+          if (!supportsContextualExpansion) continue;
+          if (page < pageStart || page > pageEnd) continue;
+
+          for (let current = pageStart; current <= pageEnd; current += 1) {
+            expanded.add(current);
+          }
+        }
+      }
+
+      return [...expanded].sort((a, b) => a - b);
+    };
+
     const tasks = [...extractorPages.entries()]
       .flatMap(([extractorName, pages]) =>
-        groupContiguousPages(pages).map(({ startPage, endPage }) => ({
+        groupContiguousPages(expandPagesToFormRanges(extractorName, pages)).map(({ startPage, endPage }) => ({
           extractorName,
           startPage,
           endPage,
@@ -490,7 +522,7 @@ export function createExtractor(config: ExtractorConfig) {
       onProgress?.("Resuming from checkpoint (plan complete)...");
     } else {
       onProgress?.(`Building extraction plan from page map for ${primaryType} ${documentType}...`);
-      plan = buildPlanFromPageAssignments(pageAssignments, pageCount);
+      plan = buildPlanFromPageAssignments(pageAssignments, pageCount, formInventory);
 
       await pipelineCtx.save("plan", {
         id,

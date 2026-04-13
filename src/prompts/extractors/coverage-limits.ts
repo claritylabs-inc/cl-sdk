@@ -36,7 +36,7 @@ Extract only insured-specific declaration, schedule, or endorsement entries that
 
 Focus on:
 - Every coverage listed on the declarations page or coverage schedule
-- Per-occurrence, aggregate, and sub-limits for each coverage
+- Per-occurrence, individual/occurrence, aggregate, and sub-limits for each coverage
 - Deductible or self-insured retention for each coverage
 - Coverage form type: occurrence-based, claims-made, or accident
 - Retroactive date for claims-made policies
@@ -48,6 +48,7 @@ For EACH coverage, also extract:
 - pageNumber: the original page number where the coverage row/value appears
 - sectionRef: the declarations/schedule/endorsement section heading where it appears
 - originalContent: the verbatim row or short source snippet used for this coverage
+- limitType: when applicable, classify the limit as per_occurrence, per_claim, aggregate, per_person, per_accident, statutory, blanket, or scheduled
 - limitValueType: classify the limit as numeric, included, not_included, as_stated, waiting_period, referential, or other
 - deductibleValueType: classify the deductible/value term similarly when deductible is present
 
@@ -59,6 +60,7 @@ Critical rules:
 - If a waiting period or hour deductible is shown as part of a specific declarations/schedule row, it may be captured in deductible. Otherwise omit it.
 - Use limitValueType or deductibleValueType to preserve non-numeric terms precisely instead of forcing them into numeric semantics.
 - Preserve one row per real coverage entry. Do not merge adjacent schedule rows into malformed names.
+- Keep individual/per-occurrence limits separate from aggregate limits even when they have the same coverage name, limit amount, deductible, and form number. Use limitType to distinguish them.
 
 Return JSON only.`;
 }

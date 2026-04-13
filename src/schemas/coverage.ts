@@ -20,6 +20,7 @@ export type CoverageValueType = z.infer<typeof CoverageValueTypeSchema>;
 export const CoverageSchema = z.object({
   name: z.string(),
   limit: z.string(),
+  limitType: LimitTypeSchema.optional(),
   limitValueType: CoverageValueTypeSchema.optional(),
   deductible: z.string().optional(),
   deductibleValueType: CoverageValueTypeSchema.optional(),

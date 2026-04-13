@@ -243,6 +243,64 @@ describe("createExtractor", () => {
     }));
   });
 
+  it("broadens exclusions and conditions to the containing form range before dispatch", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValueOnce({
+        object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          forms: [
+            { formNumber: "PR5070CF", formType: "coverage", pageStart: 2, pageEnd: 5, title: "Commercial Property Coverage Form" },
+            { formNumber: "PR068END", formType: "endorsement", pageStart: 6, pageEnd: 6, title: "Leasehold Interest" },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          pages: [
+            { localPageNumber: 1, extractorNames: ["declarations"], pageRole: "declarations_schedule", hasScheduleValues: true },
+            { localPageNumber: 2, extractorNames: ["sections", "exclusions", "conditions"], pageRole: "condition_exclusion_form", hasScheduleValues: false },
+            { localPageNumber: 3, extractorNames: ["sections"], pageRole: "policy_form", hasScheduleValues: false },
+            { localPageNumber: 4, extractorNames: ["sections", "exclusions"], pageRole: "condition_exclusion_form", hasScheduleValues: false },
+            { localPageNumber: 5, extractorNames: ["sections"], pageRole: "policy_form", hasScheduleValues: false },
+            { localPageNumber: 6, extractorNames: ["sections", "endorsements", "exclusions"], pageRole: "endorsement_form", hasScheduleValues: false },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        object: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
+      });
+
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+    });
+
+    await extractor.extract("full-pdf-base64", "doc-1");
+
+    const exclusionsCalls = runExtractor.mock.calls
+      .map(([arg]) => arg)
+      .filter((arg) => arg.name === "exclusions");
+    const conditionsCalls = runExtractor.mock.calls
+      .map(([arg]) => arg)
+      .filter((arg) => arg.name === "conditions");
+    const endorsementCalls = runExtractor.mock.calls
+      .map(([arg]) => arg)
+      .filter((arg) => arg.name === "endorsements");
+
+    expect(exclusionsCalls).toEqual([
+      expect.objectContaining({ startPage: 2, endPage: 6 }),
+    ]);
+    expect(conditionsCalls).toEqual([
+      expect.objectContaining({ startPage: 2, endPage: 5 }),
+    ]);
+    expect(endorsementCalls).toEqual([
+      expect.objectContaining({ startPage: 6, endPage: 6 }),
+    ]);
+  });
+
   it("fails before assembly when strict quality gate finds blocking issues", async () => {
     safeGenerateObject
       .mockReset()

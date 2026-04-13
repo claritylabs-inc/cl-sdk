@@ -71,6 +71,7 @@ function mergeCoverageLimits(
   const incomingCoverages = Array.isArray(incoming.coverages) ? incoming.coverages as Record<string, unknown>[] : [];
   const coverageKey = (coverage: Record<string, unknown>) => [
     String(coverage.name ?? "").toLowerCase(),
+    String(coverage.limitType ?? "").toLowerCase(),
     String(coverage.limit ?? "").toLowerCase(),
     String(coverage.deductible ?? "").toLowerCase(),
     String(coverage.formNumber ?? "").toLowerCase(),

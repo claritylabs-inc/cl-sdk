@@ -71,6 +71,7 @@ Available extractors:
 - supplementary
 
 Rules:
+- Identify the broad section or form context first, then assign focused extractors within that context.
 - Use specific extractors for declarations, schedules, endorsements, exclusions, conditions, premium pages, and loss runs.
 - Use "sections" for pages that contain substantive policy text or mixed content that should still be preserved as raw sections.
 - Avoid assigning broad ranges mentally; decide page by page.
@@ -81,6 +82,8 @@ Rules:
 - Headings like "Limits of Insurance", "Deductible", "Coinsurance", "Loss Conditions", or "Definitions" inside a policy form usually indicate form language, not declarations or schedules.
 - Continuation pages near the end of a form should stay mapped to "sections" plus "conditions"/"exclusions" when applicable, even if they mention limits or deductibles.
 - When a form inventory entry identifies a page range as a specific form type (e.g., endorsement, coverage, application), use that classification to guide your extractor choice. Do not assign "coverage_limits" to pages the inventory identifies as endorsement or condition/exclusion forms unless the page contains actual schedule values.
+- Do not tag a page with "exclusions" or "conditions" if it only contains a table of contents, page-number reference, running header/footer, or a heading that points to another page without substantive wording.
+- If a page appears to be part of a larger exclusion, conditions, or endorsement section within the same form, keep the assignment consistent across nearby pages in that section rather than isolating a single page fragment.
 - Return every page in the supplied chunk exactly once.
 
 Return JSON:
