@@ -1,3 +1,15 @@
+# [0.15.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.14.2...v0.15.0) (2026-04-14)
+
+
+### Bug Fixes
+
+* improve home policy classification to distinguish HO-3, HO-4, HO-5 ([86a7117](https://github.com/claritylabs-inc/cl-sdk/commit/86a71176e40fa8581cb252c367a5a055822d670a))
+
+
+### Features
+
+* resolve referential coverage limits by looking up referenced sections ([5d20a0c](https://github.com/claritylabs-inc/cl-sdk/commit/5d20a0c5cca03491fe388084e36286d9cb6ac09a))
+
 ## [0.14.2](https://github.com/claritylabs-inc/cl-sdk/compare/v0.14.1...v0.14.2) (2026-04-14)
 
 
