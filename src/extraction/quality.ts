@@ -358,6 +358,7 @@ export function buildExtractionReviewReport(params: {
   const artifacts: QualityArtifact[] = [
     { kind: "form_inventory", label: "Form Inventory", itemCount: formInventory.length },
     { kind: "page_map", label: "Page Map", itemCount: params.pageAssignments.length },
+    { kind: "referential_resolution", label: "Referential Resolution", itemCount: coverages.filter((c: Record<string, unknown>) => c.limitValueType === "referential" || c.limitValueType === "as_stated" || c.deductibleValueType === "referential" || c.deductibleValueType === "as_stated").length },
   ];
 
   const qualityGateStatus = evaluateQualityGate({

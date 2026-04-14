@@ -20,6 +20,7 @@ import { buildReviewPrompt, ReviewResultSchema, type ReviewResult } from "../pro
 import { buildSummaryPrompt, SummaryResultSchema, type SummaryResult } from "../prompts/coordinator/summarize";
 import { getExtractor } from "../prompts/extractors/index";
 import { buildSupplementaryPrompt, SupplementarySchema } from "../prompts/extractors/supplementary";
+import { resolveReferentialCoverages } from "./resolve-referential";
 import { buildExtractionReviewReport, toReviewRoundRecord, type ExtractionReviewReport, type ReviewRoundRecord } from "./quality";
 import { shouldFailQualityGate } from "../core/quality";
 import type { FormInventoryEntry } from "../prompts/coordinator/form-inventory";
@@ -643,6 +644,40 @@ export function createExtractor(config: ExtractorConfig) {
       }
 
       await pipelineCtx.save("extract", {
+        id,
+        pageCount,
+        classifyResult,
+        formInventory,
+        pageAssignments,
+        plan,
+        memory: Object.fromEntries(memory),
+      });
+    }
+
+    // Step 5b: Resolve referential coverage limits
+    if (!pipelineCtx.isPhaseComplete("resolve_referential")) {
+      onProgress?.("Resolving referential coverage limits...");
+      try {
+        const resolution = await resolveReferentialCoverages({
+          memory,
+          pdfBase64,
+          pageCount,
+          generateObject,
+          convertPdfToImages,
+          concurrency,
+          providerOptions,
+          log,
+          onProgress,
+        });
+        trackUsage(resolution.usage);
+        if (resolution.attempts > 0) {
+          await log?.(`Referential resolution: ${resolution.resolved}/${resolution.attempts} resolved, ${resolution.unresolved} unresolved`);
+        }
+      } catch (error) {
+        await log?.(`Referential resolution failed, continuing: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      await pipelineCtx.save("resolve_referential", {
         id,
         pageCount,
         classifyResult,
