@@ -329,6 +329,24 @@ describe("promotePremium", () => {
     promotePremium(doc);
     expect((doc as any).premium).toBe("$10,000");
   });
+
+  it("strips negative sign from premium", () => {
+    const doc = makeDoc({ premium: "-$535" });
+    promotePremium(doc);
+    expect((doc as any).premium).toBe("$535");
+  });
+
+  it("strips negative sign from totalCost", () => {
+    const doc = makeDoc({ totalCost: "-$1,200" });
+    promotePremium(doc);
+    expect((doc as any).totalCost).toBe("$1,200");
+  });
+
+  it("strips parenthesized negatives from premium", () => {
+    const doc = makeDoc({ premium: "($535)" });
+    promotePremium(doc);
+    expect((doc as any).premium).toBe("$535");
+  });
 });
 
 // ── Full pipeline ──

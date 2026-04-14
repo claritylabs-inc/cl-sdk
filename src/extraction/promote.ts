@@ -435,6 +435,11 @@ function synthesizeDeductibles(doc: InsuranceDocument): void {
 const PREMIUM_PATTERNS = ["premium", "totalPremium", "annualPremium", "policyPremium", "basePremium"];
 const TOTAL_COST_PATTERNS = ["totalCost", "totalDue", "totalAmount", "totalPolicyPremium"];
 
+/** Strip negative signs from currency strings — premiums cannot be negative. */
+function absorbNegative(value: string): string {
+  return value.replace(/^-\s*/, "").replace(/^\(\s*(.*?)\s*\)$/, "$1");
+}
+
 function promotePremium(doc: InsuranceDocument): void {
   const raw = doc as Record<string, unknown>;
   const fields = getDeclarationFields(doc);
@@ -448,6 +453,10 @@ function promotePremium(doc: InsuranceDocument): void {
     const totalCost = findFieldValue(fields, TOTAL_COST_PATTERNS);
     if (totalCost) raw.totalCost = totalCost;
   }
+
+  // Premiums and costs are never negative; strip any negative signs from extraction artifacts
+  if (typeof raw.premium === "string") raw.premium = absorbNegative(raw.premium);
+  if (typeof raw.totalCost === "string") raw.totalCost = absorbNegative(raw.totalCost);
 }
 
 // ── Public API ──
