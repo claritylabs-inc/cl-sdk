@@ -1,3 +1,10 @@
+## [0.14.2](https://github.com/claritylabs-inc/cl-sdk/compare/v0.14.1...v0.14.2) (2026-04-14)
+
+
+### Bug Fixes
+
+* strip negative signs from premium and totalCost values ([c6d571f](https://github.com/claritylabs-inc/cl-sdk/commit/c6d571fac82964f397084e9708996a257c0c0194))
+
 ## [0.14.1](https://github.com/claritylabs-inc/cl-sdk/compare/v0.14.0...v0.14.1) (2026-04-14)
 
 
