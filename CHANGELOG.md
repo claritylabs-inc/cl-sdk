@@ -1,3 +1,10 @@
+## [0.14.1](https://github.com/claritylabs-inc/cl-sdk/compare/v0.14.0...v0.14.1) (2026-04-14)
+
+
+### Bug Fixes
+
+* guard array fields in chunkDocument to prevent .map() crashes on non-array values ([377a678](https://github.com/claritylabs-inc/cl-sdk/commit/377a67857f585abbf3af7ff6708b02ec6dcb1a83))
+
 # [0.14.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.13.1...v0.14.0) (2026-04-13)
 
 
