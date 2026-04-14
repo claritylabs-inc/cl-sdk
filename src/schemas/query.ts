@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PolicyTypeSchema } from "./enums";
 
 // ── Query Intent ──
 
@@ -43,6 +44,8 @@ export const SubQuestionSchema = z.object({
       insuredName: z.string().optional(),
       policyNumber: z.string().optional(),
       quoteNumber: z.string().optional(),
+      policyTypes: z.array(PolicyTypeSchema).optional()
+        .describe("Filter by policy type (e.g. homeowners_ho3, renters_ho4, pet) to avoid mixing up similar policies"),
     })
     .optional()
     .describe("Structured filters to narrow document lookup"),

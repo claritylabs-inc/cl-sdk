@@ -23,13 +23,16 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
   };
   const chunks: DocumentChunk[] = [];
   const docId = doc.id;
+  const policyTypesStr = doc.policyTypes?.length ? doc.policyTypes.join(",") : undefined;
 
   function stringMetadata(entries: Record<string, string | number | boolean | undefined | null>): Record<string, string> {
-    return Object.fromEntries(
+    const base = Object.fromEntries(
       Object.entries(entries)
         .filter(([, value]) => value !== undefined && value !== null && String(value).length > 0)
         .map(([key, value]) => [key, String(value)]),
     );
+    if (policyTypesStr) base.policyTypes = policyTypesStr;
+    return base;
   }
 
   // Carrier info chunk
@@ -429,12 +432,15 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
       }
     }
     if (declLines.length > 0) {
+      const declMeta: Record<string, string | undefined> = { documentType: doc.type };
+      if (typeof decl.formType === "string") declMeta.formType = decl.formType;
+      if (typeof decl.line === "string") declMeta.declarationLine = decl.line;
       chunks.push({
         id: `${docId}:declaration:0`,
         documentId: docId,
         type: "declaration",
         text: `Declarations\n${declLines.join("\n")}`,
-        metadata: stringMetadata({ documentType: doc.type }),
+        metadata: stringMetadata(declMeta),
       });
     }
   }
