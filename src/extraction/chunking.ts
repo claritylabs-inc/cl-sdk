@@ -12,6 +12,15 @@ function formatAddress(addr: { street1: string; street2?: string; city: string; 
  * Each chunk has a deterministic ID, type tag, text for embedding, and metadata for filtering.
  */
 export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
+  const ensureArray = (v: unknown) => (Array.isArray(v) ? v : []);
+  doc = {
+    ...doc,
+    taxesAndFees: ensureArray(doc.taxesAndFees),
+    ratingBasis: ensureArray(doc.ratingBasis),
+    claimsContacts: ensureArray(doc.claimsContacts),
+    regulatoryContacts: ensureArray(doc.regulatoryContacts),
+    thirdPartyAdministrators: ensureArray(doc.thirdPartyAdministrators),
+  };
   const chunks: DocumentChunk[] = [];
   const docId = doc.id;
 
