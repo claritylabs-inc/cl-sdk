@@ -45,11 +45,30 @@ COMMERCIAL LINES — match these values:
 - "property" — standalone property
 
 PERSONAL LINES — match these values:
-- "homeowners_ho3" — HO-3, special form homeowners
-- "homeowners_ho5" — HO-5, comprehensive form homeowners
-- "renters_ho4" — HO-4, renters insurance
-- "condo_ho6" — HO-6, condo unit-owners
-- "dwelling_fire" — DP-1, DP-3, dwelling fire
+
+HOMEOWNER FORM CLASSIFICATION — pay close attention to these distinctions:
+- "homeowners_ho3" — HO-3 Special Form. Standard homeowner policy for OWNER-OCCUPIED dwellings.
+  Key indicators: Coverage A (Dwelling) present, open-peril dwelling coverage, named-peril personal property,
+  references to "special form", "HO 00 03", or "HO-3". The insured OWNS the home.
+- "homeowners_ho5" — HO-5 Comprehensive Form. Premium homeowner policy for OWNER-OCCUPIED dwellings.
+  Key indicators: Coverage A (Dwelling) present, BOTH dwelling AND personal property on open-peril basis,
+  references to "comprehensive form", "HO 00 05", or "HO-5". Higher coverage than HO-3.
+- "renters_ho4" — HO-4 Contents Broad Form. Renters/tenants insurance — NO dwelling coverage.
+  Key indicators: NO Coverage A (Dwelling), only Coverage C (Personal Property) and Coverage E/F (Liability/Medical),
+  references to "contents broad form", "HO 00 04", "HO-4", "renters", "tenants". The insured RENTS, does not own.
+- "condo_ho6" — HO-6 Unit-Owners Form. Condo/co-op unit-owner insurance.
+  Key indicators: Coverage A applies to interior walls/improvements only (not full structure),
+  references to "unit-owners form", "HO 00 06", "HO-6", "condominium", "co-op unit". The building's
+  master policy covers the structure; HO-6 covers the unit interior, personal property, and liability.
+
+DISAMBIGUATION RULES for homeowner forms:
+1. If the document has Coverage A (Dwelling) with full structure coverage → HO-3 or HO-5 (check if open-peril on personal property → HO-5, named-peril → HO-3)
+2. If NO Coverage A / no dwelling coverage and the insured is a renter/tenant → renters_ho4
+3. If Coverage A covers only unit interior/improvements and mentions condo/co-op → condo_ho6
+4. Look for the actual form number (HO 00 03, HO 00 04, HO 00 05, HO 00 06) on the declarations page — this is the most reliable indicator
+5. Do NOT default to homeowners_ho3 when uncertain — check for the distinguishing signals above
+
+- "dwelling_fire" — DP-1, DP-3, dwelling fire (non-owner-occupied or investment property)
 - "mobile_home" — mobile home, manufactured home
 - "personal_auto" — personal auto, PAP
 - "personal_umbrella" — personal umbrella
@@ -60,7 +79,10 @@ PERSONAL LINES — match these values:
 - "watercraft" — watercraft, boat
 - "recreational_vehicle" — RV, recreational vehicle, ATV
 - "farm_ranch" — farm, ranch
-- "pet" — pet insurance
+- "pet" — standalone pet insurance policy. Key indicators: named pet, species/breed, accident/illness coverage,
+  wellness plans, per-incident or annual limits for veterinary costs. Do NOT confuse with pet liability endorsements
+  on a homeowners policy — those are still homeowner policies (ho3/ho4/ho5/ho6), not "pet".
+  Only classify as "pet" when the ENTIRE policy is dedicated to pet health/accident coverage.
 - "travel" — travel insurance
 - "identity_theft" — identity theft
 - "title" — title insurance
