@@ -7,31 +7,189 @@ import {
   StandardFonts,
   rgb,
 } from "pdf-lib";
+import type { PdfInput } from "../core/types";
+
+// ============================================================================
+// Type Guards for PdfInput
+// ============================================================================
+
+/** Check if input is a file ID reference object */
+function isFileIdRef(input: PdfInput): input is { fileId: string; mimeType?: string } {
+  return typeof input === "object" && input !== null && "fileId" in input;
+}
+
+/** Check if input is a URL */
+function isUrl(input: PdfInput): input is URL {
+  return input instanceof URL;
+}
+
+/** Check if input is raw bytes */
+function isBytes(input: PdfInput): input is Uint8Array {
+  return input instanceof Uint8Array;
+}
+
+// ============================================================================
+// PdfInput Utilities
+// ============================================================================
+
+/**
+ * Normalize PdfInput to Uint8Array bytes.
+ * For fileId references or remote URLs, this will throw an error since
+ * those should be handled by the provider callback directly.
+ */
+export async function pdfInputToBytes(input: PdfInput): Promise<Uint8Array> {
+  if (isFileIdRef(input)) {
+    throw new Error(
+      "Cannot convert fileId reference to bytes. " +
+        "Pass the fileId directly to your provider callback instead."
+    );
+  }
+
+  if (isUrl(input)) {
+    if (input.protocol === "file:") {
+      // Node.js environment - use fs
+      if (typeof process !== "undefined" && process.versions?.node) {
+        const fs = await import("fs/promises");
+        const buffer = await fs.readFile(input.pathname);
+        return new Uint8Array(buffer);
+      }
+      throw new Error("File URLs not supported in browser environment");
+    }
+    // HTTP(S) URL - fetch it
+    const response = await fetch(input.toString());
+    if (!response.ok) {
+      throw new Error(`Failed to fetch PDF: ${response.status} ${response.statusText}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return new Uint8Array(arrayBuffer);
+  }
+
+  if (isBytes(input)) {
+    return input;
+  }
+
+  // Base64 string
+  if (typeof Buffer !== "undefined") {
+    return new Uint8Array(Buffer.from(input, "base64"));
+  }
+  // Browser fallback
+  return Uint8Array.from(atob(input), (c) => c.charCodeAt(0));
+}
+
+/**
+ * Convert PdfInput to base64 string.
+ * Note: This may negate memory benefits of fileId/URL inputs.
+ * Prefer using pdfInputToBytes when possible.
+ */
+export async function pdfInputToBase64(input: PdfInput): Promise<string> {
+  if (isFileIdRef(input)) {
+    throw new Error(
+      "Cannot convert fileId reference to base64. " +
+        "Pass the fileId directly to your provider callback instead."
+    );
+  }
+
+  if (isUrl(input)) {
+    const bytes = await pdfInputToBytes(input);
+    return bytesToBase64(bytes);
+  }
+
+  if (isBytes(input)) {
+    return bytesToBase64(input);
+  }
+
+  // Already base64 string
+  return input;
+}
+
+/** Convert bytes to base64 string */
+function bytesToBase64(bytes: Uint8Array): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(bytes).toString("base64");
+  }
+  // Browser fallback
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/**
+ * Check if the PdfInput is a file reference that can be passed directly
+ * to provider APIs (fileId or URL) without base64 conversion.
+ */
+export function isFileReference(input: PdfInput): boolean {
+  return isFileIdRef(input) || isUrl(input);
+}
+
+/**
+ * Get a file identifier from PdfInput if available.
+ * Returns undefined for base64/bytes that need to be passed as data.
+ */
+export function getFileIdentifier(input: PdfInput): { fileId?: string; url?: string } | undefined {
+  if (isFileIdRef(input)) {
+    return { fileId: input.fileId };
+  }
+  if (isUrl(input)) {
+    return { url: input.toString() };
+  }
+  return undefined;
+}
+
+/**
+ * Get the page count of a PDF from any PdfInput type.
+ */
+export async function getPdfPageCount(input: PdfInput): Promise<number> {
+  const bytes = await pdfInputToBytes(input);
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+  return doc.getPageCount();
+}
 
 /**
  * Extract a page range from a PDF and return as base64.
  * Used to reduce API token usage by only sending relevant pages.
  *
- * @param pdfBase64 - Full PDF as base64 string.
+ * @param input - PDF as PdfInput (base64 string, URL, bytes, or fileId).
  * @param startPage - First page to include (1-indexed).
  * @param endPage - Last page to include (1-indexed, clamped to total pages).
- * @returns Base64 string of the trimmed PDF, or original if range covers all pages.
+ * @returns Base64 string of the trimmed PDF, or original base64 if range covers all pages.
+ * @throws Error if input is a fileId reference or non-file URL (cannot extract pages from remote reference).
  */
 export async function extractPageRange(
-  pdfBase64: string,
+  input: PdfInput,
   startPage: number,
   endPage: number,
 ): Promise<string> {
-  const srcBytes = typeof Buffer !== "undefined"
-    ? Buffer.from(pdfBase64, "base64")
-    : Uint8Array.from(atob(pdfBase64), (c) => c.charCodeAt(0));
+  if (isFileIdRef(input)) {
+    throw new Error(
+      "Cannot extract page range from fileId reference. " +
+        "The provider must handle fileId inputs directly or you must pass the full PDF as base64/bytes."
+    );
+  }
+
+  if (isUrl(input) && (input.protocol === "http:" || input.protocol === "https:")) {
+    throw new Error(
+      "Cannot extract page range from remote URL. " +
+        "Either pass the full PDF as base64/bytes, or download it first."
+    );
+  }
+
+  const srcBytes = await pdfInputToBytes(input);
   const srcDoc = await PDFDocument.load(srcBytes, { ignoreEncryption: true });
   const totalPages = srcDoc.getPageCount();
   const start = Math.max(startPage - 1, 0); // 0-indexed
   const end = Math.min(endPage, totalPages) - 1; // 0-indexed
 
   if (start === 0 && end >= totalPages - 1) {
-    return pdfBase64; // No point splitting if we want all pages
+    // Return original format if no splitting needed
+    if (isBytes(input)) {
+      return bytesToBase64(input);
+    }
+    if (typeof input === "string") {
+      return input;
+    }
+    return bytesToBase64(srcBytes);
   }
 
   const newDoc = await PDFDocument.create();
@@ -40,27 +198,38 @@ export async function extractPageRange(
   pages.forEach((page) => newDoc.addPage(page));
   const bytes = await newDoc.save();
 
-  if (typeof Buffer !== "undefined") {
-    return Buffer.from(bytes).toString("base64");
-  }
-  // Browser fallback
-  let binary = "";
-  const uint8 = new Uint8Array(bytes);
-  for (let i = 0; i < uint8.length; i++) {
-    binary += String.fromCharCode(uint8[i]);
-  }
-  return btoa(binary);
+  return bytesToBase64(new Uint8Array(bytes));
 }
 
 /**
- * Get the page count of a PDF without fully parsing it.
+ * Build provider options for passing PDF content to generateObject callbacks.
+ * This chooses the most efficient representation based on the input type.
+ *
+ * @param input - The PdfInput to pass to the provider.
+ * @param existingOptions - Existing providerOptions to merge with.
+ * @returns Provider options with appropriate pdf* fields set.
  */
-export async function getPdfPageCount(pdfBase64: string): Promise<number> {
-  const srcBytes = typeof Buffer !== "undefined"
-    ? Buffer.from(pdfBase64, "base64")
-    : Uint8Array.from(atob(pdfBase64), (c) => c.charCodeAt(0));
-  const doc = await PDFDocument.load(srcBytes, { ignoreEncryption: true });
-  return doc.getPageCount();
+export async function buildPdfProviderOptions(
+  input: PdfInput,
+  existingOptions?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const options: Record<string, unknown> = { ...existingOptions };
+
+  if (isFileIdRef(input)) {
+    options.fileId = input.fileId;
+    if (input.mimeType) {
+      options.fileMimeType = input.mimeType;
+    }
+    return options;
+  }
+
+  if (isUrl(input)) {
+    options.pdfUrl = input;
+    return options;
+  }
+
+  options.pdfBase64 = await pdfInputToBase64(input);
+  return options;
 }
 
 export interface AcroFormFieldInfo {

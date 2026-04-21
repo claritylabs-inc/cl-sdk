@@ -1,11 +1,11 @@
-import type { GenerateText, GenerateObject, TokenUsage, ConvertPdfToImagesFn, LogFn } from "../core/types";
+import type { GenerateText, GenerateObject, TokenUsage, ConvertPdfToImagesFn, LogFn, PdfInput } from "../core/types";
 import type { QualityGateMode } from "../core/quality";
 import type { InsuranceDocument } from "../schemas/document";
 import type { DocumentChunk } from "../storage/chunk-types";
 import { pLimit } from "../core/concurrency";
 import { safeGenerateObject } from "../core/safe-generate";
 import { createPipelineContext, type PipelineCheckpoint } from "../core/pipeline";
-import { extractPageRange, getPdfPageCount } from "./pdf";
+import { extractPageRange, getPdfPageCount, pdfInputToBase64, buildPdfProviderOptions } from "./pdf";
 import { runExtractor } from "./extractor";
 import { assembleDocument } from "./assembler";
 import { formatDocumentContent } from "./formatter";
@@ -373,7 +373,7 @@ export function createExtractor(config: ExtractorConfig) {
   }
 
   async function extract(
-    pdfBase64: string,
+    pdfInput: PdfInput,
     documentId?: string,
     options?: ExtractOptions,
   ): Promise<ExtractionResult> {
@@ -399,6 +399,19 @@ export function createExtractor(config: ExtractorConfig) {
       }
     }
 
+    // Cache for base64 conversion when needed for page extraction
+    // FileId references cannot be used for page range extraction, so we
+    // need to convert them to base64 once and reuse for extractors
+    let pdfBase64Cache: string | undefined;
+
+    // Helper to get base64 for page extraction operations
+    async function getPdfBase64ForExtraction(): Promise<string> {
+      if (pdfBase64Cache === undefined) {
+        pdfBase64Cache = await pdfInputToBase64(pdfInput);
+      }
+      return pdfBase64Cache;
+    }
+
     // Step 1: Classify
     let classifyResult: ClassifyResult;
     if (resumed?.classifyResult && pipelineCtx.isPhaseComplete("classify")) {
@@ -406,7 +419,7 @@ export function createExtractor(config: ExtractorConfig) {
       onProgress?.("Resuming from checkpoint (classify complete)...");
     } else {
       onProgress?.("Classifying document...");
-      const pageCount = await getPdfPageCount(pdfBase64);
+      const pageCount = await getPdfPageCount(pdfInput);
 
       const classifyResponse = await safeGenerateObject(
         generateObject as GenerateObject<ClassifyResult>,
@@ -414,7 +427,7 @@ export function createExtractor(config: ExtractorConfig) {
           prompt: buildClassifyPrompt(),
           schema: ClassifyResultSchema,
           maxTokens: 512,
-          providerOptions: { ...providerOptions, pdfBase64 },
+          providerOptions: await buildPdfProviderOptions(pdfInput, providerOptions),
         },
         {
           fallback: { documentType: "policy" as const, policyTypes: ["other" as const], confidence: 0 },
@@ -444,7 +457,7 @@ export function createExtractor(config: ExtractorConfig) {
     const { documentType, policyTypes } = classifyResult;
     const primaryType = policyTypes[0] ?? "other";
     const template = getTemplate(primaryType);
-    const pageCount = resumed?.pageCount ?? await getPdfPageCount(pdfBase64);
+    const pageCount = resumed?.pageCount ?? await getPdfPageCount(pdfInput);
     const templateHints = buildTemplateHints(primaryType, documentType, pageCount, template);
 
     // Step 2: Build form inventory
@@ -455,13 +468,14 @@ export function createExtractor(config: ExtractorConfig) {
       onProgress?.("Resuming from checkpoint (form inventory complete)...");
     } else {
       onProgress?.(`Building form inventory for ${primaryType} ${documentType}...`);
+
       const formInventoryResponse = await safeGenerateObject(
         generateObject as GenerateObject<FormInventoryResult>,
         {
           prompt: buildFormInventoryPrompt(templateHints),
           schema: FormInventorySchema,
           maxTokens: 2048,
-          providerOptions: { ...providerOptions, pdfBase64 },
+          providerOptions: await buildPdfProviderOptions(pdfInput, providerOptions),
         },
         {
           fallback: { forms: [] },
@@ -496,9 +510,12 @@ export function createExtractor(config: ExtractorConfig) {
         ? formatFormInventoryForPageMap(formInventory.forms)
         : undefined;
 
+      // Get base64 for page extraction (caches after first conversion for fileId/URL inputs)
+      const extractionBase64 = await getPdfBase64ForExtraction();
+
       for (let startPage = 1; startPage <= pageCount; startPage += chunkSize) {
         const endPage = Math.min(pageCount, startPage + chunkSize - 1);
-        const pagesPdf = await extractPageRange(pdfBase64, startPage, endPage);
+        const pagesPdf = await extractPageRange(extractionBase64, startPage, endPage);
         const mapResponse = await safeGenerateObject(
           generateObject as GenerateObject<{ pages: PageAssignment[] }>,
           {
@@ -596,7 +613,7 @@ export function createExtractor(config: ExtractorConfig) {
                 name: task.extractorName,
                 prompt: ext.buildPrompt(),
                 schema: ext.schema,
-                pdfBase64,
+                pdfInput,
                 startPage: task.startPage,
                 endPage: task.endPage,
                 generateObject,
@@ -628,7 +645,7 @@ export function createExtractor(config: ExtractorConfig) {
             name: "supplementary",
             prompt: buildSupplementaryPrompt(alreadyExtractedSummary),
             schema: SupplementarySchema,
-            pdfBase64,
+            pdfInput,
             startPage: 1,
             endPage: pageCount,
             generateObject,
@@ -660,7 +677,7 @@ export function createExtractor(config: ExtractorConfig) {
       try {
         const resolution = await resolveReferentialCoverages({
           memory,
-          pdfBase64,
+          pdfInput,
           pageCount,
           generateObject,
           convertPdfToImages,
@@ -704,7 +721,7 @@ export function createExtractor(config: ExtractorConfig) {
             prompt: buildReviewPrompt(template.required, extractedKeys, extractionSummary, pageMapSummary),
             schema: ReviewResultSchema,
             maxTokens: 1536,
-            providerOptions: { ...providerOptions, pdfBase64 },
+            providerOptions: await buildPdfProviderOptions(pdfInput, providerOptions),
           },
           {
             fallback: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
@@ -737,7 +754,7 @@ export function createExtractor(config: ExtractorConfig) {
                   name: task.extractorName,
                   prompt: ext.buildPrompt(),
                   schema: ext.schema,
-                  pdfBase64,
+                  pdfInput,
                   startPage: task.startPage,
                   endPage: task.endPage,
                   generateObject,
