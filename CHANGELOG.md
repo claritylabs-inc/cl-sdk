@@ -1,3 +1,10 @@
+# [0.16.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.15.0...v0.16.0) (2026-04-21)
+
+
+### Features
+
+* support memory-efficient Files API for PDF input ([c163e59](https://github.com/claritylabs-inc/cl-sdk/commit/c163e5902bba69183d3ff53d594c457ced28aac9))
+
 # [0.15.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.14.2...v0.15.0) (2026-04-14)
 
 
