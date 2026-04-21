@@ -2,9 +2,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
 
-// Mock extractPageRange to avoid pdf-lib dependency in tests
+// Mock pdf module to avoid pdf-lib dependency in tests
 vi.mock("../../extraction/pdf", () => ({
   extractPageRange: vi.fn().mockResolvedValue("mock-pdf-base64"),
+  pdfInputToBase64: vi.fn().mockResolvedValue("base64data"),
 }));
 
 import { runExtractor } from "../../extraction/extractor";
@@ -21,7 +22,7 @@ describe("runExtractor", () => {
       name: "carrier_info",
       prompt: "Extract carrier info",
       schema,
-      pdfBase64: "base64data",
+      pdfInput: "base64data",
       startPage: 1,
       endPage: 3,
       generateObject,
@@ -44,7 +45,7 @@ describe("runExtractor", () => {
       name: "test",
       prompt: "Extract value",
       schema,
-      pdfBase64: "base64data",
+      pdfInput: "base64data",
       startPage: 2,
       endPage: 5,
       generateObject,
@@ -68,7 +69,7 @@ describe("runExtractor", () => {
       name: "test",
       prompt: "Extract value",
       schema,
-      pdfBase64: "base64data",
+      pdfInput: "base64data",
       startPage: 1,
       endPage: 4,
       generateObject,
@@ -94,7 +95,7 @@ describe("runExtractor", () => {
       name: "test",
       prompt: "Extract",
       schema,
-      pdfBase64: "base64data",
+      pdfInput: "base64data",
       startPage: 1,
       endPage: 1,
       generateObject,

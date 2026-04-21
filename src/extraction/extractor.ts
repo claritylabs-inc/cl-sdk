@@ -1,14 +1,15 @@
 import type { ZodSchema } from "zod";
-import type { GenerateObject, TokenUsage, ConvertPdfToImagesFn } from "../core/types";
+import type { GenerateObject, TokenUsage, ConvertPdfToImagesFn, PdfInput } from "../core/types";
 import { withRetry } from "../core/retry";
 import { toStrictSchema } from "../core/strict-schema";
-import { extractPageRange } from "./pdf";
+import { extractPageRange, pdfInputToBase64 } from "./pdf";
 
 export interface ExtractorParams<T> {
   name: string;
   prompt: string;
   schema: ZodSchema<T>;
-  pdfBase64: string;
+  /** PDF input as base64 string, URL, bytes, or fileId reference */
+  pdfInput: PdfInput;
   startPage: number;
   endPage: number;
   generateObject: GenerateObject<T>;
@@ -38,7 +39,7 @@ export async function runExtractor<T>(params: ExtractorParams<T>): Promise<Extra
     name,
     prompt,
     schema,
-    pdfBase64,
+    pdfInput,
     startPage,
     endPage,
     generateObject,
@@ -50,6 +51,10 @@ export async function runExtractor<T>(params: ExtractorParams<T>): Promise<Extra
   // Build provider options with PDF content for the model
   const extractorProviderOptions: Record<string, unknown> = { ...providerOptions };
   let fullPrompt: string;
+
+  // Convert PdfInput to base64 for image conversion or page extraction
+  // FileId references cannot be used for partial page extraction
+  const pdfBase64 = await pdfInputToBase64(pdfInput);
 
   if (convertPdfToImages) {
     const images = await convertPdfToImages(pdfBase64, startPage, endPage);

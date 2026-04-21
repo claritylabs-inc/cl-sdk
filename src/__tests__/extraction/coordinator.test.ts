@@ -25,6 +25,8 @@ vi.mock("../../extraction/extractor", () => ({
 vi.mock("../../extraction/pdf", () => ({
   getPdfPageCount: vi.fn().mockResolvedValue(6),
   extractPageRange: vi.fn().mockResolvedValue("mapped-pages-pdf-base64"),
+  pdfInputToBase64: vi.fn().mockImplementation((input: string) => Promise.resolve(input)),
+  getFileIdentifier: vi.fn().mockReturnValue(undefined),
 }));
 
 vi.mock("../../extraction/formatter", () => ({
@@ -155,7 +157,7 @@ describe("createExtractor", () => {
 
     expect(runExtractor).toHaveBeenCalledWith(
       expect.objectContaining({
-        pdfBase64: "full-pdf-base64",
+        pdfInput: "full-pdf-base64",
         providerOptions: { anthropic: { thinking: true } },
       }),
     );
@@ -164,7 +166,7 @@ describe("createExtractor", () => {
         name: "supplementary",
         startPage: 1,
         endPage: 6,
-        pdfBase64: "full-pdf-base64",
+        pdfInput: "full-pdf-base64",
         providerOptions: { anthropic: { thinking: true } },
       }),
     );

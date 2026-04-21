@@ -1,7 +1,7 @@
 // src/index.ts — v6 barrel exports
 
 // ── Core types ──
-export type { GenerateText, GenerateObject, EmbedText, ConvertPdfToImagesFn, TokenUsage, LogFn } from "./core/types";
+export type { GenerateText, GenerateObject, EmbedText, ConvertPdfToImagesFn, TokenUsage, LogFn, PdfInput } from "./core/types";
 
 // ── Core utilities ──
 export { withRetry } from "./core/retry";
@@ -37,7 +37,17 @@ export type { ExtractorConfig, ExtractionResult, ExtractionState, ExtractOptions
 export { chunkDocument } from "./extraction/chunking";
 
 // ── PDF operations ──
-export { getAcroFormFields, fillAcroForm, overlayTextOnPdf, extractPageRange, getPdfPageCount } from "./extraction/pdf";
+export {
+  getAcroFormFields,
+  fillAcroForm,
+  overlayTextOnPdf,
+  extractPageRange,
+  getPdfPageCount,
+  pdfInputToBytes,
+  pdfInputToBase64,
+  isFileReference,
+  getFileIdentifier,
+} from "./extraction/pdf";
 export type { AcroFormFieldInfo, FieldMapping, TextOverlay } from "./extraction/pdf";
 
 // ── Storage interfaces ──

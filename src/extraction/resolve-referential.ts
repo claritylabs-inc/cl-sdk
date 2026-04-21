@@ -1,9 +1,9 @@
 import { z } from "zod";
-import type { GenerateObject, TokenUsage, ConvertPdfToImagesFn, LogFn } from "../core/types";
+import type { GenerateObject, TokenUsage, ConvertPdfToImagesFn, LogFn, PdfInput } from "../core/types";
 import { pLimit } from "../core/concurrency";
 import { safeGenerateObject } from "../core/safe-generate";
 import { runExtractor } from "./extractor";
-import { extractPageRange } from "./pdf";
+import { extractPageRange, pdfInputToBase64, getFileIdentifier } from "./pdf";
 import {
   buildReferentialLookupPrompt,
   ReferentialLookupSchema,
@@ -121,7 +121,7 @@ export async function findReferencedPages(params: {
   referenceTarget: string;
   sections: SectionEntry[];
   formInventory: FormInventoryEntry[];
-  pdfBase64: string;
+  pdfInput: PdfInput;
   pageCount: number;
   generateObject: GenerateObject;
   providerOptions?: Record<string, unknown>;
@@ -131,7 +131,7 @@ export async function findReferencedPages(params: {
     referenceTarget,
     sections,
     formInventory,
-    pdfBase64,
+    pdfInput,
     pageCount,
     generateObject,
     providerOptions,
@@ -171,6 +171,18 @@ export async function findReferencedPages(params: {
 
   // Tier 3: LLM fallback — ask which pages contain the referenced section
   try {
+    // Build provider options with file reference support
+    const locationProviderOptions: Record<string, unknown> = { ...providerOptions };
+    const fileId = getFileIdentifier(pdfInput);
+    if (fileId?.fileId) {
+      locationProviderOptions.fileId = fileId.fileId;
+    } else if (fileId?.url) {
+      locationProviderOptions.pdfUrl = new URL(fileId.url);
+    } else {
+      // Convert to base64 for providers that don't support file references
+      locationProviderOptions.pdfBase64 = await pdfInputToBase64(pdfInput);
+    }
+
     const result = await safeGenerateObject(
       generateObject as GenerateObject<z.infer<typeof PageLocationSchema>>,
       {
@@ -185,7 +197,7 @@ If you cannot find the section, return startPage: 0 and endPage: 0.
 Return JSON only.`,
         schema: PageLocationSchema,
         maxTokens: 256,
-        providerOptions: { ...providerOptions, pdfBase64 },
+        providerOptions: locationProviderOptions,
       },
       {
         fallback: { startPage: 0, endPage: 0 },
@@ -219,7 +231,7 @@ Return JSON only.`,
 
 export async function resolveReferentialCoverages(params: {
   memory: Map<string, unknown>;
-  pdfBase64: string;
+  pdfInput: PdfInput;
   pageCount: number;
   generateObject: GenerateObject;
   convertPdfToImages?: ConvertPdfToImagesFn;
@@ -230,7 +242,7 @@ export async function resolveReferentialCoverages(params: {
 }): Promise<ReferentialResolutionResult> {
   const {
     memory,
-    pdfBase64,
+    pdfInput,
     pageCount,
     generateObject,
     convertPdfToImages,
@@ -331,7 +343,7 @@ export async function resolveReferentialCoverages(params: {
           referenceTarget: target,
           sections,
           formInventory,
-          pdfBase64,
+          pdfInput,
           pageCount,
           generateObject,
           providerOptions,
@@ -374,7 +386,7 @@ export async function resolveReferentialCoverages(params: {
             name: "referential_lookup",
             prompt: buildReferentialLookupPrompt(promptCoverages),
             schema: ReferentialLookupSchema,
-            pdfBase64,
+            pdfInput,
             startPage: pageRange.startPage,
             endPage: pageRange.endPage,
             generateObject: generateObject as GenerateObject<ReferentialLookupResult>,
