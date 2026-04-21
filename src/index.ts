@@ -47,6 +47,7 @@ export {
   pdfInputToBase64,
   isFileReference,
   getFileIdentifier,
+  buildPdfProviderOptions,
 } from "./extraction/pdf";
 export type { AcroFormFieldInfo, FieldMapping, TextOverlay } from "./extraction/pdf";
 

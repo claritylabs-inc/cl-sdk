@@ -209,10 +209,10 @@ export async function extractPageRange(
  * @param existingOptions - Existing providerOptions to merge with.
  * @returns Provider options with appropriate pdf* fields set.
  */
-export function buildPdfProviderOptions(
+export async function buildPdfProviderOptions(
   input: PdfInput,
   existingOptions?: Record<string, unknown>,
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
   const options: Record<string, unknown> = { ...existingOptions };
 
   if (isFileIdRef(input)) {
@@ -220,18 +220,15 @@ export function buildPdfProviderOptions(
     if (input.mimeType) {
       options.fileMimeType = input.mimeType;
     }
-    // Don't include pdfBase64 when using fileId
     return options;
   }
 
   if (isUrl(input)) {
     options.pdfUrl = input;
-    // Don't include pdfBase64 when using URL - let consumer decide
     return options;
   }
 
-  // For bytes and base64, we include pdfBase64 for backward compatibility
-  // The consumer can check for pdfUrl/fileId first for efficiency
+  options.pdfBase64 = await pdfInputToBase64(input);
   return options;
 }
 

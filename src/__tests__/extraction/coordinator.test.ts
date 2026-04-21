@@ -26,7 +26,10 @@ vi.mock("../../extraction/pdf", () => ({
   getPdfPageCount: vi.fn().mockResolvedValue(6),
   extractPageRange: vi.fn().mockResolvedValue("mapped-pages-pdf-base64"),
   pdfInputToBase64: vi.fn().mockImplementation((input: string) => Promise.resolve(input)),
-  getFileIdentifier: vi.fn().mockReturnValue(undefined),
+  buildPdfProviderOptions: vi.fn().mockImplementation(async (input: string, existing?: Record<string, unknown>) => ({
+    ...existing,
+    pdfBase64: input,
+  })),
 }));
 
 vi.mock("../../extraction/formatter", () => ({

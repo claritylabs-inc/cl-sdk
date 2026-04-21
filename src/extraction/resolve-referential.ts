@@ -3,7 +3,7 @@ import type { GenerateObject, TokenUsage, ConvertPdfToImagesFn, LogFn, PdfInput 
 import { pLimit } from "../core/concurrency";
 import { safeGenerateObject } from "../core/safe-generate";
 import { runExtractor } from "./extractor";
-import { extractPageRange, pdfInputToBase64, getFileIdentifier } from "./pdf";
+import { extractPageRange, buildPdfProviderOptions } from "./pdf";
 import {
   buildReferentialLookupPrompt,
   ReferentialLookupSchema,
@@ -171,18 +171,6 @@ export async function findReferencedPages(params: {
 
   // Tier 3: LLM fallback — ask which pages contain the referenced section
   try {
-    // Build provider options with file reference support
-    const locationProviderOptions: Record<string, unknown> = { ...providerOptions };
-    const fileId = getFileIdentifier(pdfInput);
-    if (fileId?.fileId) {
-      locationProviderOptions.fileId = fileId.fileId;
-    } else if (fileId?.url) {
-      locationProviderOptions.pdfUrl = new URL(fileId.url);
-    } else {
-      // Convert to base64 for providers that don't support file references
-      locationProviderOptions.pdfBase64 = await pdfInputToBase64(pdfInput);
-    }
-
     const result = await safeGenerateObject(
       generateObject as GenerateObject<z.infer<typeof PageLocationSchema>>,
       {
@@ -197,7 +185,7 @@ If you cannot find the section, return startPage: 0 and endPage: 0.
 Return JSON only.`,
         schema: PageLocationSchema,
         maxTokens: 256,
-        providerOptions: locationProviderOptions,
+        providerOptions: await buildPdfProviderOptions(pdfInput, providerOptions),
       },
       {
         fallback: { startPage: 0, endPage: 0 },

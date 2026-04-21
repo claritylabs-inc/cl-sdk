@@ -5,7 +5,7 @@ import type { DocumentChunk } from "../storage/chunk-types";
 import { pLimit } from "../core/concurrency";
 import { safeGenerateObject } from "../core/safe-generate";
 import { createPipelineContext, type PipelineCheckpoint } from "../core/pipeline";
-import { extractPageRange, getPdfPageCount, pdfInputToBase64, isFileReference, getFileIdentifier } from "./pdf";
+import { extractPageRange, getPdfPageCount, pdfInputToBase64, buildPdfProviderOptions } from "./pdf";
 import { runExtractor } from "./extractor";
 import { assembleDocument } from "./assembler";
 import { formatDocumentContent } from "./formatter";
@@ -421,25 +421,13 @@ export function createExtractor(config: ExtractorConfig) {
       onProgress?.("Classifying document...");
       const pageCount = await getPdfPageCount(pdfInput);
 
-      // Build provider options with file reference support
-      const classifyProviderOptions: Record<string, unknown> = { ...providerOptions };
-      const fileId = getFileIdentifier(pdfInput);
-      if (fileId?.fileId) {
-        classifyProviderOptions.fileId = fileId.fileId;
-      } else if (fileId?.url) {
-        classifyProviderOptions.pdfUrl = new URL(fileId.url);
-      } else {
-        // Convert to base64 for providers that don't support file references
-        classifyProviderOptions.pdfBase64 = await pdfInputToBase64(pdfInput);
-      }
-
       const classifyResponse = await safeGenerateObject(
         generateObject as GenerateObject<ClassifyResult>,
         {
           prompt: buildClassifyPrompt(),
           schema: ClassifyResultSchema,
           maxTokens: 512,
-          providerOptions: classifyProviderOptions,
+          providerOptions: await buildPdfProviderOptions(pdfInput, providerOptions),
         },
         {
           fallback: { documentType: "policy" as const, policyTypes: ["other" as const], confidence: 0 },
@@ -481,25 +469,13 @@ export function createExtractor(config: ExtractorConfig) {
     } else {
       onProgress?.(`Building form inventory for ${primaryType} ${documentType}...`);
 
-      // Build provider options with file reference support
-      const inventoryProviderOptions: Record<string, unknown> = { ...providerOptions };
-      const fileId = getFileIdentifier(pdfInput);
-      if (fileId?.fileId) {
-        inventoryProviderOptions.fileId = fileId.fileId;
-      } else if (fileId?.url) {
-        inventoryProviderOptions.pdfUrl = new URL(fileId.url);
-      } else {
-        // Convert to base64 for providers that don't support file references
-        inventoryProviderOptions.pdfBase64 = await pdfInputToBase64(pdfInput);
-      }
-
       const formInventoryResponse = await safeGenerateObject(
         generateObject as GenerateObject<FormInventoryResult>,
         {
           prompt: buildFormInventoryPrompt(templateHints),
           schema: FormInventorySchema,
           maxTokens: 2048,
-          providerOptions: inventoryProviderOptions,
+          providerOptions: await buildPdfProviderOptions(pdfInput, providerOptions),
         },
         {
           fallback: { forms: [] },
@@ -739,25 +715,13 @@ export function createExtractor(config: ExtractorConfig) {
         const extractionSummary = summarizeExtraction(memory);
         const pageMapSummary = formatPageMapSummary(pageAssignments);
 
-        // Build provider options with file reference support for review
-        const reviewProviderOptions: Record<string, unknown> = { ...providerOptions };
-        const reviewFileId = getFileIdentifier(pdfInput);
-        if (reviewFileId?.fileId) {
-          reviewProviderOptions.fileId = reviewFileId.fileId;
-        } else if (reviewFileId?.url) {
-          reviewProviderOptions.pdfUrl = new URL(reviewFileId.url);
-        } else {
-          // Convert to base64 for providers that don't support file references
-          reviewProviderOptions.pdfBase64 = await pdfInputToBase64(pdfInput);
-        }
-
         const reviewResponse = await safeGenerateObject(
           generateObject as GenerateObject<ReviewResult>,
           {
             prompt: buildReviewPrompt(template.required, extractedKeys, extractionSummary, pageMapSummary),
             schema: ReviewResultSchema,
             maxTokens: 1536,
-            providerOptions: reviewProviderOptions,
+            providerOptions: await buildPdfProviderOptions(pdfInput, providerOptions),
           },
           {
             fallback: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
