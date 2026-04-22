@@ -1,0 +1,273 @@
+# Unified release workflow for @claritylabs/cl-sdk, @claritylabs/cl-sdk-docs, and @claritylabs/cl-sdk-mcp
+#
+# All three publish steps use OIDC provenance (id-token: write) — no NPM_TOKEN secret needed.
+#
+# IMPORTANT — before this workflow's OIDC path will succeed for the docs and MCP packages,
+# you must register trusted publishers on npmjs.com for each:
+#   - @claritylabs/cl-sdk-docs  → https://www.npmjs.com/package/@claritylabs/cl-sdk-docs/access
+#   - @claritylabs/cl-sdk-mcp   → https://www.npmjs.com/package/@claritylabs/cl-sdk-mcp/access
+#
+# For each package, add a "GitHub Actions" trusted publisher with:
+#   Repository owner : claritylabs-inc
+#   Repository name  : cl-sdk
+#   Workflow filename: release.yml
+#   Environment      : (leave blank, or match whatever environment you set here)
+#
+# The main package (@claritylabs/cl-sdk) already uses OIDC and requires no changes on npmjs.com.
+
+name: Release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# Prevent concurrent releases
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  # ── Core package ────────────────────────────────────────────────────────────
+  release-core:
+    name: Release core (@claritylabs/cl-sdk)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for semantic-release
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install semantic-release (CI-only)
+        run: npm install --no-save semantic-release@25 @semantic-release/changelog@6 @semantic-release/git@10
+
+      - name: Build package
+        run: npm run build
+
+      - name: Run semantic-release (GitHub release + version bump)
+        id: semantic
+        run: |
+          # Run semantic-release and capture output
+          OUTPUT=$(npx semantic-release 2>&1 || true)
+          echo "$OUTPUT"
+
+          # Check if a new version was released
+          if echo "$OUTPUT" | grep -q "Published GitHub release"; then
+            NEW_VERSION=$(node -p 'require("./package.json").version')
+            echo "released=true" >> $GITHUB_OUTPUT
+            echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "Released version: $NEW_VERSION"
+          else
+            echo "released=false" >> $GITHUB_OUTPUT
+            echo "No new release"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to npm (only after GitHub release succeeds)
+        if: steps.semantic.outputs.released == 'true'
+        id: npm_publish
+        run: |
+          echo "Publishing version ${{ steps.semantic.outputs.version }} to npm..."
+          npm publish --provenance --access public
+          echo "published=true" >> $GITHUB_OUTPUT
+          echo "Successfully published to npm"
+
+      - name: Rollback on npm publish failure
+        if: failure() && steps.semantic.outputs.released == 'true' && steps.npm_publish.outputs.published != 'true'
+        run: |
+          echo "::error::npm publish failed! Rolling back GitHub release..."
+          VERSION="${{ steps.semantic.outputs.version }}"
+
+          # Delete the GitHub release
+          gh release delete "v$VERSION" --yes || echo "Release may not exist"
+
+          # Delete the tag
+          git push origin --delete "refs/tags/v$VERSION" || echo "Tag may not exist"
+
+          echo "Rollback complete. Fix the npm issue and retry."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify release consistency
+        if: steps.semantic.outputs.released == 'true' && steps.npm_publish.outputs.published == 'true'
+        run: |
+          VERSION="${{ steps.semantic.outputs.version }}"
+          echo "Verifying release consistency for version $VERSION..."
+
+          # Verify GitHub release exists
+          gh release view "v$VERSION" --json tagName || exit 1
+
+          # Verify npm package exists (with retry)
+          for i in 1 2 3; do
+            if npm view "@claritylabs/cl-sdk@$VERSION" version 2>/dev/null; then
+              echo "✓ npm package verified"
+              break
+            fi
+            echo "Waiting for npm to propagate... (attempt $i/3)"
+            sleep 5
+          done
+
+          echo "✓ Release consistency verified - GitHub and npm are in sync"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Docs package ─────────────────────────────────────────────────────────────
+  publish-docs:
+    name: Publish docs (@claritylabs/cl-sdk-docs)
+    needs: release-core
+    # Run if core succeeded or was a no-op (skipped); do NOT run if core failed
+    if: always() && (needs.release-core.result == 'success' || needs.release-core.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Check if version already published
+        id: check
+        run: |
+          cd docs-pkg
+          PACKAGE_VERSION=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")
+          echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+
+          if npm view "@claritylabs/cl-sdk-docs@$PACKAGE_VERSION" version 2>/dev/null; then
+            echo "published=true" >> $GITHUB_OUTPUT
+            echo "Version $PACKAGE_VERSION already published"
+          else
+            echo "published=false" >> $GITHUB_OUTPUT
+            echo "Version $PACKAGE_VERSION needs to be published"
+          fi
+
+      - name: Publish to npm
+        if: steps.check.outputs.published == 'false'
+        id: npm_publish
+        run: |
+          cd docs-pkg
+          echo "Publishing version ${{ steps.check.outputs.version }} to npm..."
+          npm publish --provenance --access public
+          echo "success=true" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub tag for release
+        if: steps.npm_publish.outputs.success == 'true'
+        run: |
+          VERSION="${{ steps.check.outputs.version }}"
+          git tag "v$VERSION-docs"
+          git push origin "refs/tags/v$VERSION-docs"
+          echo "Created tag v$VERSION-docs"
+
+      - name: Verify npm publication
+        if: steps.npm_publish.outputs.success == 'true'
+        run: |
+          VERSION="${{ steps.check.outputs.version }}"
+          for i in 1 2 3; do
+            if npm view "@claritylabs/cl-sdk-docs@$VERSION" version 2>/dev/null; then
+              echo "✓ npm package verified"
+              break
+            fi
+            echo "Waiting for npm to propagate... (attempt $i/3)"
+            sleep 5
+          done
+
+      - name: Notify on failure
+        if: failure() && steps.check.outputs.published == 'false'
+        run: |
+          echo "::error::Docs package publish failed!"
+          echo "Version: ${{ steps.check.outputs.version }}"
+
+  # ── MCP package ──────────────────────────────────────────────────────────────
+  publish-mcp:
+    name: Publish MCP server (@claritylabs/cl-sdk-mcp)
+    needs: release-core
+    # Run if core succeeded or was a no-op (skipped); do NOT run if core failed
+    if: always() && (needs.release-core.result == 'success' || needs.release-core.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Check if version already published
+        id: check
+        run: |
+          cd mcp
+          PACKAGE_VERSION=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")
+          echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+
+          if npm view "@claritylabs/cl-sdk-mcp@$PACKAGE_VERSION" version 2>/dev/null; then
+            echo "published=true" >> $GITHUB_OUTPUT
+            echo "Version $PACKAGE_VERSION already published"
+          else
+            echo "published=false" >> $GITHUB_OUTPUT
+            echo "Version $PACKAGE_VERSION needs to be published"
+          fi
+
+      - name: Install dependencies
+        if: steps.check.outputs.published == 'false'
+        run: npm ci
+
+      - name: Build docs bundle
+        if: steps.check.outputs.published == 'false'
+        run: npx tsx mcp/build-docs.ts
+
+      - name: Publish to npm
+        if: steps.check.outputs.published == 'false'
+        id: npm_publish
+        run: |
+          cd mcp
+          echo "Publishing version ${{ steps.check.outputs.version }} to npm..."
+          npm publish --provenance --access public
+          echo "success=true" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub tag for release
+        if: steps.npm_publish.outputs.success == 'true'
+        run: |
+          VERSION="${{ steps.check.outputs.version }}"
+          git tag "v$VERSION-mcp"
+          git push origin "refs/tags/v$VERSION-mcp"
+          echo "Created tag v$VERSION-mcp"
+
+      - name: Verify npm publication
+        if: steps.npm_publish.outputs.success == 'true'
+        run: |
+          VERSION="${{ steps.check.outputs.version }}"
+          for i in 1 2 3; do
+            if npm view "@claritylabs/cl-sdk-mcp@$VERSION" version 2>/dev/null; then
+              echo "✓ npm package verified"
+              break
+            fi
+            echo "Waiting for npm to propagate... (attempt $i/3)"
+            sleep 5
+          done
+
+      - name: Notify on failure
+        if: failure() && steps.check.outputs.published == 'false'
+        run: |
+          echo "::error::MCP package publish failed!"
+          echo "Version: ${{ steps.check.outputs.version }}"
