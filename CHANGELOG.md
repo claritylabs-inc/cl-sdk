@@ -1,3 +1,10 @@
+## [0.16.1](https://github.com/claritylabs-inc/cl-sdk/compare/v0.16.0...v0.16.1) (2026-04-22)
+
+
+### Bug Fixes
+
+* **ci:** use npm install for mcp package since it has no lockfile ([aaa911a](https://github.com/claritylabs-inc/cl-sdk/commit/aaa911ac220101f89e04358136bb466ed9e6a506))
+
 # [0.16.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.15.0...v0.16.0) (2026-04-21)
 
 
