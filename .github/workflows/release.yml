@@ -230,11 +230,13 @@ jobs:
 
       - name: Install dependencies
         if: steps.check.outputs.published == 'false'
+        working-directory: mcp
         run: npm ci
 
       - name: Build docs bundle
         if: steps.check.outputs.published == 'false'
-        run: npx tsx mcp/build-docs.ts
+        working-directory: mcp
+        run: npx tsx build-docs.ts
 
       - name: Publish to npm
         if: steps.check.outputs.published == 'false'
