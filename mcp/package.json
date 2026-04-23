@@ -1,6 +1,6 @@
 {
   "name": "@claritylabs/cl-sdk-mcp",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "description": "MCP server for CL SDK — search and read SDK documentation",
   "bin": {
     "cl-sdk-mcp": "./server.ts"
