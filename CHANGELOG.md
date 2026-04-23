@@ -1,3 +1,10 @@
+## [0.16.2](https://github.com/claritylabs-inc/cl-sdk/compare/v0.16.1...v0.16.2) (2026-04-23)
+
+
+### Bug Fixes
+
+* **prompts/agent:** prefer administrator/MGA over carrier in policy references ([6143412](https://github.com/claritylabs-inc/cl-sdk/commit/61434123f00f953742ca6eec170d34775d2692e0))
+
 ## [0.16.1](https://github.com/claritylabs-inc/cl-sdk/compare/v0.16.0...v0.16.1) (2026-04-22)
 
 
