@@ -194,6 +194,156 @@ export function createExtractor(config: ExtractorConfig) {
     return lines.length > 0 ? lines.join("\n") : "";
   }
 
+  function isFocusedResultEmpty(extractorName: string, data: unknown): boolean {
+    if (!data || typeof data !== "object") return true;
+    const record = data as Record<string, unknown>;
+
+    if (extractorName === "covered_reasons") {
+      const coveredReasons = Array.isArray(record.coveredReasons)
+        ? record.coveredReasons
+        : Array.isArray(record.covered_reasons)
+          ? record.covered_reasons
+          : [];
+      return coveredReasons.length === 0;
+    }
+
+    if (extractorName === "definitions") {
+      return !Array.isArray(record.definitions) || record.definitions.length === 0;
+    }
+
+    return false;
+  }
+
+  function sectionLooksLikeCoveredReason(section: Record<string, unknown>): boolean {
+    const type = String(section.type ?? "").toLowerCase();
+    const title = String(section.title ?? "").toLowerCase();
+    return type === "covered_reason"
+      || title.includes("covered cause")
+      || title.includes("covered reason")
+      || title.includes("covered peril")
+      || title.includes("named peril")
+      || title.includes("insuring agreement");
+  }
+
+  function deriveFocusedResultFromSections(
+    extractorName: string,
+    sectionsData: unknown,
+  ): unknown | undefined {
+    if (!sectionsData || typeof sectionsData !== "object") return undefined;
+    const sections = (sectionsData as { sections?: unknown }).sections;
+    if (!Array.isArray(sections)) return undefined;
+
+    if (extractorName === "covered_reasons") {
+      const coveredReasons = (sections as Array<Record<string, unknown>>)
+        .filter(sectionLooksLikeCoveredReason)
+        .map((section) => ({
+          coverageName: String(section.coverageName ?? section.formTitle ?? section.title ?? "Covered Reasons"),
+          title: typeof section.title === "string" ? section.title : undefined,
+          content: String(section.content ?? ""),
+          pageNumber: typeof section.pageStart === "number" ? section.pageStart : undefined,
+          formNumber: typeof section.formNumber === "string" ? section.formNumber : undefined,
+          formTitle: typeof section.formTitle === "string" ? section.formTitle : undefined,
+          sectionRef: typeof section.sectionNumber === "string" ? section.sectionNumber : undefined,
+          originalContent: typeof section.content === "string" ? section.content.slice(0, 500) : undefined,
+        }))
+        .filter((coveredReason) => coveredReason.content.trim().length > 0);
+
+      return coveredReasons.length > 0 ? { coveredReasons } : undefined;
+    }
+
+    if (extractorName === "definitions") {
+      const definitions = (sections as Array<Record<string, unknown>>)
+        .filter((section) => String(section.type ?? "").toLowerCase() === "definition")
+        .map((section) => ({
+          term: String(section.title ?? "Definitions"),
+          definition: String(section.content ?? ""),
+          pageNumber: typeof section.pageStart === "number" ? section.pageStart : undefined,
+          formNumber: typeof section.formNumber === "string" ? section.formNumber : undefined,
+          formTitle: typeof section.formTitle === "string" ? section.formTitle : undefined,
+          sectionRef: typeof section.sectionNumber === "string" ? section.sectionNumber : undefined,
+          originalContent: typeof section.content === "string" ? section.content.slice(0, 500) : undefined,
+        }))
+        .filter((definition) => definition.definition.trim().length > 0);
+
+      return definitions.length > 0 ? { definitions } : undefined;
+    }
+
+    return undefined;
+  }
+
+  async function runFocusedExtractorTask(task: ExtractionPlan["tasks"][number], pdfInput: PdfInput) {
+    const ext = getExtractor(task.extractorName) ?? (
+      task.extractorName === "definitions" || task.extractorName === "covered_reasons"
+        ? getExtractor("sections")
+        : undefined
+    );
+    if (!ext) {
+      await log?.(`Unknown extractor: ${task.extractorName}, skipping`);
+      return null;
+    }
+
+    try {
+      const result = await runExtractor({
+        name: task.extractorName,
+        prompt: ext.buildPrompt(),
+        schema: ext.schema,
+        pdfInput,
+        startPage: task.startPage,
+        endPage: task.endPage,
+        generateObject,
+        convertPdfToImages,
+        maxTokens: ext.maxTokens ?? 4096,
+        providerOptions,
+      });
+      trackUsage(result.usage);
+
+      if (!isFocusedResultEmpty(task.extractorName, result.data)) {
+        return result;
+      }
+
+      if (task.extractorName !== "definitions" && task.extractorName !== "covered_reasons") {
+        return result;
+      }
+    } catch (error) {
+      if (task.extractorName !== "definitions" && task.extractorName !== "covered_reasons") {
+        await log?.(`Extractor ${task.extractorName} failed: ${error}`);
+        return null;
+      }
+      await log?.(`Extractor ${task.extractorName} failed: ${error}`);
+    }
+
+    const sectionsExt = getExtractor("sections");
+    if (!sectionsExt) return null;
+
+    await log?.(`Extractor ${task.extractorName} produced no usable records; trying sections fallback for pages ${task.startPage}-${task.endPage}`);
+    try {
+      const sectionsResult = await runExtractor({
+        name: "sections",
+        prompt: sectionsExt.buildPrompt(),
+        schema: sectionsExt.schema,
+        pdfInput,
+        startPage: task.startPage,
+        endPage: task.endPage,
+        generateObject,
+        convertPdfToImages,
+        maxTokens: sectionsExt.maxTokens ?? 4096,
+        providerOptions,
+      });
+      trackUsage(sectionsResult.usage);
+
+      const focusedData = deriveFocusedResultFromSections(task.extractorName, sectionsResult.data);
+      return focusedData
+        ? [
+            sectionsResult,
+            { name: task.extractorName, data: focusedData, usage: undefined },
+          ]
+        : sectionsResult;
+    } catch (fallbackError) {
+      await log?.(`Sections fallback for ${task.extractorName} failed: ${fallbackError}`);
+      return null;
+    }
+  }
+
   function formatPageMapSummary(pageAssignments: PageAssignment[]): string {
     const extractorPages = new Map<string, number[]>();
 
@@ -618,41 +768,13 @@ export function createExtractor(config: ExtractorConfig) {
       const extractorResults = await Promise.all(
         tasks.map((task) =>
           limit(async () => {
-            const ext = getExtractor(task.extractorName) ?? (
-              task.extractorName === "definitions" || task.extractorName === "covered_reasons"
-                ? getExtractor("sections")
-                : undefined
-            );
-            if (!ext) {
-              await log?.(`Unknown extractor: ${task.extractorName}, skipping`);
-              return null;
-            }
-
             onProgress?.(`Extracting ${task.extractorName} (pages ${task.startPage}-${task.endPage})...`);
-            try {
-              const result = await runExtractor({
-                name: task.extractorName,
-                prompt: ext.buildPrompt(),
-                schema: ext.schema,
-                pdfInput,
-                startPage: task.startPage,
-                endPage: task.endPage,
-                generateObject,
-                convertPdfToImages,
-                maxTokens: ext.maxTokens ?? 4096,
-                providerOptions,
-              });
-              trackUsage(result.usage);
-              return result;
-            } catch (error) {
-              await log?.(`Extractor ${task.extractorName} failed: ${error}`);
-              return null;
-            }
+            return runFocusedExtractorTask(task, pdfInput);
           })
         )
       );
 
-      for (const result of extractorResults) {
+      for (const result of extractorResults.flatMap((item) => Array.isArray(item) ? item : item ? [item] : [])) {
         if (result) {
           mergeMemoryResult(result.name, result.data, memory);
         }
@@ -767,37 +889,12 @@ export function createExtractor(config: ExtractorConfig) {
         const followUpResults = await Promise.all(
           reviewResponse.object.additionalTasks.map((task) =>
             limit(async () => {
-              const ext = getExtractor(task.extractorName) ?? (
-                task.extractorName === "definitions" || task.extractorName === "covered_reasons"
-                  ? getExtractor("sections")
-                  : undefined
-              );
-              if (!ext) return null;
-
-              try {
-                const result = await runExtractor({
-                  name: task.extractorName,
-                  prompt: ext.buildPrompt(),
-                  schema: ext.schema,
-                  pdfInput,
-                  startPage: task.startPage,
-                  endPage: task.endPage,
-                  generateObject,
-                  convertPdfToImages,
-                  maxTokens: ext.maxTokens ?? 4096,
-                  providerOptions,
-                });
-                trackUsage(result.usage);
-                return result;
-              } catch (error) {
-                await log?.(`Follow-up extractor ${task.extractorName} failed: ${error}`);
-                return null;
-              }
+              return runFocusedExtractorTask(task, pdfInput);
             })
           )
         );
 
-        for (const result of followUpResults) {
+        for (const result of followUpResults.flatMap((item) => Array.isArray(item) ? item : item ? [item] : [])) {
           if (result) {
             mergeMemoryResult(result.name, result.data, memory);
           }

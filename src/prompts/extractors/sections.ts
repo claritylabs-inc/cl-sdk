@@ -19,6 +19,7 @@ export const SectionsSchema = z.object({
             "policy_form",
             "endorsement",
             "application",
+            "covered_reason",
             "exclusion",
             "condition",
             "definition",
@@ -47,6 +48,7 @@ For each section, classify its type:
 - "policy_form" — named ISO or proprietary forms (e.g. CG 00 01, IL 00 17). All sections within a named form should be typed as "policy_form"
 - "endorsement" — standalone endorsements modifying the base policy
 - "application" — the insurance application or supplemental application
+- "covered_reason" — affirmative grants of coverage, covered causes of loss, covered perils, or named covered events
 - "insuring_agreement" — the insuring agreement clause (only if standalone, not inside a policy_form)
 - "exclusion", "condition", "definition" — for standalone sections only
 - "schedule" — coverage or rating schedules

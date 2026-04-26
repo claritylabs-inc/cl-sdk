@@ -366,6 +366,73 @@ describe("createExtractor", () => {
     ]);
   });
 
+  it("falls back through sections when covered reasons extraction produces no object", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValueOnce({
+        object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
+      })
+      .mockResolvedValueOnce({
+        object: { forms: [] },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          pages: [
+            { localPageNumber: 1, extractorNames: ["covered_reasons"], pageRole: "policy_form", hasScheduleValues: false },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        object: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
+      });
+
+    runExtractor.mockImplementation(async (arg) => {
+      if (arg.name === "covered_reasons") {
+        throw new Error("AI_NoOutputGeneratedError: No output generated.");
+      }
+      if (arg.name === "sections") {
+        return {
+          name: "sections",
+          data: {
+            sections: [
+              {
+                title: "Covered Causes of Loss",
+                type: "covered_reason",
+                content: "We will pay for direct physical loss caused by fire.",
+                pageStart: 1,
+              },
+            ],
+          },
+          usage: { inputTokens: 20, outputTokens: 10 },
+        };
+      }
+      return {
+        name: arg.name,
+        data: {},
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    });
+
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+    });
+
+    await extractor.extract("full-pdf-base64", "doc-1");
+
+    const memory = assembleDocument.mock.calls[0][2] as Map<string, unknown>;
+    expect(memory.get("covered_reasons")).toEqual({
+      coveredReasons: [
+        expect.objectContaining({
+          coverageName: "Covered Causes of Loss",
+          title: "Covered Causes of Loss",
+          content: "We will pay for direct physical loss caused by fire.",
+          pageNumber: 1,
+        }),
+      ],
+    });
+  });
+
   it("fails before assembly when strict quality gate finds blocking issues", async () => {
     safeGenerateObject
       .mockReset()
