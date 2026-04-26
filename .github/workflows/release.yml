@@ -169,16 +169,24 @@ jobs:
           npm publish --provenance --access public
           echo "success=true" >> $GITHUB_OUTPUT
 
-      - name: Create GitHub tag for release
-        if: steps.npm_publish.outputs.success == 'true'
+      - name: Ensure GitHub tag for release
+        if: steps.check.outputs.published == 'true' || steps.npm_publish.outputs.success == 'true'
         run: |
           VERSION="${{ steps.check.outputs.version }}"
-          git tag "v$VERSION-docs"
-          git push origin "refs/tags/v$VERSION-docs"
-          echo "Created tag v$VERSION-docs"
+          TAG="v$VERSION-docs"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists"
+          else
+            gh api "repos/${{ github.repository }}/git/refs" \
+              -f ref="refs/tags/$TAG" \
+              -f sha="${{ github.sha }}"
+            echo "Created tag $TAG"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify npm publication
-        if: steps.npm_publish.outputs.success == 'true'
+        if: steps.check.outputs.published == 'true' || steps.npm_publish.outputs.success == 'true'
         run: |
           VERSION="${{ steps.check.outputs.version }}"
           for i in 1 2 3; do
@@ -251,19 +259,27 @@ jobs:
         run: |
           cd mcp
           echo "Publishing version ${{ steps.check.outputs.version }} to npm..."
-          npm publish --provenance --access public
+          npm publish --provenance --access public --tag latest
           echo "success=true" >> $GITHUB_OUTPUT
 
-      - name: Create GitHub tag for release
-        if: steps.npm_publish.outputs.success == 'true'
+      - name: Ensure GitHub tag for release
+        if: steps.check.outputs.published == 'true' || steps.npm_publish.outputs.success == 'true'
         run: |
           VERSION="${{ steps.check.outputs.version }}"
-          git tag "v$VERSION-mcp"
-          git push origin "refs/tags/v$VERSION-mcp"
-          echo "Created tag v$VERSION-mcp"
+          TAG="v$VERSION-mcp"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists"
+          else
+            gh api "repos/${{ github.repository }}/git/refs" \
+              -f ref="refs/tags/$TAG" \
+              -f sha="${{ github.sha }}"
+            echo "Created tag $TAG"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify npm publication
-        if: steps.npm_publish.outputs.success == 'true'
+        if: steps.check.outputs.published == 'true' || steps.npm_publish.outputs.success == 'true'
         run: |
           VERSION="${{ steps.check.outputs.version }}"
           for i in 1 2 3; do
