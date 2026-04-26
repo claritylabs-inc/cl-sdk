@@ -1,3 +1,10 @@
+# [0.17.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.16.2...v0.17.0) (2026-04-26)
+
+
+### Features
+
+* improve insurance extraction completeness ([c3b7776](https://github.com/claritylabs-inc/cl-sdk/commit/c3b77764d9285c7010f99ce63c996a8fcedc8941))
+
 ## [0.16.2](https://github.com/claritylabs-inc/cl-sdk/compare/v0.16.1...v0.16.2) (2026-04-23)
 
 
