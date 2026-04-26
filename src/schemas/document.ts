@@ -82,6 +82,33 @@ export const AuxiliaryFactSchema = z.object({
 });
 export type AuxiliaryFact = z.infer<typeof AuxiliaryFactSchema>;
 
+export const DefinitionSchema = z.object({
+  term: z.string(),
+  definition: z.string(),
+  pageNumber: z.number().optional(),
+  formNumber: z.string().optional(),
+  formTitle: z.string().optional(),
+  sectionRef: z.string().optional(),
+  originalContent: z.string().optional(),
+});
+export type Definition = z.infer<typeof DefinitionSchema>;
+
+export const CoveredReasonSchema = z.object({
+  coverageName: z.string(),
+  reasonNumber: z.string().optional(),
+  title: z.string().optional(),
+  content: z.string(),
+  conditions: z.array(z.string()).optional(),
+  exceptions: z.array(z.string()).optional(),
+  appliesTo: z.array(z.string()).optional(),
+  pageNumber: z.number().optional(),
+  formNumber: z.string().optional(),
+  formTitle: z.string().optional(),
+  sectionRef: z.string().optional(),
+  originalContent: z.string().optional(),
+});
+export type CoveredReason = z.infer<typeof CoveredReasonSchema>;
+
 // ── Base document fields (shared between policy and quote) ──
 
 const BaseDocumentFields = {
@@ -94,6 +121,8 @@ const BaseDocumentFields = {
   policyTypes: z.array(z.string()).optional(),
   coverages: z.array(CoverageSchema),
   sections: z.array(SectionSchema).optional(),
+  definitions: z.array(DefinitionSchema).optional(),
+  coveredReasons: z.array(CoveredReasonSchema).optional(),
 
   // Enriched fields (v1.2+)
   carrierLegalName: z.string().optional(),

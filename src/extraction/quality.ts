@@ -111,6 +111,40 @@ export function buildExtractionReviewReport(params: {
   const exclusions = (memory.get("exclusions") as { exclusions?: Array<Record<string, unknown>> } | undefined)?.exclusions ?? [];
   const conditions = (memory.get("conditions") as { conditions?: Array<Record<string, unknown>> } | undefined)?.conditions ?? [];
   const sections = (memory.get("sections") as { sections?: Array<Record<string, unknown>> } | undefined)?.sections ?? [];
+  const definitionsResult = memory.get("definitions") as Record<string, unknown> | undefined;
+  const coveredReasonsResult = memory.get("covered_reasons") as Record<string, unknown> | undefined;
+  const definitions = Array.isArray(definitionsResult?.definitions)
+    ? definitionsResult.definitions as Array<Record<string, unknown>>
+    : sections.filter((section) => section.type === "definition");
+  const coveredReasons = Array.isArray(coveredReasonsResult?.coveredReasons)
+    ? coveredReasonsResult.coveredReasons as Array<Record<string, unknown>>
+    : Array.isArray(coveredReasonsResult?.covered_reasons)
+      ? coveredReasonsResult.covered_reasons as Array<Record<string, unknown>>
+      : sections.filter((section) => {
+          const title = String(section.title ?? "").toLowerCase();
+          const type = String(section.type ?? "").toLowerCase();
+          return type === "covered_reason" || title.includes("covered cause") || title.includes("covered reason") || title.includes("covered peril");
+        });
+  const mappedDefinitions = params.pageAssignments.some((assignment) => assignment.extractorNames.includes("definitions"));
+  const mappedCoveredReasons = params.pageAssignments.some((assignment) => assignment.extractorNames.includes("covered_reasons"));
+
+  if (mappedDefinitions && definitions.length === 0) {
+    deterministicIssues.push({
+      code: "definitions_mapped_but_empty",
+      severity: "warning",
+      message: "Page map assigned definitions extraction, but no definition records were extracted.",
+      extractorName: "definitions",
+    });
+  }
+
+  if (mappedCoveredReasons && coveredReasons.length === 0) {
+    deterministicIssues.push({
+      code: "covered_reasons_mapped_but_empty",
+      severity: "warning",
+      message: "Page map assigned covered reasons extraction, but no covered reason records were extracted.",
+      extractorName: "covered_reasons",
+    });
+  }
 
   for (const form of extractedFormInventory) {
     addFormEntry(
@@ -330,6 +364,79 @@ export function buildExtractionReviewReport(params: {
     }
   }
 
+  for (const definition of definitions) {
+    const term = typeof definition.term === "string" ? definition.term : typeof definition.title === "string" ? definition.title : "unknown";
+    const content = typeof definition.definition === "string" ? definition.definition : typeof definition.content === "string" ? definition.content : "";
+    if (!content.trim()) {
+      deterministicIssues.push({
+        code: "definition_missing_content",
+        severity: "warning",
+        message: `Definition "${term}" is missing definition text.`,
+        extractorName: "definitions",
+        formNumber: normalizeFormNumber(definition.formNumber),
+        pageNumber: typeof definition.pageNumber === "number" ? definition.pageNumber : typeof definition.pageStart === "number" ? definition.pageStart : undefined,
+        itemName: term,
+      });
+    }
+    if (typeof definition.pageNumber !== "number" && typeof definition.pageStart !== "number") {
+      deterministicIssues.push({
+        code: "definition_missing_page_number",
+        severity: "warning",
+        message: `Definition "${term}" is missing page provenance.`,
+        extractorName: "definitions",
+        formNumber: normalizeFormNumber(definition.formNumber),
+        itemName: term,
+      });
+    }
+  }
+
+  for (const coveredReason of coveredReasons) {
+    const itemName = typeof coveredReason.name === "string"
+      ? coveredReason.name
+      : typeof coveredReason.reason === "string"
+        ? coveredReason.reason
+        : typeof coveredReason.title === "string"
+          ? coveredReason.title
+          : "unknown";
+    const content = typeof coveredReason.content === "string"
+      ? coveredReason.content
+      : typeof coveredReason.description === "string"
+        ? coveredReason.description
+        : "";
+    if (!content.trim()) {
+      deterministicIssues.push({
+        code: "covered_reason_missing_content",
+        severity: "warning",
+        message: `Covered reason "${itemName}" is missing substantive text.`,
+        extractorName: "covered_reasons",
+        formNumber: normalizeFormNumber(coveredReason.formNumber),
+        pageNumber: typeof coveredReason.pageNumber === "number" ? coveredReason.pageNumber : typeof coveredReason.pageStart === "number" ? coveredReason.pageStart : undefined,
+        itemName,
+      });
+    }
+    if (typeof coveredReason.pageNumber !== "number" && typeof coveredReason.pageStart !== "number") {
+      deterministicIssues.push({
+        code: "covered_reason_missing_page_number",
+        severity: "warning",
+        message: `Covered reason "${itemName}" is missing page provenance.`,
+        extractorName: "covered_reasons",
+        formNumber: normalizeFormNumber(coveredReason.formNumber),
+        itemName,
+      });
+    }
+    if (looksReferential(content) || looksReferential(coveredReason.reason)) {
+      deterministicIssues.push({
+        code: "covered_reason_referential_value",
+        severity: "warning",
+        message: `Covered reason "${itemName}" contains referential language instead of the extracted covered cause wording.`,
+        extractorName: "covered_reasons",
+        formNumber: normalizeFormNumber(coveredReason.formNumber),
+        pageNumber: typeof coveredReason.pageNumber === "number" ? coveredReason.pageNumber : typeof coveredReason.pageStart === "number" ? coveredReason.pageStart : undefined,
+        itemName,
+      });
+    }
+  }
+
   for (const section of sections) {
     if (
       typeof section.content === "string"
@@ -358,6 +465,8 @@ export function buildExtractionReviewReport(params: {
   const artifacts: QualityArtifact[] = [
     { kind: "form_inventory", label: "Form Inventory", itemCount: formInventory.length },
     { kind: "page_map", label: "Page Map", itemCount: params.pageAssignments.length },
+    { kind: "definitions", label: "Definitions", itemCount: definitions.length },
+    { kind: "covered_reasons", label: "Covered Reasons", itemCount: coveredReasons.length },
     { kind: "referential_resolution", label: "Referential Resolution", itemCount: coverages.filter((c: Record<string, unknown>) => c.limitValueType === "referential" || c.limitValueType === "as_stated" || c.deductibleValueType === "referential" || c.deductibleValueType === "as_stated").length },
   ];
 

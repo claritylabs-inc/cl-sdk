@@ -38,7 +38,7 @@ INSTRUCTIONS:
    - If the user's attachment already contains critical facts, still request chunk/document lookup when policy or quote details should be cross-checked against stored records
 
 CHUNK TYPES (for chunkTypes filter):
-carrier_info, named_insured, coverage, endorsement, exclusion, condition, section, declaration, loss_history, premium, supplementary
+carrier_info, named_insured, coverage, covered_reason, definition, endorsement, exclusion, condition, section, declaration, loss_history, premium, supplementary
 
 Respond with the structured classification.`;
 }

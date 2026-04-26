@@ -7,6 +7,7 @@ import {
   promoteLocations,
   synthesizeLimits,
   synthesizeDeductibles,
+  synthesizeTaxesAndFees,
   promotePremium,
   promoteExtractedFields,
 } from "./promote";
@@ -305,16 +306,65 @@ describe("synthesizeDeductibles", () => {
 // ── promotePremium ──
 
 describe("promotePremium", () => {
-  it("promotes premium from declarations", () => {
+  it("promotes premium from common total premium aliases", () => {
     const doc = makeDoc({
       declarations: {
         fields: [
-          { field: "totalPremium", value: "$12,500" },
+          { field: "Estimated Annual Premium", value: "$12,500" },
         ],
       },
     });
     promotePremium(doc);
     expect((doc as any).premium).toBe("$12,500");
+  });
+
+  it("treats total policy premium as premium rather than total cost", () => {
+    const doc = makeDoc({
+      declarations: {
+        fields: [
+          { field: "totalPolicyPremium", value: "$9,750" },
+        ],
+      },
+    });
+    promotePremium(doc);
+    expect((doc as any).premium).toBe("$9,750");
+    expect((doc as any).totalCost).toBeUndefined();
+  });
+
+  it("promotes premium from declarations", () => {
+    const doc = makeDoc({
+      declarations: {
+        fields: [
+          { field: "premium_amount", value: "$12,500" },
+        ],
+      },
+    });
+    promotePremium(doc);
+    expect((doc as any).premium).toBe("$12,500");
+  });
+
+  it("does not promote premium tax as premium", () => {
+    const doc = makeDoc({
+      declarations: {
+        fields: [
+          { field: "premiumTax", value: "$535" },
+        ],
+      },
+    });
+    promotePremium(doc);
+    expect((doc as any).premium).toBeUndefined();
+  });
+
+  it("promotes totalCost from amount due aliases", () => {
+    const doc = makeDoc({
+      declarations: {
+        fields: [
+          { field: "totalPaid", value: "$13,035" },
+        ],
+      },
+    });
+    promotePremium(doc);
+    expect((doc as any).totalCost).toBe("$13,035");
   });
 
   it("does not overwrite existing premium", () => {
@@ -346,6 +396,70 @@ describe("promotePremium", () => {
     const doc = makeDoc({ premium: "($535)" });
     promotePremium(doc);
     expect((doc as any).premium).toBe("$535");
+  });
+});
+
+// ── synthesizeTaxesAndFees ──
+
+describe("synthesizeTaxesAndFees", () => {
+  it("synthesizes taxes and fees from declaration fields", () => {
+    const doc = makeDoc({
+      declarations: {
+        fields: [
+          { field: "surplusLinesTax", value: "$535" },
+          { field: "GST", value: "$20" },
+          { field: "policyFee", value: "$100" },
+          { field: "stamping fee", value: "$25" },
+        ],
+      },
+    });
+
+    synthesizeTaxesAndFees(doc);
+
+    expect((doc as any).taxesAndFees).toEqual([
+      { name: "Surplus Lines Tax", amount: "$535", type: "tax" },
+      { name: "GST", amount: "$20", type: "tax" },
+      { name: "Policy Fee", amount: "$100", type: "fee" },
+      { name: "Stamping Fee", amount: "$25", type: "fee" },
+    ]);
+  });
+
+  it("does not turn total cost aliases into tax line items", () => {
+    const doc = makeDoc({
+      declarations: {
+        fields: [
+          { field: "totalCost", value: "$13,035" },
+          { field: "premiumTax", value: "$535" },
+        ],
+      },
+    });
+
+    synthesizeTaxesAndFees(doc);
+
+    expect((doc as any).taxesAndFees).toEqual([
+      { name: "Premium Tax", amount: "$535", type: "tax" },
+    ]);
+  });
+
+  it("deduplicates synthesized taxes and existing tax records by normalized key", () => {
+    const doc = makeDoc({
+      taxesAndFees: [
+        { name: "Surplus Lines Tax", amount: "$535", type: "tax" },
+      ],
+      declarations: {
+        fields: [
+          { field: "surplus_lines_tax", value: "$535" },
+          { field: "policyFee", value: "$100" },
+        ],
+      },
+    });
+
+    synthesizeTaxesAndFees(doc);
+
+    expect((doc as any).taxesAndFees).toEqual([
+      { name: "Surplus Lines Tax", amount: "$535", type: "tax" },
+      { name: "Policy Fee", amount: "$100", type: "fee" },
+    ]);
   });
 });
 

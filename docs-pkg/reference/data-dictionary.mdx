@@ -123,6 +123,8 @@ Fields present on ALL insurance documents regardless of line of business. These 
 | `coverage_form` | `"occurrence" \| "claims_made" \| "accident"` | Coverage trigger type. Occurrence: injury/damage must occur during policy period. Claims-made: claim must be made during policy period. | Declarations / insuring agreement | high | — |
 | `policy_form_numbers` | `FormReference[]` | All form numbers listed in the policy (the forms and endorsements schedule). See `FormReference` type. This is the complete inventory of forms attached to the policy. | Form schedule / endorsement schedule | high | — |
 | `form_inventory` | `FormReference[]` | AI-extracted inventory of every form in the document with page ranges. Built during the form inventory phase before page mapping. Each entry includes `formNumber`, `formType`, `pageStart`, and `pageEnd`. Used to constrain extraction planning and cross-referenced in quality reports. | Full document scan | high | — |
+| `definitions` | `Definition[]` | First-class defined terms with full definition text, page number, form number/title, section reference, and source snippet. Used for policy terminology, coverage triggers, insured status, exclusions, duties, and other terms that affect interpretation. | Definitions / form text / endorsements | high | — |
+| `covered_reasons` | `CoveredReason[]` | First-class affirmative coverage grants: covered causes of loss, covered losses, inclusions, qualifying reasons, covered events, and attached conditions/exceptions. Preserves coverage grouping and page/form provenance. | Insuring agreement / covered causes / what is covered / coverage descriptions | high | — |
 
 **TypeScript Interface:** `BaseDocument` in `src/types/document.ts`
 

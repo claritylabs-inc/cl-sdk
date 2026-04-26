@@ -11,54 +11,24 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ---------------------------------------------------------------------------
-// Docs bundle
-// ---------------------------------------------------------------------------
-
-interface DocPage {
-  slug: string;
-  title: string;
-  description: string;
-  content: string;
-}
-
-interface DocSection {
-  title: string;
-  slug: string;
-  pages: string[];
-}
-
-interface DocsBundle {
-  sections: DocSection[];
-  pages: DocPage[];
-}
-
-function loadDocsBundle(): DocsBundle {
+function loadDocsBundle() {
   const bundlePath = path.resolve(__dirname, "docs-bundle.json");
   if (!fs.existsSync(bundlePath)) {
     console.error(
       "Warning: docs-bundle.json not found. Run `npx tsx mcp/build-docs.ts` to generate it.\n" +
-      "Doc search/read tools will return empty results."
+        "Doc search/read tools will return empty results."
     );
     return { sections: [], pages: [] };
   }
-  return JSON.parse(fs.readFileSync(bundlePath, "utf-8")) as DocsBundle;
+  return JSON.parse(fs.readFileSync(bundlePath, "utf-8"));
 }
 
 const docs = loadDocsBundle();
 
-// ---------------------------------------------------------------------------
-// Doc search helpers
-// ---------------------------------------------------------------------------
-
-function searchDocs(
-  query: string,
-  section?: string
-): { slug: string; title: string; excerpt: string; score: number }[] {
+function searchDocs(query, section) {
   const q = query.toLowerCase();
   const wordBoundary = new RegExp(`\\b${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
-
-  const results: { slug: string; title: string; excerpt: string; score: number }[] = [];
+  const results = [];
 
   for (const page of docs.pages) {
     if (section && !page.slug.startsWith(section + "/") && page.slug !== section) continue;
@@ -91,26 +61,17 @@ function searchDocs(
   return results.slice(0, 5);
 }
 
-// ---------------------------------------------------------------------------
-// Server factory
-// ---------------------------------------------------------------------------
-
-function createServer(): McpServer {
+function createServer() {
   const server = new McpServer({
     name: "cl-sdk-docs",
     version: "1.0.0",
   });
 
-  server.tool(
-    "list_doc_sections",
-    "List all documentation sections and their pages",
-    {},
-    async () => {
-      return {
-        content: [{ type: "text", text: JSON.stringify(docs.sections, null, 2) }],
-      };
-    }
-  );
+  server.tool("list_doc_sections", "List all documentation sections and their pages", {}, async () => {
+    return {
+      content: [{ type: "text", text: JSON.stringify(docs.sections, null, 2) }],
+    };
+  });
 
   server.tool(
     "search_docs",
@@ -154,10 +115,6 @@ function createServer(): McpServer {
   return server;
 }
 
-// ---------------------------------------------------------------------------
-// Start
-// ---------------------------------------------------------------------------
-
 const useHttp = process.argv.includes("--http") || !!process.env.PORT;
 
 async function main() {
@@ -166,8 +123,7 @@ async function main() {
     const host = process.env.HOST || "0.0.0.0";
     const app = createMcpExpressApp({ host });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    app.post("/mcp", async (req: any, res: any) => {
+    app.post("/mcp", async (req, res) => {
       const server = createServer();
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
@@ -178,11 +134,11 @@ async function main() {
       await server.close();
     });
 
-    app.get("/mcp", (_req: any, res: any) => {
+    app.get("/mcp", (_req, res) => {
       res.status(405).json({ error: "Method not allowed. Use POST." });
     });
 
-    app.delete("/mcp", (_req: any, res: any) => {
+    app.delete("/mcp", (_req, res) => {
       res.status(405).json({ error: "Method not allowed. Use POST." });
     });
 

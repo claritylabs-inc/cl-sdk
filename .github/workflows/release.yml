@@ -1,6 +1,7 @@
 # Unified release workflow for @claritylabs/cl-sdk, @claritylabs/cl-sdk-docs, and @claritylabs/cl-sdk-mcp
 #
-# All three publish steps use OIDC provenance (id-token: write) — no NPM_TOKEN secret needed.
+# Publish steps use OIDC provenance (id-token: write). The MCP cleanup step
+# also needs NPM_TOKEN because npm unpublish does not use trusted publishing.
 #
 # IMPORTANT — before this workflow's OIDC path will succeed for the docs and MCP packages,
 # you must register trusted publishers on npmjs.com for each:
@@ -237,6 +238,12 @@ jobs:
         if: steps.check.outputs.published == 'false'
         working-directory: mcp
         run: npx tsx build-docs.ts
+
+      - name: Delete higher historical MCP versions from npm
+        if: steps.check.outputs.published == 'false'
+        run: node scripts/prune-mcp-npm-history.mjs
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish to npm
         if: steps.check.outputs.published == 'false'

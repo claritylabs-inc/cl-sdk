@@ -6,7 +6,7 @@ export interface DocumentChunk {
   /** Source document ID */
   documentId: string;
   /** Chunk type for filtering */
-  type: "carrier_info" | "named_insured" | "coverage" | "endorsement" | "exclusion" | "condition" | "section" | "declaration" | "loss_history" | "premium" | "supplementary" | "location" | "vehicle" | "classification" | "financial" | "party" | "subjectivity" | "underwriting_condition";
+  type: "carrier_info" | "named_insured" | "coverage" | "covered_reason" | "definition" | "endorsement" | "exclusion" | "condition" | "section" | "declaration" | "loss_history" | "premium" | "supplementary" | "location" | "vehicle" | "classification" | "financial" | "party" | "subjectivity" | "underwriting_condition";
   /** Human-readable text for embedding */
   text: string;
   /** Structured metadata for filtering */

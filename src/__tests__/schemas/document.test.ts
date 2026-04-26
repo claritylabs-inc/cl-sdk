@@ -60,6 +60,37 @@ describe("document schemas", () => {
     expect(result.supplementaryFacts).toHaveLength(1);
   });
 
+  it("accepts base document definitions and covered reasons", () => {
+    const result = PolicyDocumentSchema.parse({
+      ...minimalPolicy,
+      definitions: [
+        {
+          term: "Occurrence",
+          definition: "An accident, including continuous or repeated exposure.",
+          formNumber: "CG 00 01",
+          sectionRef: "Definitions",
+          originalContent: '"Occurrence" means an accident, including continuous or repeated exposure.',
+          pageNumber: 12,
+        },
+      ],
+      coveredReasons: [
+        {
+          coverageName: "Covered Causes of Loss",
+          title: "Fire",
+          reasonNumber: "1",
+          appliesTo: ["Building", "Business Personal Property"],
+          content: "We will pay for direct physical loss caused by fire.",
+          formNumber: "CP 10 10",
+          sectionRef: "Covered Causes Of Loss",
+          pageNumber: 8,
+        },
+      ],
+    });
+
+    expect(result.definitions?.[0]?.term).toBe("Occurrence");
+    expect(result.coveredReasons?.[0]?.title).toBe("Fire");
+  });
+
   it("accepts quote with enriched fields", () => {
     const enrichedQuote = {
       ...minimalQuote,

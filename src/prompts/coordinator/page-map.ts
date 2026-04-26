@@ -4,6 +4,8 @@ export const PageExtractorSchema = z.enum([
   "carrier_info",
   "named_insured",
   "coverage_limits",
+  "covered_reasons",
+  "definitions",
   "endorsements",
   "exclusions",
   "conditions",
@@ -61,6 +63,8 @@ Available extractors:
 - carrier_info
 - named_insured
 - coverage_limits
+- covered_reasons
+- definitions
 - endorsements
 - exclusions
 - conditions
@@ -74,6 +78,8 @@ Rules:
 - Identify the broad section or form context first, then assign focused extractors within that context.
 - Use specific extractors for declarations, schedules, endorsements, exclusions, conditions, premium pages, and loss runs.
 - Use "sections" for pages that contain substantive policy text or mixed content that should still be preserved as raw sections.
+- Use "definitions" for policy-form pages containing defined terms, definitions sections, or term meaning clauses.
+- Use "covered_reasons" for pages listing covered causes of loss, covered reasons, covered perils, named perils, covered events, or covered loss triggers.
 - Avoid assigning broad ranges mentally; decide page by page.
 - A page may map to multiple extractors if it legitimately contains multiple relevant sections.
 - Prefer declarations and schedules for numeric limits/deductibles over later generic form wording.
@@ -81,6 +87,7 @@ Rules:
 - Do NOT assign "coverage_limits" for generic policy-form or endorsement text that merely explains how limits, deductibles, waiting periods, or coinsurance work, or that says values are "shown in the declarations", "shown in the schedule", "as stated", or "if applicable".
 - Headings like "Limits of Insurance", "Deductible", "Coinsurance", "Loss Conditions", or "Definitions" inside a policy form usually indicate form language, not declarations or schedules.
 - Continuation pages near the end of a form should stay mapped to "sections" plus "conditions"/"exclusions" when applicable, even if they mention limits or deductibles.
+- Covered causes/reasons and definitions often span a whole form section; tag every substantive page in that section, not just the heading page.
 - When a form inventory entry identifies a page range as a specific form type (e.g., endorsement, coverage, application), use that classification to guide your extractor choice. Do not assign "coverage_limits" to pages the inventory identifies as endorsement or condition/exclusion forms unless the page contains actual schedule values.
 - Do not tag a page with "exclusions" or "conditions" if it only contains a table of contents, page-number reference, running header/footer, or a heading that points to another page without substantive wording.
 - If a page appears to be part of a larger exclusion, conditions, or endorsement section within the same form, keep the assignment consistent across nearby pages in that section rather than isolating a single page fragment.

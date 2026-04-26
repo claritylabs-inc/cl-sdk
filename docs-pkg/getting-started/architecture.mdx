@@ -41,6 +41,8 @@ Dispatches focused extractors in parallel (concurrency-limited, default 2). Each
 
 - **Declarations** — named insured, policy number, dates, carrier
 - **Coverage limits** — coverage names, limits, deductibles, sub-limits
+- **Definitions** — defined terms and full definition text with provenance
+- **Covered reasons** — covered causes, covered losses, inclusions, and qualifying coverage triggers
 - **Conditions** — policy conditions and provisions
 - **Endorsements** — endorsement schedules and modifications
 - **Exclusions** — exclusion language and applicability
@@ -65,7 +67,7 @@ Merges all extractor results into a final `InsuranceDocument`.
 
 ### Format
 
-A post-extraction agent pass cleans up markdown formatting in all content-bearing fields — fixing pipe tables missing separator rows, space-aligned tables, sub-items mixed into tables, and general whitespace issues. This ensures sections, endorsements, exclusions, and conditions render correctly in downstream UIs.
+A post-extraction agent pass cleans up markdown formatting in all content-bearing fields — fixing pipe tables missing separator rows, space-aligned tables, sub-items mixed into tables, and general whitespace issues. This ensures sections, definitions, covered reasons, endorsements, exclusions, and conditions render correctly in downstream UIs.
 
 ### Chunk
 

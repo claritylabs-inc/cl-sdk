@@ -13,6 +13,7 @@ interface DocumentChunk {
   documentId: string;
   type:
     | "carrier_info" | "named_insured" | "coverage"
+    | "definition" | "covered_reason"
     | "endorsement" | "exclusion" | "condition"
     | "section" | "declaration" | "loss_history"
     | "premium" | "supplementary";
@@ -30,6 +31,8 @@ Each chunk is a self-contained piece of information with enough context to be us
 | `carrier_info` | Carrier name, legal name, NAIC, AM Best, MGA | `carrier`, `documentType` |
 | `named_insured` | Insured name, DBA, FEIN, address | `insuredName`, `documentType` |
 | `coverage` | Coverage name, limit, deductible (one chunk per coverage) | `coverageName`, `limit`, `documentType` |
+| `definition` | Defined term and full definition text | `term`, `formNumber`, `formTitle`, `pageNumber`, `sectionRef`, `documentType` |
+| `covered_reason` | Covered cause/reason/inclusion content and attached conditions | `coverageName`, `reasonNumber`, `title`, `conditionIndex`, `formNumber`, `formTitle`, `pageNumber`, `sectionRef`, `documentType` |
 | `endorsement` | Endorsement title and content | `endorsementType`, `formNumber`, `documentType` |
 | `exclusion` | Exclusion name and content | `documentType` |
 | `section` | Section title and content | `sectionType`, `documentType` |
@@ -37,6 +40,8 @@ Each chunk is a self-contained piece of information with enough context to be us
 | `supplementary` | Claims/regulatory contacts plus hidden retrieval-only facts | `documentType`, `supplementaryFactCount` |
 
 Coverages produce one chunk per coverage item — a policy with 12 coverages generates 12 separate coverage chunks. This ensures each coverage can be retrieved independently when answering specific coverage questions.
+
+Definitions produce one chunk per defined term. Covered reasons produce one chunk per covered reason and one additional chunk for each attached condition when conditions are present. This helps the query agent answer targeted questions about policy terminology and affirmative coverage grants without relying on broad section chunks.
 
 When the extraction pipeline captures `supplementaryFacts`, `chunkDocument()` also emits a single `supplementary` chunk. This chunk is designed for agent retrieval, not for front-end rendering. It lets vector search find facts like driver ages, policyholder names, garaging ZIPs, and vehicle-to-driver assignments without forcing those fields into the strict visible schema.
 
@@ -50,6 +55,9 @@ doc-123:named_insured:0
 doc-123:coverage:0
 doc-123:coverage:1
 doc-123:coverage:2
+doc-123:definition:0
+doc-123:covered_reason:0
+doc-123:covered_reason:0:condition:0
 doc-123:endorsement:0
 doc-123:endorsement:1
 doc-123:premium:0
@@ -134,4 +142,4 @@ The query agent stores each interaction as conversation turns, enabling:
    "The general liability limit is $1,000,000 [doc-123:coverage:0]"
 ```
 
-The chunk type filter is particularly useful during query retrieval — when the query agent classifies a question as coverage-related, it can filter to `coverage` chunks to improve precision and reduce noise from unrelated document sections.
+The chunk type filter is particularly useful during query retrieval. When the query agent classifies a question as coverage-related, it can filter to `coverage` chunks. When it classifies a question as definitional or about what is affirmatively covered, it can filter to `definition` or `covered_reason` chunks to improve precision and reduce noise from unrelated document sections.

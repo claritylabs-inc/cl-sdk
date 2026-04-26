@@ -48,11 +48,19 @@ jobs:
 
       - name: Install dependencies
         if: steps.check.outputs.published == 'false'
-        run: npm ci
+        working-directory: mcp
+        run: npm install --no-audit --no-fund
 
       - name: Build docs bundle
         if: steps.check.outputs.published == 'false'
-        run: npx tsx mcp/build-docs.ts
+        working-directory: mcp
+        run: npx tsx build-docs.ts
+
+      - name: Delete higher historical MCP versions from npm
+        if: steps.check.outputs.published == 'false'
+        run: node scripts/prune-mcp-npm-history.mjs
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish to npm
         if: steps.check.outputs.published == 'false'

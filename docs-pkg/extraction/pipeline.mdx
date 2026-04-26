@@ -123,9 +123,9 @@ Results accumulate in an in-memory `Map` keyed by extractor name.
 
 Before each worker callback is invoked, the SDK slices the assigned page range with `extractPageRange()` and passes that page-scoped PDF through `providerOptions.pdfBase64`. If `convertPdfToImages` is configured, it passes `providerOptions.images` instead.
 
-If the same extractor runs multiple times, results merge instead of overwrite. This is especially important for `coverage_limits`, `endorsements`, `exclusions`, `conditions`, `sections`, `declarations`, and `supplementary`.
+If the same extractor runs multiple times, results merge instead of overwrite. This is especially important for `coverage_limits`, `definitions`, `covered_reasons`, `endorsements`, `exclusions`, `conditions`, `sections`, `declarations`, and `supplementary`.
 
-### The 11 focused extractors
+### The 13 focused extractors
 
 | Extractor | Domain | What it extracts |
 |-----------|--------|------------------|
@@ -133,6 +133,8 @@ If the same extractor runs multiple times, results merge instead of overwrite. T
 | `named_insured` | Insured | Insured name, DBA, address, entity type, FEIN, SIC/NAICS, loss payees, mortgage holders |
 | `declarations` | Declarations | Line-specific structured declarations (varies by policy type) |
 | `coverage_limits` | Coverages | Coverage names, limits, deductibles, forms, triggers |
+| `definitions` | Definitions | Defined terms, full definition text, form/page provenance |
+| `covered_reasons` | Covered reasons | Covered causes of loss, covered losses, inclusions, qualifying reasons, attached conditions/exceptions |
 | `endorsements` | Endorsements | Form numbers, titles, types, content, affected parties |
 | `exclusions` | Exclusions | Exclusion titles, content, applicability |
 | `conditions` | Conditions | Duties after loss, cancellation, other insurance, etc. |
@@ -172,7 +174,7 @@ If gaps or quality issues are found, the reviewer generates additional extractio
 - All required fields are present, or
 - The maximum review rounds are reached
 
-Typical quality issues include generic placeholders like "shown in declarations", "per schedule", and values that look copied from generic form wording instead of declaration-specific schedules.
+Typical quality issues include generic placeholders like "shown in declarations", "per schedule", values that look copied from generic form wording instead of declaration-specific schedules, mapped definitions pages with no definition records, and mapped covered-cause/inclusion pages with no covered reason records.
 
 ## Phase 6: Assemble
 
@@ -182,7 +184,7 @@ The assembler merges all extractor results from the in-memory `Map` into a singl
 
 After assembly, a promotion pass fills in top-level typed fields from data that was extracted but not directly surfaced. The extractors do detailed work — 100+ declaration fields, dozens of coverages — but the initial assembly only spreads flat results. The promotion pass bridges this gap.
 
-The promoter runs seven sub-passes, all pure data transformations with no model calls:
+The promoter runs eight sub-passes, all pure data transformations with no model calls:
 
 | Sub-pass | What it does |
 |----------|-------------|
@@ -192,7 +194,8 @@ The promoter runs seven sub-passes, all pure data transformations with no model 
 | **Location promotion** | Groups location-related declaration fields (address, construction type, occupancy, building value, etc.) by location number and populates the `locations[]` array. |
 | **Limits synthesis** | Maps well-known coverage names (e.g. "Each Occurrence", "General Aggregate", "Products/Completed Operations Aggregate") from the `coverages[]` array into the structured `limits` schedule. Handles GL, auto, umbrella, workers comp, and employers liability patterns. |
 | **Deductible synthesis** | Finds the most common deductible across coverages as the base `perOccurrence` deductible. Detects self-insured retentions and aggregate deductibles. |
-| **Premium fallback** | If the premium extractor didn't find premium data (e.g. it was assigned to the wrong pages), promotes premium values from declarations fields. |
+| **Taxes and fees synthesis** | Converts declaration tax, fee, surcharge, and assessment fields into structured `taxesAndFees[]` entries, including common GST/HST/PST/QST-style labels. |
+| **Premium and total-cost fallback** | If the premium extractor didn't find financial data, promotes premium and total-cost values from declaration aliases such as `premiumAmount`, `totalPaid`, `amountPaid`, and `amountCharged`. Tax fields are excluded from premium promotion. |
 
 All sub-passes are idempotent — they never overwrite fields that already have values from direct extraction.
 
@@ -210,7 +213,7 @@ If summary generation fails, the pipeline continues without it — the field rem
 
 ## Phase 9: Format
 
-After assembly, a formatting agent pass cleans up markdown in all content-bearing string fields — section content, subsection content, endorsement content, exclusion content, condition content, and the document summary.
+After assembly, a formatting agent pass cleans up markdown in all content-bearing string fields — section content, subsection content, definition text, covered-reason content and conditions, endorsement content, exclusion content, condition content, and the document summary.
 
 Insurance document extraction commonly produces content with formatting issues that prevent proper markdown rendering:
 
@@ -231,6 +234,8 @@ Content fields are collected and batched (up to 20 per model call) for efficient
 ## Phase 10: Chunk
 
 The formatted document is broken into retrieval-ready `DocumentChunk` objects via `chunkDocument()`. Chunks inherit the cleaned formatting, ensuring consistent rendering in downstream applications like query results and chat UIs.
+
+Definitions and covered reasons produce dedicated `definition` and `covered_reason` chunks so retrieval can answer questions like "what does this term mean?" or "what losses are covered?" without depending on generic section text. Covered-reason conditions are chunked separately under the same `covered_reason` type.
 
 If supplementary data exists, `chunkDocument()` also emits a `supplementary` chunk containing claims and regulatory contacts plus any hidden `supplementaryFacts`, making those facts searchable by agents without polluting the primary visible fields.
 

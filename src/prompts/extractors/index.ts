@@ -11,6 +11,8 @@ import { buildDeclarationsPrompt, DeclarationsExtractSchema } from "./declaratio
 import { buildLossHistoryPrompt, LossHistorySchema } from "./loss-history";
 import { buildSectionsPrompt, SectionsSchema } from "./sections";
 import { buildSupplementaryPrompt, SupplementarySchema } from "./supplementary";
+import { buildDefinitionsPrompt, DefinitionsSchema } from "./definitions";
+import { buildCoveredReasonsPrompt, CoveredReasonsSchema } from "./covered-reasons";
 
 export interface ExtractorDef {
   buildPrompt: () => string;
@@ -30,6 +32,8 @@ const EXTRACTORS: Record<string, ExtractorDef> = {
   loss_history: { buildPrompt: buildLossHistoryPrompt, schema: LossHistorySchema, maxTokens: 4096 },
   sections: { buildPrompt: buildSectionsPrompt, schema: SectionsSchema, maxTokens: 8192 },
   supplementary: { buildPrompt: buildSupplementaryPrompt, schema: SupplementarySchema, maxTokens: 2048 },
+  definitions: { buildPrompt: buildDefinitionsPrompt, schema: DefinitionsSchema, maxTokens: 8192 },
+  covered_reasons: { buildPrompt: buildCoveredReasonsPrompt, schema: CoveredReasonsSchema, maxTokens: 8192 },
 };
 
 export function getExtractor(name: string): ExtractorDef | undefined {
@@ -47,3 +51,5 @@ export * from "./declarations";
 export * from "./loss-history";
 export * from "./sections";
 export * from "./supplementary";
+export * from "./definitions";
+export * from "./covered-reasons";

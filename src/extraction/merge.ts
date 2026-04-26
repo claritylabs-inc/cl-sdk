@@ -17,6 +17,18 @@ function dedupeByKey<T>(items: T[], keyFn: (item: T) => string): T[] {
   return merged;
 }
 
+function normalizeKeyPart(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  return String(value)
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function keyFromParts(...parts: unknown[]): string {
+  return parts.map(normalizeKeyPart).join("|");
+}
+
 function mergeUniqueObjects(
   existing: Record<string, unknown>[],
   incoming: Record<string, unknown>[],
@@ -69,13 +81,13 @@ function mergeCoverageLimits(
   const merged = mergeShallowPreferPresent(existing, incoming);
   const existingCoverages = Array.isArray(existing.coverages) ? existing.coverages as Record<string, unknown>[] : [];
   const incomingCoverages = Array.isArray(incoming.coverages) ? incoming.coverages as Record<string, unknown>[] : [];
-  const coverageKey = (coverage: Record<string, unknown>) => [
-    String(coverage.name ?? "").toLowerCase(),
-    String(coverage.limitType ?? "").toLowerCase(),
-    String(coverage.limit ?? "").toLowerCase(),
-    String(coverage.deductible ?? "").toLowerCase(),
-    String(coverage.formNumber ?? "").toLowerCase(),
-  ].join("|");
+  const coverageKey = (coverage: Record<string, unknown>) => keyFromParts(
+    coverage.name,
+    coverage.limitType,
+    coverage.limit,
+    coverage.deductible,
+    coverage.formNumber,
+  );
 
   const byKey = new Map<string, Record<string, unknown>>();
   for (const coverage of [...existingCoverages, ...incomingCoverages]) {
@@ -97,11 +109,11 @@ function mergeDeclarations(
   const existingFields = Array.isArray(existing.fields) ? existing.fields as Record<string, unknown>[] : [];
   const incomingFields = Array.isArray(incoming.fields) ? incoming.fields as Record<string, unknown>[] : [];
 
-  merged.fields = mergeUniqueObjects(existingFields, incomingFields, (field) => [
-    String(field.field ?? "").toLowerCase(),
-    String(field.value ?? "").toLowerCase(),
-    String(field.section ?? "").toLowerCase(),
-  ].join("|"));
+  merged.fields = mergeUniqueObjects(existingFields, incomingFields, (field) => keyFromParts(
+    field.field,
+    field.value,
+    field.section,
+  ));
 
   return merged;
 }
@@ -119,6 +131,37 @@ function mergeArrayPayload(
   return merged;
 }
 
+function readArray(record: Record<string, unknown>, ...keys: string[]): Record<string, unknown>[] {
+  for (const key of keys) {
+    if (Array.isArray(record[key])) return record[key] as Record<string, unknown>[];
+  }
+  return [];
+}
+
+function mergeAliasedArrayPayload(
+  existing: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+  outputKey: string,
+  inputKeys: string[],
+  keyFn: (item: Record<string, unknown>) => string,
+): Record<string, unknown> {
+  const merged = mergeShallowPreferPresent(existing, incoming);
+  const byKey = new Map<string, Record<string, unknown>>();
+  for (const item of [
+    ...readArray(existing, outputKey, ...inputKeys),
+    ...readArray(incoming, outputKey, ...inputKeys),
+  ]) {
+    const key = keyFn(item);
+    const current = byKey.get(key);
+    byKey.set(key, current ? mergeShallowPreferPresent(current, item) : item);
+  }
+  merged[outputKey] = [...byKey.values()];
+  for (const key of inputKeys) {
+    if (key !== outputKey) delete merged[key];
+  }
+  return merged;
+}
+
 function mergeSupplementary(
   existing: Record<string, unknown>,
   incoming: Record<string, unknown>,
@@ -127,13 +170,13 @@ function mergeSupplementary(
   const mergeContactArray = (arrayKey: string) => {
     const existingItems = Array.isArray(existing[arrayKey]) ? existing[arrayKey] as Record<string, unknown>[] : [];
     const incomingItems = Array.isArray(incoming[arrayKey]) ? incoming[arrayKey] as Record<string, unknown>[] : [];
-    merged[arrayKey] = mergeUniqueObjects(existingItems, incomingItems, (item) => [
-      String(item.name ?? "").toLowerCase(),
-      String(item.phone ?? "").toLowerCase(),
-      String(item.email ?? "").toLowerCase(),
-      String(item.address ?? "").toLowerCase(),
-      String(item.type ?? "").toLowerCase(),
-    ].join("|"));
+    merged[arrayKey] = mergeUniqueObjects(existingItems, incomingItems, (item) => keyFromParts(
+      item.name,
+      item.phone,
+      item.email,
+      item.address,
+      item.type,
+    ));
   };
 
   mergeContactArray("regulatoryContacts");
@@ -142,12 +185,12 @@ function mergeSupplementary(
 
   const existingFacts = Array.isArray(existing.auxiliaryFacts) ? existing.auxiliaryFacts as Record<string, unknown>[] : [];
   const incomingFacts = Array.isArray(incoming.auxiliaryFacts) ? incoming.auxiliaryFacts as Record<string, unknown>[] : [];
-  merged.auxiliaryFacts = mergeUniqueObjects(existingFacts, incomingFacts, (item) => [
-    String(item.key ?? "").toLowerCase(),
-    String(item.value ?? "").toLowerCase(),
-    String(item.subject ?? "").toLowerCase(),
-    String(item.context ?? "").toLowerCase(),
-  ].join("|"));
+  merged.auxiliaryFacts = mergeUniqueObjects(existingFacts, incomingFacts, (item) => keyFromParts(
+    item.key,
+    item.value,
+    item.subject,
+    item.context,
+  ));
 
   return merged;
 }
@@ -176,31 +219,43 @@ export function mergeExtractorResult(
       return mergeCoverageLimits(current, next);
     case "declarations":
       return mergeDeclarations(current, next);
+    case "definitions":
+      return mergeArrayPayload(current, next, "definitions", (item) => keyFromParts(
+        item.term ?? item.name ?? item.key,
+        item.pageNumber ?? item.pageStart,
+      ));
+    case "covered_reasons":
+      return mergeAliasedArrayPayload(current, next, "coveredReasons", ["covered_reasons"], (item) => keyFromParts(
+        item.coverageName ?? item.coverage,
+        item.reasonNumber ?? item.number,
+        item.title ?? item.reason ?? item.name ?? item.cause,
+        item.pageNumber ?? item.pageStart,
+      ));
     case "endorsements":
-      return mergeArrayPayload(current, next, "endorsements", (item) => [
-        String(item.formNumber ?? "").toLowerCase(),
-        String(item.title ?? "").toLowerCase(),
-        String(item.pageStart ?? ""),
-      ].join("|"));
+      return mergeArrayPayload(current, next, "endorsements", (item) => keyFromParts(
+        item.formNumber,
+        item.title,
+        item.pageStart,
+      ));
     case "exclusions":
-      return mergeArrayPayload(current, next, "exclusions", (item) => [
-        String(item.name ?? "").toLowerCase(),
-        String(item.formNumber ?? "").toLowerCase(),
-        String(item.pageNumber ?? ""),
-      ].join("|"));
+      return mergeArrayPayload(current, next, "exclusions", (item) => keyFromParts(
+        item.name,
+        item.formNumber,
+        item.pageNumber,
+      ));
     case "conditions":
-      return mergeArrayPayload(current, next, "conditions", (item) => [
-        String(item.name ?? "").toLowerCase(),
-        String(item.conditionType ?? "").toLowerCase(),
-        String(item.pageNumber ?? ""),
-      ].join("|"));
+      return mergeArrayPayload(current, next, "conditions", (item) => keyFromParts(
+        item.name,
+        item.conditionType,
+        item.pageNumber,
+      ));
     case "sections":
-      return mergeArrayPayload(current, next, "sections", (item) => [
-        String(item.title ?? "").toLowerCase(),
-        String(item.type ?? "").toLowerCase(),
-        String(item.pageStart ?? ""),
-        String(item.pageEnd ?? ""),
-      ].join("|"));
+      return mergeArrayPayload(current, next, "sections", (item) => keyFromParts(
+        item.title,
+        item.type,
+        item.pageStart,
+        item.pageEnd,
+      ));
     default:
       return mergeShallowPreferPresent(current, next);
   }

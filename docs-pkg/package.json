@@ -1,6 +1,6 @@
 {
   "name": "@claritylabs/cl-sdk-docs",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "Documentation content for @claritylabs/cl-sdk",
   "main": "meta.json",
   "exports": {

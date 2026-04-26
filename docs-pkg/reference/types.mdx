@@ -126,6 +126,8 @@ interface BaseDocument {
   policyTypes?: string[];
   coverages: Coverage[];
   sections?: Section[];
+  definitions?: Definition[];
+  coveredReasons?: CoveredReason[];
 
   // Carrier details
   carrierLegalName?: string;
@@ -328,6 +330,39 @@ interface EnrichedCoverage {
   premium?: string;
   pageNumber?: number;
   sectionRef?: string;
+}
+```
+
+### `Definition`
+
+```typescript
+interface Definition {
+  term: string;
+  definition: string;
+  pageNumber?: number;
+  formNumber?: string;
+  formTitle?: string;
+  sectionRef?: string;
+  originalContent?: string;
+}
+```
+
+### `CoveredReason`
+
+```typescript
+interface CoveredReason {
+  coverageName: string;
+  reasonNumber?: string;
+  title?: string;
+  content: string;
+  conditions?: string[];
+  exceptions?: string[];
+  appliesTo?: string[];
+  pageNumber?: number;
+  formNumber?: string;
+  formTitle?: string;
+  sectionRef?: string;
+  originalContent?: string;
 }
 ```
 
@@ -725,9 +760,12 @@ interface DocumentChunk {
   /** Source document ID */
   documentId: string;
   /** Chunk type for filtering */
-  type: "carrier_info" | "named_insured" | "coverage" | "endorsement"
+  type: "carrier_info" | "named_insured" | "coverage"
+    | "definition" | "covered_reason" | "endorsement"
     | "exclusion" | "condition" | "section" | "declaration"
-    | "loss_history" | "premium" | "supplementary";
+    | "loss_history" | "premium" | "supplementary"
+    | "location" | "vehicle" | "classification" | "financial"
+    | "party" | "subjectivity" | "underwriting_condition";
   /** Human-readable text for embedding */
   text: string;
   /** Structured metadata for filtering */

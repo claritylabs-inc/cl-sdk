@@ -43,8 +43,12 @@ Mark the extraction as NOT complete if any of these are true:
 - required fields are missing
 - extracted values are generic placeholders like "shown in declarations", "per schedule", "if applicable", "as stated"
 - coverage limits or deductibles appear to come from generic form language instead of declaration/schedule-specific values
+- definitions pages were mapped but no definition records or definition-type sections were extracted
+- covered causes/reasons pages were mapped but no covered reason, covered peril, covered cause, or matching section records were extracted
 - page assignments suggest declaration, schedule, endorsement, exclusion, or condition pages were not actually extracted with the matching focused extractor
 - a focused extractor exists but returned too little substance for the relevant pages
+
+When reviewing CURRENT EXTRACTION SUMMARY, compare the page-map counts to extracted counts. For definitions and covered_reasons, missing extraction should produce a quality issue and a narrow follow-up task over the mapped page range.
 
 Return JSON:
 {

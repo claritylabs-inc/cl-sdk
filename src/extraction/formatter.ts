@@ -60,6 +60,28 @@ function collectContentFields(doc: InsuranceDocument): ContentEntry[] {
     }
   }
 
+  const extendedDoc = doc as InsuranceDocument & {
+    definitions?: Array<{ definition?: string }>;
+    coveredReasons?: Array<{ content?: string; conditions?: string[] }>;
+    covered_reasons?: Array<{ content?: string; conditions?: string[] }>;
+  };
+
+  if (extendedDoc.definitions) {
+    for (let i = 0; i < extendedDoc.definitions.length; i++) {
+      add(`definitions[${i}].definition`, extendedDoc.definitions[i].definition);
+    }
+  }
+
+  const coveredReasons = extendedDoc.coveredReasons ?? extendedDoc.covered_reasons;
+  if (coveredReasons) {
+    for (let i = 0; i < coveredReasons.length; i++) {
+      add(`coveredReasons[${i}].content`, coveredReasons[i].content);
+      coveredReasons[i].conditions?.forEach((condition, j) => {
+        add(`coveredReasons[${i}].conditions[${j}]`, condition);
+      });
+    }
+  }
+
   return entries;
 }
 
@@ -91,6 +113,11 @@ function applyFormattedContent(
   entries: ContentEntry[],
   formatted: Map<number, string>,
 ): void {
+  const docRecord = doc as Record<string, unknown>;
+  if (!docRecord.coveredReasons && docRecord.covered_reasons) {
+    docRecord.coveredReasons = docRecord.covered_reasons;
+  }
+
   for (const entry of entries) {
     const cleaned = formatted.get(entry.id);
     if (!cleaned) continue;
@@ -104,6 +131,15 @@ function applyFormattedContent(
     if (!sub1) {
       // Top-level field like "summary"
       (doc as any)[field] = cleaned;
+    } else if (idx2 && !sub2) {
+      // Nested primitive array like "coveredReasons[0].conditions[1]"
+      const arr = (doc as any)[field];
+      if (arr && arr[Number(idx1)]) {
+        const nested = arr[Number(idx1)][sub1];
+        if (Array.isArray(nested)) {
+          nested[Number(idx2)] = cleaned;
+        }
+      }
     } else if (!sub2) {
       // Array field like "sections[0].content"
       const arr = (doc as any)[field];

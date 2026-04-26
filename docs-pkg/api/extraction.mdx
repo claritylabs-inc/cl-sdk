@@ -38,7 +38,7 @@ The pipeline runs ten phases automatically:
 4. **Extract** -- dispatch focused extractors in parallel (concurrency-limited), with each worker receiving a page-scoped PDF from `extractPageRange()` via `providerOptions.pdfBase64` or `providerOptions.images`
 5. **Review** -- check completeness and quality against template requirements, dispatch additional extractors for gaps (up to `maxReviewRounds`)
 6. **Assemble** -- merge all extractor results into an `InsuranceDocument`
-7. **Promote** -- fill top-level typed fields from declarations and coverages (carrier field mapping, broker, locations, loss payees, limits/deductibles synthesis, premium fallback)
+7. **Promote** -- fill top-level typed fields from declarations and coverages (carrier field mapping, broker, locations, loss payees, limits/deductibles synthesis, premium/total-cost fallback, taxes/fees synthesis)
 8. **Summarize** -- generate a 1–3 sentence document summary via model call
 9. **Format** -- clean up markdown formatting in content fields (pipe tables, space-aligned tables, sub-items, whitespace)
 10. **Chunk** -- break the formatted document into `DocumentChunk[]` for vector storage
@@ -70,9 +70,9 @@ const chunks = chunkDocument(document);
 // Each chunk has: id, documentId, type, text, metadata
 ```
 
-Chunk types include: `carrier_info`, `named_insured`, `coverage`, `endorsement`, `exclusion`, `condition`, `section`, `declaration`, `loss_history`, `premium`, `supplementary`.
+Chunk types include: `carrier_info`, `named_insured`, `coverage`, `definition`, `covered_reason`, `endorsement`, `exclusion`, `condition`, `section`, `declaration`, `loss_history`, `premium`, `supplementary`, `location`, `vehicle`, `classification`, `financial`, `party`, `subjectivity`, and `underwriting_condition`.
 
-The `supplementary` chunk type includes both contact-style supplementary data and hidden retrieval-only facts from `document.supplementaryFacts`.
+The `definition` and `covered_reason` chunk types make definitions, covered causes, inclusions, and attached covered-reason conditions independently retrievable. The `supplementary` chunk type includes both contact-style supplementary data and hidden retrieval-only facts from `document.supplementaryFacts`.
 
 ---
 
@@ -86,21 +86,21 @@ Look up a focused extractor definition by name.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `name` | `string` | Extractor name (e.g. `"declarations"`, `"coverage-limits"`, `"endorsements"`) |
+| `name` | `string` | Extractor name (e.g. `"declarations"`, `"coverage_limits"`, `"definitions"`, `"covered_reasons"`, `"endorsements"`) |
 
 **Returns:** `ExtractorDef | undefined`
 
 ```typescript
 import { getExtractor } from "@claritylabs/cl-sdk";
 
-const ext = getExtractor("coverage-limits");
+const ext = getExtractor("coverage_limits");
 if (ext) {
   const prompt = ext.buildPrompt();
   // ext.schema is the Zod schema for the extractor's output
 }
 ```
 
-Available extractors: `declarations`, `coverage-limits`, `conditions`, `endorsements`, `exclusions`, `loss-history`, `named-insured`, `premium-breakdown`, `sections`, `supplementary`, `carrier-info`.
+Available extractors: `carrier_info`, `named_insured`, `declarations`, `coverage_limits`, `definitions`, `covered_reasons`, `endorsements`, `exclusions`, `conditions`, `premium_breakdown`, `loss_history`, `sections`, and `supplementary`.
 
 ---
 
@@ -173,7 +173,7 @@ interface ExtractionResult {
 }
 ```
 
-`ExtractionResult.document` may include `supplementaryFacts?: Array<{ key: string; value: string; subject?: string; context?: string }>` when the supplementary pass finds extra retrievable facts.
+`ExtractionResult.document` may include `definitions?: Definition[]`, `coveredReasons?: CoveredReason[]`, and `supplementaryFacts?: Array<{ key: string; value: string; subject?: string; context?: string }>` when the relevant extractors find those records.
 
 ### `ExtractorDef`
 

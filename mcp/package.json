@@ -1,17 +1,19 @@
 {
   "name": "@claritylabs/cl-sdk-mcp",
-  "version": "0.16.1",
+  "version": "0.17.0",
   "description": "MCP server for CL SDK — search and read SDK documentation",
+  "type": "module",
   "bin": {
-    "cl-sdk-mcp": "./server.ts"
+    "cl-sdk-mcp": "./server.js"
   },
   "files": [
+    "server.js",
     "server.ts",
     "docs-bundle.json",
     "README.md"
   ],
   "scripts": {
-    "start": "npx tsx server.ts --http",
+    "start": "node server.js --http",
     "build-docs": "npx tsx build-docs.ts",
     "prepublishOnly": "npx tsx build-docs.ts"
   },

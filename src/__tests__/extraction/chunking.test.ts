@@ -163,6 +163,56 @@ describe("chunkDocument", () => {
     expect(conditions[0].metadata.conditionType).toBe("duties_after_loss");
   });
 
+  it("creates definition and covered reason chunks", () => {
+    const docWithRetrievalFacts = {
+      ...doc,
+      definitions: [
+        {
+          term: "Covered Causes of Loss",
+          definition: "Risks of direct physical loss unless excluded or limited.",
+          formNumber: "CP1030",
+          pageNumber: 21,
+          sectionRef: "Definitions",
+        },
+      ],
+      coveredReasons: [
+        {
+          coverageName: "Covered Causes of Loss",
+          title: "Windstorm or Hail",
+          reasonNumber: "2",
+          content: "Windstorm or hail is a covered cause of loss subject to policy exclusions.",
+          conditions: ["The loss must occur during the policy period."],
+          formNumber: "CP1030",
+          pageNumber: 8,
+          sectionRef: "Covered Causes of Loss",
+        },
+      ],
+    } as PolicyDocument & {
+      definitions: Array<Record<string, unknown>>;
+      coveredReasons: Array<Record<string, unknown>>;
+    };
+
+    const chunks = chunkDocument(docWithRetrievalFacts);
+    const definitions = chunks.filter((c) => c.type === "definition");
+    const coveredReasons = chunks.filter((c) => c.type === "covered_reason");
+
+    expect(definitions).toHaveLength(1);
+    expect(definitions[0].id).toBe("pol-1:definition:0");
+    expect(definitions[0].text).toContain("Definition: Covered Causes of Loss");
+    expect(definitions[0].metadata.term).toBe("Covered Causes of Loss");
+    expect(definitions[0].metadata.pageNumber).toBe("21");
+
+    expect(coveredReasons).toHaveLength(2);
+    expect(coveredReasons[0].id).toBe("pol-1:covered_reason:0");
+    expect(coveredReasons[0].text).toContain("Coverage: Covered Causes of Loss");
+    expect(coveredReasons[0].text).toContain("Covered Reason: Windstorm or Hail");
+    expect(coveredReasons[0].metadata.coverageName).toBe("Covered Causes of Loss");
+    expect(coveredReasons[0].metadata.title).toBe("Windstorm or Hail");
+    expect(coveredReasons[0].metadata.formNumber).toBe("CP1030");
+    expect(coveredReasons[1].id).toBe("pol-1:covered_reason:0:condition:0");
+    expect(coveredReasons[1].metadata.conditionIndex).toBe("0");
+  });
+
   it("creates location chunks with property details", () => {
     const chunks = chunkDocument(doc);
     const locations = chunks.filter((c) => c.type === "location");

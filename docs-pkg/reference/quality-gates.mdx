@@ -89,6 +89,13 @@ Extends `UnifiedQualityReport<QualityIssue>` with:
 | `exclusion_toc_artifact` | blocking | Exclusion content matches a table-of-contents pattern (dotted leader + page number) |
 | `condition_missing_page_number` | warning | Condition has no `pageNumber` provenance |
 | `condition_toc_artifact` | blocking | Condition content matches a table-of-contents pattern |
+| `definitions_mapped_but_empty` | warning | Page map assigned the definitions extractor, but no definitions were extracted |
+| `covered_reasons_mapped_but_empty` | warning | Page map assigned the covered reasons extractor, but no covered reasons were extracted |
+| `definition_missing_content` | warning | Definition has no substantive definition text |
+| `definition_missing_page_number` | warning | Definition has no page provenance |
+| `covered_reason_missing_content` | warning | Covered reason has no substantive coverage text |
+| `covered_reason_missing_page_number` | warning | Covered reason has no page provenance |
+| `covered_reason_referential_value` | warning | Covered reason contains referential language instead of extracted covered-cause wording |
 | `section_short_fragment` | warning | Section content is under 120 characters on a single page — likely an orphan continuation fragment |
 
 ### Form Inventory Cross-Reference

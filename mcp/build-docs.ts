@@ -4,8 +4,11 @@
  */
 import * as fs from "fs";
 import * as path from "path";
+import { fileURLToPath } from "url";
 import matter from "gray-matter";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const DOCS_ROOT = path.resolve(__dirname, "../docs-pkg");
 const OUT_PATH = path.resolve(__dirname, "docs-bundle.json");
 
@@ -54,6 +57,22 @@ function walkMdx(dir: string, base = ""): DocPage[] {
 }
 
 function walkSections(dir: string): DocSection[] {
+  const rootMetaPath = path.join(dir, "meta.json");
+  if (fs.existsSync(rootMetaPath)) {
+    try {
+      const meta = JSON.parse(fs.readFileSync(rootMetaPath, "utf-8"));
+      if (Array.isArray(meta.sections)) {
+        return meta.sections.map((section: { title?: string; slug?: string; pages?: Array<string | { slug?: string }> }) => ({
+          title: section.title ?? section.slug ?? "",
+          slug: section.slug ?? "",
+          pages: (section.pages ?? [])
+            .map((page) => (typeof page === "string" ? page : page.slug))
+            .filter((page): page is string => typeof page === "string" && page.length > 0),
+        }));
+      }
+    } catch {}
+  }
+
   const sections: DocSection[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;

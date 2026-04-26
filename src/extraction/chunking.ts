@@ -7,6 +7,18 @@ function formatAddress(addr: { street1: string; street2?: string; city: string; 
   return parts.join(", ");
 }
 
+function asRecordArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item)) : [];
+}
+
+function firstString(item: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = item[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return undefined;
+}
+
 /**
  * Break a validated document into retrieval-friendly chunks.
  * Each chunk has a deterministic ID, type tag, text for embedding, and metadata for filtering.
@@ -24,6 +36,11 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
   const chunks: DocumentChunk[] = [];
   const docId = doc.id;
   const policyTypesStr = doc.policyTypes?.length ? doc.policyTypes.join(",") : undefined;
+  const extendedDoc = doc as InsuranceDocument & {
+    definitions?: Array<Record<string, unknown>>;
+    coveredReasons?: Array<Record<string, unknown>>;
+    covered_reasons?: Array<Record<string, unknown>>;
+  };
 
   function stringMetadata(entries: Record<string, string | number | boolean | undefined | null>): Record<string, string> {
     const base = Object.fromEntries(
@@ -419,6 +436,89 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
         pageNumber: cond.pageNumber,
         documentType: doc.type,
       }),
+    });
+  });
+
+  // Definition chunks — one per defined term
+  asRecordArray(extendedDoc.definitions).forEach((definition, i) => {
+    const term = firstString(definition, ["term", "name", "title"]) ?? `Definition ${i + 1}`;
+    const body = firstString(definition, ["definition", "content", "text", "meaning"]);
+    chunks.push({
+      id: `${docId}:definition:${i}`,
+      documentId: docId,
+      type: "definition",
+      text: [
+        `Definition: ${term}`,
+        body,
+        firstString(definition, ["originalContent", "source"]) ? `Source: ${firstString(definition, ["originalContent", "source"])}` : null,
+      ].filter(Boolean).join("\n"),
+      metadata: stringMetadata({
+        term,
+        formNumber: firstString(definition, ["formNumber"]),
+        formTitle: firstString(definition, ["formTitle"]),
+        pageNumber: typeof definition.pageNumber === "number" ? definition.pageNumber : undefined,
+        sectionRef: firstString(definition, ["sectionRef", "sectionTitle"]),
+        documentType: doc.type,
+      }),
+    });
+  });
+
+  // Covered reason chunks — one per covered cause/peril/reason
+  const coveredReasons = asRecordArray(extendedDoc.coveredReasons ?? extendedDoc.covered_reasons);
+  coveredReasons.forEach((coveredReason, i) => {
+    const title = firstString(coveredReason, ["title", "name", "reason", "peril", "cause"]) ?? `Covered Reason ${i + 1}`;
+    const coverageName = firstString(coveredReason, ["coverageName", "coverage", "coveragePart"]);
+    const reasonNumber = firstString(coveredReason, ["reasonNumber", "number"]);
+    const body = firstString(coveredReason, ["content", "description", "text", "coverageGrant"]);
+    chunks.push({
+      id: `${docId}:covered_reason:${i}`,
+      documentId: docId,
+      type: "covered_reason",
+      text: [
+        coverageName ? `Coverage: ${coverageName}` : null,
+        reasonNumber ? `Reason Number: ${reasonNumber}` : null,
+        `Covered Reason: ${title}`,
+        body,
+        firstString(coveredReason, ["originalContent", "source"]) ? `Source: ${firstString(coveredReason, ["originalContent", "source"])}` : null,
+      ].filter(Boolean).join("\n"),
+      metadata: stringMetadata({
+        coverageName,
+        reasonNumber,
+        title,
+        formNumber: firstString(coveredReason, ["formNumber"]),
+        formTitle: firstString(coveredReason, ["formTitle"]),
+        pageNumber: typeof coveredReason.pageNumber === "number" ? coveredReason.pageNumber : undefined,
+        sectionRef: firstString(coveredReason, ["sectionRef", "sectionTitle"]),
+        documentType: doc.type,
+      }),
+    });
+
+    const conditions = Array.isArray(coveredReason.conditions)
+      ? coveredReason.conditions.filter((condition): condition is string => typeof condition === "string" && condition.trim().length > 0)
+      : [];
+    conditions.forEach((condition, conditionIndex) => {
+      chunks.push({
+        id: `${docId}:covered_reason:${i}:condition:${conditionIndex}`,
+        documentId: docId,
+        type: "covered_reason",
+        text: [
+          coverageName ? `Coverage: ${coverageName}` : null,
+          reasonNumber ? `Reason Number: ${reasonNumber}` : null,
+          `Covered Reason Condition: ${title}`,
+          condition,
+        ].filter(Boolean).join("\n"),
+        metadata: stringMetadata({
+          coverageName,
+          reasonNumber,
+          title,
+          conditionIndex,
+          formNumber: firstString(coveredReason, ["formNumber"]),
+          formTitle: firstString(coveredReason, ["formTitle"]),
+          pageNumber: typeof coveredReason.pageNumber === "number" ? coveredReason.pageNumber : undefined,
+          sectionRef: firstString(coveredReason, ["sectionRef", "sectionTitle"]),
+          documentType: doc.type,
+        }),
+      });
     });
   });
 

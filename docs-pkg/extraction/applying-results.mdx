@@ -69,6 +69,8 @@ These fields appear on both `PolicyDocument` and `QuoteDocument`:
 | `summary` | `string?` | AI-generated 1–3 sentence overview (populated by the Summarize phase) |
 | `coverages` | `Coverage[]` | Coverage details with limits |
 | `enrichedCoverages` | `EnrichedCoverage[]?` | Detailed coverage data |
+| `definitions` | `Definition[]?` | Defined terms with full definition text and page/form provenance |
+| `coveredReasons` | `CoveredReason[]?` | Covered causes, covered losses, inclusions, qualifying reasons, attached conditions/exceptions, and provenance |
 | `endorsements` | `Endorsement[]?` | Structured endorsements |
 | `exclusions` | `Exclusion[]?` | Structured exclusions |
 | `conditions` | `PolicyCondition[]?` | Structured conditions |
@@ -162,9 +164,12 @@ interface DocumentChunk {
   /** Source document ID */
   documentId: string;
   /** Chunk type for filtering */
-  type: "carrier_info" | "named_insured" | "coverage" | "endorsement"
+  type: "carrier_info" | "named_insured" | "coverage"
+      | "definition" | "covered_reason" | "endorsement"
       | "exclusion" | "condition" | "section" | "declaration"
-      | "loss_history" | "premium" | "supplementary";
+      | "loss_history" | "premium" | "supplementary"
+      | "location" | "vehicle" | "classification" | "financial"
+      | "party" | "subjectivity" | "underwriting_condition";
   /** Human-readable text for embedding */
   text: string;
   /** Structured metadata for filtering */
@@ -179,6 +184,8 @@ interface DocumentChunk {
 | `carrier_info` | Carrier extractor | Carrier name, NAIC, AM Best, MGA, underwriter, broker |
 | `named_insured` | Named insured extractor | Insured name, DBA, address, entity type |
 | `coverage` | Coverage limits extractor | One chunk per coverage with limits and deductibles |
+| `definition` | Definitions extractor | One chunk per defined term |
+| `covered_reason` | Covered reasons extractor | One chunk per covered cause/reason plus one chunk per attached condition |
 | `endorsement` | Endorsements extractor | One chunk per endorsement with form number and content |
 | `exclusion` | Exclusions extractor | One chunk per exclusion |
 | `condition` | Conditions extractor | One chunk per policy condition |
@@ -288,7 +295,7 @@ The pipeline's Promote phase bridges the gap between raw extraction and typed ou
 - **Locations** — Groups location-related declaration fields by location number into `locations[]`
 - **Limits schedule** — Synthesizes `limits` from well-known coverage name patterns (GL, auto, umbrella, workers comp)
 - **Deductible schedule** — Finds the base deductible and SIR from coverage data into `deductibles`
-- **Premium fallback** — Promotes premium from declarations if the premium extractor missed it
+- **Financial fallback** — Promotes premium and total cost from declaration aliases if the premium extractor missed them, and synthesizes `taxesAndFees[]` from declaration tax/fee/surcharge/assessment fields
 
 All sub-passes are idempotent — they never overwrite values that were directly extracted.
 

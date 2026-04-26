@@ -56,6 +56,25 @@ describe("mergeExtractorResult", () => {
     });
   });
 
+  it("deduplicates coverage rows by normalized key parts", () => {
+    const merged = mergeExtractorResult(
+      "coverage_limits",
+      {
+        coverages: [
+          { name: "Personal & Advertising Injury", limit: "$1,000,000", limitType: "per_occurrence" },
+        ],
+      },
+      {
+        coverages: [
+          { name: "Personal and Advertising Injury", limit: "$1,000,000", limitType: "Per Occurrence", pageNumber: 3 },
+        ],
+      },
+    ) as { coverages: Array<{ name: string; pageNumber?: number }> };
+
+    expect(merged.coverages).toHaveLength(1);
+    expect(merged.coverages[0].pageNumber).toBe(3);
+  });
+
   it("keeps occurrence and aggregate coverage rows separate when other values match", () => {
     const merged = mergeExtractorResult(
       "coverage_limits",
@@ -140,5 +159,27 @@ describe("mergeExtractorResult", () => {
 
     expect(merged.auxiliaryFacts).toHaveLength(2);
     expect(merged.claimsContacts).toHaveLength(1);
+  });
+
+  it("merges covered reasons using the canonical camelCase memory key", () => {
+    const merged = mergeExtractorResult(
+      "covered_reasons",
+      {
+        covered_reasons: [
+          { title: "Fire", coverageName: "Property", pageNumber: 9 },
+        ],
+      },
+      {
+        coveredReasons: [
+          { title: "Fire", coverageName: "Property", pageNumber: 9, content: "Fire is covered." },
+          { title: "Windstorm", coverageName: "Property", pageNumber: 10 },
+        ],
+      },
+    ) as { coveredReasons: Array<{ title: string; pageNumber?: number; content?: string }>; covered_reasons?: unknown };
+
+    expect(merged.coveredReasons).toHaveLength(2);
+    expect(merged.coveredReasons[0].pageNumber).toBe(9);
+    expect(merged.coveredReasons[0].content).toBe("Fire is covered.");
+    expect(merged.covered_reasons).toBeUndefined();
   });
 });

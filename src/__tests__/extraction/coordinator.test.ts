@@ -315,6 +315,57 @@ describe("createExtractor", () => {
     ]);
   });
 
+  it("broadens definitions and covered reasons to the containing form range before dispatch", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValueOnce({
+        object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          forms: [
+            { formNumber: "CP1030", formType: "coverage", pageStart: 2, pageEnd: 5, title: "Causes of Loss - Special Form" },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          pages: [
+            { localPageNumber: 1, extractorNames: ["declarations"], pageRole: "declarations_schedule", hasScheduleValues: true },
+            { localPageNumber: 2, extractorNames: ["sections"], pageRole: "policy_form", hasScheduleValues: false },
+            { localPageNumber: 3, extractorNames: ["covered_reasons"], pageRole: "policy_form", hasScheduleValues: false },
+            { localPageNumber: 4, extractorNames: ["sections"], pageRole: "policy_form", hasScheduleValues: false },
+            { localPageNumber: 5, extractorNames: ["definitions"], pageRole: "policy_form", hasScheduleValues: false },
+            { localPageNumber: 6, extractorNames: ["sections"], pageRole: "policy_form", hasScheduleValues: false },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        object: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
+      });
+
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+    });
+
+    await extractor.extract("full-pdf-base64", "doc-1");
+
+    const definitionCalls = runExtractor.mock.calls
+      .map(([arg]) => arg)
+      .filter((arg) => arg.name === "definitions");
+    const coveredReasonCalls = runExtractor.mock.calls
+      .map(([arg]) => arg)
+      .filter((arg) => arg.name === "covered_reasons");
+
+    expect(definitionCalls).toEqual([
+      expect.objectContaining({ startPage: 2, endPage: 5 }),
+    ]);
+    expect(coveredReasonCalls).toEqual([
+      expect.objectContaining({ startPage: 2, endPage: 5 }),
+    ]);
+  });
+
   it("fails before assembly when strict quality gate finds blocking issues", async () => {
     safeGenerateObject
       .mockReset()

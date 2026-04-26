@@ -117,6 +117,21 @@ export function createExtractor(config: ExtractorConfig) {
     const exclusionResult = memory.get("exclusions") as Record<string, unknown> | undefined;
     const conditionResult = memory.get("conditions") as Record<string, unknown> | undefined;
     const sectionResult = memory.get("sections") as Record<string, unknown> | undefined;
+    const definitionsResult = memory.get("definitions") as Record<string, unknown> | undefined;
+    const coveredReasonsResult = memory.get("covered_reasons") as Record<string, unknown> | undefined;
+    const sections = Array.isArray(sectionResult?.sections) ? sectionResult.sections as Array<Record<string, unknown>> : [];
+    const definitionCount = Array.isArray(definitionsResult?.definitions)
+      ? definitionsResult.definitions.length
+      : sections.filter((section) => section.type === "definition").length;
+    const coveredReasonCount = Array.isArray(coveredReasonsResult?.coveredReasons)
+      ? coveredReasonsResult.coveredReasons.length
+      : Array.isArray(coveredReasonsResult?.covered_reasons)
+        ? coveredReasonsResult.covered_reasons.length
+        : sections.filter((section) => {
+            const title = String(section.title ?? "").toLowerCase();
+            const type = String(section.type ?? "").toLowerCase();
+            return type === "covered_reason" || title.includes("covered cause") || title.includes("covered reason") || title.includes("covered peril");
+          }).length;
 
     const coverageSummary = Array.isArray(coverageResult?.coverages)
       ? coverageResult.coverages.slice(0, 12).map((coverage) => ({
@@ -135,7 +150,9 @@ export function createExtractor(config: ExtractorConfig) {
       endorsementCount: Array.isArray(endorsementResult?.endorsements) ? endorsementResult.endorsements.length : 0,
       exclusionCount: Array.isArray(exclusionResult?.exclusions) ? exclusionResult.exclusions.length : 0,
       conditionCount: Array.isArray(conditionResult?.conditions) ? conditionResult.conditions.length : 0,
-      sectionCount: Array.isArray(sectionResult?.sections) ? sectionResult.sections.length : 0,
+      definitionCount,
+      coveredReasonCount,
+      sectionCount: sections.length,
     }, null, 2);
   }
 
@@ -189,7 +206,7 @@ export function createExtractor(config: ExtractorConfig) {
     if (extractorPages.size === 0) return "No page assignments available.";
 
     return [...extractorPages.entries()]
-      .map(([extractorName, pages]) => `${extractorName}: pages ${pages.join(", ")}`)
+      .map(([extractorName, pages]) => `${extractorName}: ${pages.length} page(s), pages ${pages.join(", ")}`)
       .join("\n");
   }
 
@@ -322,7 +339,7 @@ export function createExtractor(config: ExtractorConfig) {
       }
     }
 
-    const contextualExtractors = new Set(["conditions", "exclusions", "endorsements"]);
+    const contextualExtractors = new Set(["conditions", "covered_reasons", "definitions", "exclusions", "endorsements"]);
     const contextualForms = (formInventory?.forms ?? []).filter((form): form is FormInventoryEntry & { pageStart: number; pageEnd: number } =>
       form.pageStart != null && (form.pageEnd ?? form.pageStart) != null,
     );
@@ -601,7 +618,11 @@ export function createExtractor(config: ExtractorConfig) {
       const extractorResults = await Promise.all(
         tasks.map((task) =>
           limit(async () => {
-            const ext = getExtractor(task.extractorName);
+            const ext = getExtractor(task.extractorName) ?? (
+              task.extractorName === "definitions" || task.extractorName === "covered_reasons"
+                ? getExtractor("sections")
+                : undefined
+            );
             if (!ext) {
               await log?.(`Unknown extractor: ${task.extractorName}, skipping`);
               return null;
@@ -746,7 +767,11 @@ export function createExtractor(config: ExtractorConfig) {
         const followUpResults = await Promise.all(
           reviewResponse.object.additionalTasks.map((task) =>
             limit(async () => {
-              const ext = getExtractor(task.extractorName);
+              const ext = getExtractor(task.extractorName) ?? (
+                task.extractorName === "definitions" || task.extractorName === "covered_reasons"
+                  ? getExtractor("sections")
+                  : undefined
+              );
               if (!ext) return null;
 
               try {

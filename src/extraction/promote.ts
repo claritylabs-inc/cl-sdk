@@ -3,6 +3,7 @@ import type { InsuranceDocument } from "../schemas/document";
 // ── Helpers ──
 
 type DeclField = { field: string; value: string; section?: string };
+type TaxFeeItem = { name: string; amount: string; type?: "tax" | "fee" | "surcharge" | "assessment" };
 
 function getDeclarationFields(doc: InsuranceDocument): DeclField[] {
   const decl = doc.declarations as { fields?: DeclField[] } | undefined;
@@ -11,13 +12,33 @@ function getDeclarationFields(doc: InsuranceDocument): DeclField[] {
 
 /** Case-insensitive match against any of the given patterns. */
 function fieldMatches(fieldName: string, patterns: string[]): boolean {
-  const lower = fieldName.toLowerCase().replace(/[\s_-]/g, "");
-  return patterns.some((p) => lower === p.toLowerCase().replace(/[\s_-]/g, ""));
+  const lower = normalizeFieldName(fieldName);
+  return patterns.some((p) => lower === normalizeFieldName(p));
 }
 
-function findFieldValue(fields: DeclField[], patterns: string[]): string | undefined {
-  const match = fields.find((f) => fieldMatches(f.field, patterns));
+function normalizeFieldName(fieldName: string): string {
+  return fieldName.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function findFieldValue(
+  fields: DeclField[],
+  patterns: string[],
+  reject?: (field: DeclField) => boolean,
+): string | undefined {
+  const match = fields.find((f) => fieldMatches(f.field, patterns) && !reject?.(f));
   return match?.value;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function findRawString(raw: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = stringValue(raw[key]);
+    if (value) return value;
+  }
+  return undefined;
 }
 
 // ── 1. Carrier field name mapping (issue 7) ──
@@ -432,8 +453,136 @@ function synthesizeDeductibles(doc: InsuranceDocument): void {
 
 // ── 7. Premium from declarations (issue 4 supplement) ──
 
-const PREMIUM_PATTERNS = ["premium", "totalPremium", "annualPremium", "policyPremium", "basePremium"];
-const TOTAL_COST_PATTERNS = ["totalCost", "totalDue", "totalAmount", "totalPolicyPremium"];
+const PREMIUM_PATTERNS = [
+  "premium",
+  "premiumAmount",
+  "premium amount",
+  "totalPremium",
+  "total premium",
+  "totalPolicyPremium",
+  "total policy premium",
+  "annualPremium",
+  "annual premium",
+  "estimatedAnnualPremium",
+  "estimated annual premium",
+  "policyPremium",
+  "policy premium",
+  "basePremium",
+  "base premium",
+  "planCost",
+  "plan cost",
+  "policyCost",
+  "policy cost",
+  "premiumSubtotal",
+  "premium subtotal",
+  "subtotalPremium",
+  "subtotal premium",
+  "quotedPremium",
+  "quoted premium",
+];
+const TOTAL_COST_PATTERNS = [
+  "totalCost",
+  "total cost",
+  "total",
+  "totalDue",
+  "total due",
+  "amountPaid",
+  "amount paid",
+  "totalPaid",
+  "total paid",
+  "totalPrice",
+  "total price",
+  "totalTripCost",
+  "total trip cost",
+  "amountCharged",
+  "amount charged",
+  "amountDue",
+  "amount due",
+  "totalAmountDue",
+  "total amount due",
+  "totalAmount",
+  "total amount",
+  "grandTotal",
+  "grand total",
+  "totalPayable",
+  "total payable",
+  "totalCharges",
+  "total charges",
+  "totalPolicyCost",
+  "total policy cost",
+];
+
+const PREMIUM_RAW_KEYS = [
+  "premium",
+  "premiumAmount",
+  "premium_amount",
+  "totalPremium",
+  "totalPolicyPremium",
+  "annualPremium",
+  "estimatedAnnualPremium",
+  "policyPremium",
+  "basePremium",
+  "planCost",
+  "policyCost",
+  "premiumSubtotal",
+  "subtotalPremium",
+  "quotedPremium",
+];
+const TOTAL_COST_RAW_KEYS = [
+  "totalCost",
+  "total_cost",
+  "total",
+  "totalDue",
+  "amountPaid",
+  "amount_paid",
+  "totalPaid",
+  "total_paid",
+  "totalPrice",
+  "totalTripCost",
+  "amountCharged",
+  "amountDue",
+  "totalAmountDue",
+  "totalAmount",
+  "grandTotal",
+  "totalPayable",
+  "totalCharges",
+  "totalPolicyCost",
+];
+
+function isTaxOrFeeField(fieldName: string): boolean {
+  const normalized = normalizeFieldName(fieldName);
+  return /tax|gst|hst|pst|qst|fee|surcharge|assessment|stamp|filing|inspection/.test(normalized);
+}
+
+function isTotalCostField(fieldName: string): boolean {
+  return fieldMatches(fieldName, TOTAL_COST_PATTERNS);
+}
+
+function taxFeeType(fieldName: string): TaxFeeItem["type"] {
+  const normalized = normalizeFieldName(fieldName);
+  if (normalized.includes("tax") || ["gst", "hst", "pst", "qst"].some((token) => normalized.includes(token))) return "tax";
+  if (normalized.includes("surcharge")) return "surcharge";
+  if (normalized.includes("assessment")) return "assessment";
+  if (normalized.includes("fee") || normalized.includes("stamp") || normalized.includes("filing")) return "fee";
+  return undefined;
+}
+
+function titleizeFieldName(fieldName: string): string {
+  const spaced = fieldName
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return spaced.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function taxFeeKey(item: TaxFeeItem): string {
+  return [
+    normalizeFieldName(item.name),
+    normalizeFieldName(item.amount),
+    item.type ?? "",
+  ].join("|");
+}
 
 /** Strip negative signs from currency strings — premiums cannot be negative. */
 function absorbNegative(value: string): string {
@@ -445,18 +594,53 @@ function promotePremium(doc: InsuranceDocument): void {
   const fields = getDeclarationFields(doc);
 
   if (!raw.premium) {
-    const premium = findFieldValue(fields, PREMIUM_PATTERNS);
+    const premium = findRawString(raw, PREMIUM_RAW_KEYS)
+      ?? findFieldValue(fields, PREMIUM_PATTERNS, (field) => isTaxOrFeeField(field.field));
     if (premium) raw.premium = premium;
   }
 
   if (!raw.totalCost) {
-    const totalCost = findFieldValue(fields, TOTAL_COST_PATTERNS);
+    const totalCost = findRawString(raw, TOTAL_COST_RAW_KEYS)
+      ?? findFieldValue(fields, TOTAL_COST_PATTERNS);
     if (totalCost) raw.totalCost = totalCost;
   }
 
   // Premiums and costs are never negative; strip any negative signs from extraction artifacts
   if (typeof raw.premium === "string") raw.premium = absorbNegative(raw.premium);
   if (typeof raw.totalCost === "string") raw.totalCost = absorbNegative(raw.totalCost);
+}
+
+function synthesizeTaxesAndFees(doc: InsuranceDocument): void {
+  const raw = doc as Record<string, unknown>;
+  const fields = getDeclarationFields(doc);
+  if (fields.length === 0) return;
+
+  const existing = Array.isArray(raw.taxesAndFees)
+    ? raw.taxesAndFees as TaxFeeItem[]
+    : [];
+  const byKey = new Map<string, TaxFeeItem>();
+
+  for (const item of existing) {
+    if (!item?.name || !item?.amount) continue;
+    byKey.set(taxFeeKey(item), item);
+  }
+
+  for (const field of fields) {
+    if (!field.value?.trim()) continue;
+    if (!isTaxOrFeeField(field.field)) continue;
+    if (isTotalCostField(field.field)) continue;
+
+    const item: TaxFeeItem = {
+      name: titleizeFieldName(field.field),
+      amount: absorbNegative(field.value),
+      ...(taxFeeType(field.field) ? { type: taxFeeType(field.field) } : {}),
+    };
+    byKey.set(taxFeeKey(item), item);
+  }
+
+  if (byKey.size > 0) {
+    raw.taxesAndFees = [...byKey.values()];
+  }
 }
 
 // ── Public API ──
@@ -473,6 +657,7 @@ export function promoteExtractedFields(doc: InsuranceDocument): void {
   promoteLocations(doc);
   synthesizeLimits(doc);
   synthesizeDeductibles(doc);
+  synthesizeTaxesAndFees(doc);
   promotePremium(doc);
 }
 
@@ -484,5 +669,6 @@ export {
   promoteLocations,
   synthesizeLimits,
   synthesizeDeductibles,
+  synthesizeTaxesAndFees,
   promotePremium,
 };
