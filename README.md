@@ -12,9 +12,9 @@ npm install @claritylabs/cl-sdk pdf-lib zod
 
 ## What It Does
 
-- **Document Extraction** — Agentic pipeline with 13 focused extractors that turns insurance PDFs into structured data with page-level provenance, quality gates, first-class definitions and covered reasons, and automatic declarations-to-schema promotion (limits, deductibles, locations, broker, loss payees, premium, taxes/fees, summary)
-- **Query Agent** — Citation-backed question answering over stored documents and inbound photos/PDFs/text with sub-question decomposition and grounding verification
-- **Application Processing** — Eight focused agents handle intake — field extraction, auto-fill from prior answers, topic-based question batching, and PDF mapping
+- **Document Extraction** — Agentic pipeline with 13 focused extractors that turns insurance PDFs into structured data with page-level provenance, quality gates, first-class definitions and covered reasons, referential coverage resolution, cost-aware formatting, and automatic declarations-to-schema promotion (limits, deductibles, locations, broker, loss payees, premium, taxes/fees, summary)
+- **Query Agent** — Citation-backed question answering over stored documents and inbound photos/PDFs/text with sub-question decomposition, bounded retrieval planning, attachment-only reasoning when retrieval is unnecessary, and grounding verification
+- **Application Processing** — Focused agents handle intake with bounded workflow planning — field extraction, prior-answer backfill, context auto-fill, document lookup gating, topic-based question batching, reply parsing, and PDF mapping
 - **Agent System** — Composable prompt modules for building insurance-aware conversational agents across email, chat, SMS, Slack, and Discord
 - **Storage** — DocumentStore and MemoryStore interfaces with SQLite reference implementation
 
@@ -81,7 +81,7 @@ const result = await agent.query({
 });
 ```
 
-The query pipeline first interprets each attachment into structured evidence, then combines that with retrieved chunks, document lookups, and conversation history before answering.
+The query workflow first interprets each attachment into structured evidence, then uses the query classifier to decide whether stored-document retrieval is needed. Simple or attachment-only questions can skip retrieval and reason over the available evidence directly; document-backed questions still retrieve chunks, reason over citations, and run grounding verification. Verification can request targeted retry retrieval for weak sub-answers.
 
 Important: your `generateObject` callback must actually forward multimodal payloads from `providerOptions` to the model request:
 
@@ -90,6 +90,18 @@ Important: your `generateObject` callback must actually forward multimodal paylo
 - `providerOptions.images` for image inputs
 
 If your callback ignores those fields, the model will only see the text prompt.
+
+## Bounded Agentic Workflows
+
+CL-SDK uses deterministic scaffolding with agentic decision points rather than fixed all-tools-all-the-time chains:
+
+- Extraction page mapping and review choose focused follow-up extractors from the live extractor catalog. Definitions and covered reasons can fall back through section extraction when a focused run returns no usable records.
+- Supplementary extraction runs only when page assignments, form inventory, existing extracted text, or review follow-up tasks indicate regulatory, claims, notice, cancellation, or contact facts are likely present.
+- Referential coverage resolution tries cheap local section/form matches first, then uses bounded target-specific actions for declarations, schedules, sections, page-location lookup, or skip.
+- Formatting skips the LLM cleanup pass for plain prose and only formats long or noisy content that looks likely to contain markdown, spacing, list, heading, or table artifacts.
+- Application processing plans optional backfill, context auto-fill, document search, batching, reply parsing, lookup, explanations, and next-batch email generation based on current state.
+
+These gates reduce unnecessary provider calls while preserving reliability for edge cases where additional focused extraction or retrieval is needed.
 
 ## Development
 

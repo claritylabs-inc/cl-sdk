@@ -23,9 +23,9 @@ npm test           # Run vitest
 src/
   core/           # Provider-agnostic types, retry, concurrency, utilities
   schemas/        # Zod schemas (source of truth for all types)
-  extraction/     # Agentic extraction: coordinator, extractor, merge, assembler, formatter, chunking, pdf
-  query/          # Agentic query: coordinator, retriever, reasoner, verifier
-  application/    # Agentic application processing: coordinator, focused agents, store
+  extraction/     # Agentic extraction: coordinator, planning, focused dispatch, referential workflow, formatter, chunking, pdf
+  query/          # Agentic query: coordinator, workflow planner, retriever, reasoner, verifier
+  application/    # Agentic application processing: coordinator, workflow planner, focused agents, store
   prompts/        # Prompt modules: coordinator/, extractors/, templates/, agent/, application/, query/
   storage/        # DocumentStore + MemoryStore interfaces, SQLite reference impl
   tools/          # Tool definitions
@@ -38,12 +38,14 @@ The extraction system uses a coordinator/worker pattern with page-aware planning
 1. **Classify** (`coordinator.ts`): classify document type and policy types using `generateObject` + `ClassifyResultSchema`. The coordinator passes the full PDF via `providerOptions.pdfBase64`.
 2. **Page map** (`prompts/coordinator/page-map.ts`): map each page to one or more focused extractors before building tasks. This replaces broad LLM-assigned mixed page ranges.
 3. **Plan** (`coordinator.ts`): build deterministic extractor tasks from the page map. `prompts/coordinator/plan.ts` is a deprecated candidate and is no longer the active planning path.
-4. **Extract** (`extractor.ts`): dispatch focused extractors in parallel. `runExtractor()` slices page ranges with `extractPageRange()` and passes the page-scoped PDF via `providerOptions.pdfBase64`, or `providerOptions.images` if `convertPdfToImages` is configured.
+4. **Extract** (`extractor.ts`, `focused-dispatch.ts`): dispatch focused extractors in parallel. `runExtractor()` slices page ranges with `extractPageRange()` and passes the page-scoped PDF via `providerOptions.pdfBase64`, or `providerOptions.images` if `convertPdfToImages` is configured. Focused extractors can declare fallback behavior; definitions and covered reasons fall back through section extraction when no usable records are produced.
 5. **Merge** (`merge.ts`): repeated extractor runs merge instead of overwrite. This matters for `coverage_limits`, `endorsements`, `exclusions`, `conditions`, `sections`, and `declarations`.
-6. **Review** (`coordinator.ts` + `prompts/coordinator/review.ts`): review completeness and quality using the full PDF, the page-map summary, and a summary of extracted results. Review should catch generic placeholder outputs and missing declaration-grade values.
-7. **Assemble** (`assembler.ts`): merge all extracted data into a final `InsuranceDocument`.
-8. **Format** (`formatter.ts`): clean up markdown formatting in content-bearing fields.
-9. **Chunk** (`chunking.ts`): break the formatted document into `DocumentChunk[]` for vector storage.
+6. **Supplementary gating** (`coordinator.ts`): supplementary extraction is conditional. It runs when page assignments, form inventory, existing extracted text, or review follow-up tasks indicate regulatory, claims, notice, cancellation/nonrenewal, contact, or TPA facts are likely present.
+7. **Referential resolution** (`resolve-referential.ts`, `referential-workflow.ts`): resolve referential coverage values with cheap local section/form matches first, then bounded target-specific actions for declarations, schedules, sections, page-location lookup, or skip.
+8. **Review** (`coordinator.ts` + `prompts/coordinator/review.ts`): review completeness and quality using the full PDF, the page-map summary, the live extractor catalog, and a summary of extracted results. Review should catch generic placeholder outputs and missing declaration-grade values, and can request follow-up tasks from registered extractors.
+9. **Assemble** (`assembler.ts`): merge all extracted data into a final `InsuranceDocument`.
+10. **Format** (`formatter.ts`): cost-aware markdown cleanup for content-bearing fields. Plain prose skips the LLM formatting pass; long/noisy markdown, list, heading, spacing, or table-like content is formatted.
+11. **Chunk** (`chunking.ts`): break the formatted document into `DocumentChunk[]` for vector storage.
 
 Entry point: `createExtractor(config)` returns `{ extract(pdfBase64, documentId?) }`.
 
@@ -67,10 +69,17 @@ Important extraction contract:
 
 - **Merged extractor outputs**: do not assume a single extractor runs only once. The coordinator may dispatch follow-up tasks for the same extractor.
 - **Page-aware planning**: preserve the `page-map` phase unless intentionally replacing it with something equally precise.
-- **Review quality checks**: review is not just “are keys present”; it should catch generic form-language placeholders and weak extraction quality.
+- **Bounded agentic workflows**: prefer deterministic scaffolding with agentic decision points. Use workflow planners/gates to avoid unnecessary extractor, retrieval, lookup, or formatting calls while preserving follow-up paths for edge cases.
+- **Review quality checks**: review is not just “are keys present”; it should catch generic form-language placeholders and weak extraction quality, then request focused follow-up tasks from the registered extractor catalog.
 - **Strict schema compatibility**: `toStrictSchema()` auto-transforms Zod schemas before `generateObject` calls.
 - **Safe generate**: `safeGenerateObject()` wraps `generateObject` with retry, strictification, and optional fallbacks.
 - **Token tracking**: `tokenUsage` aggregates available usage values; `usageReporting` tells you how many calls did or did not report usage.
+
+### Query and Application Workflows
+
+- `src/query/workflow.ts` plans query actions. Retrieval is skipped when classification says document/chunk lookup is unnecessary, including attachment-only or general questions. Verification can still request targeted retrieval/reasoning retries when evidence is weak.
+- `src/application/workflow.ts` plans optional application actions. Backfill, context auto-fill, document search, batching, lookup, answer parsing, explanations, and next-batch email generation are gated by current state and available stores/context.
+- `src/core/workflow.ts` contains generic action/budget helpers for future bounded workflows.
 
 ## Releases
 
