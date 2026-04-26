@@ -10,6 +10,7 @@ import {
   type ReferentialLookupResult,
 } from "../prompts/extractors/referential-lookup";
 import type { FormInventoryEntry } from "../prompts/coordinator/form-inventory";
+import { looksReferential } from "./heuristics";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,22 +39,6 @@ interface SectionEntry {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Local copy of the referential-value heuristic from quality.ts (not exported
- * there, so we inline an equivalent check).
- */
-function looksReferential(value: unknown): boolean {
-  if (typeof value !== "string") return false;
-  const normalized = value.toLowerCase();
-  return (
-    normalized.includes("shown in the declarations") ||
-    normalized.includes("shown in declarations") ||
-    normalized.includes("shown in the schedule") ||
-    normalized.includes("as stated") ||
-    normalized.includes("if applicable")
-  );
-}
 
 // ---------------------------------------------------------------------------
 // parseReferenceTarget

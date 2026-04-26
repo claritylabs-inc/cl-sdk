@@ -4,6 +4,13 @@ import type { InsuranceDocument } from "../schemas/document";
 
 type DeclField = { field: string; value: string; section?: string };
 type TaxFeeItem = { name: string; amount: string; type?: "tax" | "fee" | "surcharge" | "assessment" };
+type RawRecord = Record<string, unknown>;
+type RawFieldPromotion = { from: string; to: string };
+type DeclarationLookup = {
+  rawKey?: string;
+  patterns: string[];
+  reject?: (field: DeclField) => boolean;
+};
 
 function getDeclarationFields(doc: InsuranceDocument): DeclField[] {
   const decl = doc.declarations as { fields?: DeclField[] } | undefined;
@@ -33,12 +40,44 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-function findRawString(raw: Record<string, unknown>, keys: string[]): string | undefined {
+function findRawString(raw: RawRecord, keys: string[]): string | undefined {
   for (const key of keys) {
     const value = stringValue(raw[key]);
     if (value) return value;
   }
   return undefined;
+}
+
+function promoteRawFields(raw: RawRecord, mappings: RawFieldPromotion[]): void {
+  for (const { from, to } of mappings) {
+    if (!raw[to] && raw[from]) {
+      raw[to] = raw[from];
+    }
+    delete raw[from];
+  }
+}
+
+function findRawOrDeclarationValue(
+  raw: RawRecord,
+  fields: DeclField[],
+  lookup: DeclarationLookup,
+): string | undefined {
+  return (lookup.rawKey ? raw[lookup.rawKey] as string : undefined)
+    || findFieldValue(fields, lookup.patterns, lookup.reject);
+}
+
+function promoteRawOrDeclarationString(
+  raw: RawRecord,
+  fields: DeclField[],
+  targetKey: string,
+  rawKeys: string[],
+  lookup: DeclarationLookup,
+): void {
+  if (raw[targetKey]) return;
+
+  const value = findRawString(raw, rawKeys)
+    ?? findFieldValue(fields, lookup.patterns, lookup.reject);
+  if (value) raw[targetKey] = value;
 }
 
 // ── 1. Carrier field name mapping (issue 7) ──
@@ -49,25 +88,13 @@ function findRawString(raw: Record<string, unknown>, keys: string[]): string | u
  * Promote the short names to canonical top-level names.
  */
 function promoteCarrierFields(doc: InsuranceDocument): void {
-  const raw = doc as Record<string, unknown>;
+  const raw = doc as RawRecord;
 
-  // naicNumber → carrierNaicNumber
-  if (!raw.carrierNaicNumber && raw.naicNumber) {
-    raw.carrierNaicNumber = raw.naicNumber;
-  }
-  // amBestRating → carrierAmBestRating
-  if (!raw.carrierAmBestRating && raw.amBestRating) {
-    raw.carrierAmBestRating = raw.amBestRating;
-  }
-  // admittedStatus → carrierAdmittedStatus
-  if (!raw.carrierAdmittedStatus && raw.admittedStatus) {
-    raw.carrierAdmittedStatus = raw.admittedStatus;
-  }
-
-  // Clean up the short names so they don't leak into the output
-  delete raw.naicNumber;
-  delete raw.amBestRating;
-  delete raw.admittedStatus;
+  promoteRawFields(raw, [
+    { from: "naicNumber", to: "carrierNaicNumber" },
+    { from: "amBestRating", to: "carrierAmBestRating" },
+    { from: "admittedStatus", to: "carrierAdmittedStatus" },
+  ]);
 
   // Also build the structured insurer sub-object if we have legal name
   if (!raw.insurer && raw.carrierLegalName) {
@@ -99,16 +126,25 @@ const BROKER_EMAIL_PATTERNS = ["brokerEmail", "agentEmail", "producerEmail"];
 const BROKER_ADDRESS_PATTERNS = ["brokerAddress", "agentAddress", "producerAddress"];
 
 function promoteBroker(doc: InsuranceDocument): void {
-  const raw = doc as Record<string, unknown>;
+  const raw = doc as RawRecord;
   const fields = getDeclarationFields(doc);
 
   // Carrier extractor may have set these directly
-  const brokerAgency = (raw.brokerAgency as string) || findFieldValue(fields, BROKER_NAME_PATTERNS);
-  const brokerContact = (raw.brokerContactName as string) || findFieldValue(fields, BROKER_CONTACT_PATTERNS);
-  const brokerLicense = (raw.brokerLicenseNumber as string) || findFieldValue(fields, BROKER_LICENSE_PATTERNS);
-  const brokerPhone = findFieldValue(fields, BROKER_PHONE_PATTERNS);
-  const brokerEmail = findFieldValue(fields, BROKER_EMAIL_PATTERNS);
-  const brokerAddress = findFieldValue(fields, BROKER_ADDRESS_PATTERNS);
+  const brokerAgency = findRawOrDeclarationValue(raw, fields, {
+    rawKey: "brokerAgency",
+    patterns: BROKER_NAME_PATTERNS,
+  });
+  const brokerContact = findRawOrDeclarationValue(raw, fields, {
+    rawKey: "brokerContactName",
+    patterns: BROKER_CONTACT_PATTERNS,
+  });
+  const brokerLicense = findRawOrDeclarationValue(raw, fields, {
+    rawKey: "brokerLicenseNumber",
+    patterns: BROKER_LICENSE_PATTERNS,
+  });
+  const brokerPhone = findRawOrDeclarationValue(raw, fields, { patterns: BROKER_PHONE_PATTERNS });
+  const brokerEmail = findRawOrDeclarationValue(raw, fields, { patterns: BROKER_EMAIL_PATTERNS });
+  const brokerAddress = findRawOrDeclarationValue(raw, fields, { patterns: BROKER_ADDRESS_PATTERNS });
 
   if (brokerAgency) raw.brokerAgency = brokerAgency;
   if (brokerContact) raw.brokerContactName = brokerContact;
@@ -584,26 +620,31 @@ function taxFeeKey(item: TaxFeeItem): string {
   ].join("|");
 }
 
+function taxFeeItemFromField(field: DeclField): TaxFeeItem {
+  const type = taxFeeType(field.field);
+  return {
+    name: titleizeFieldName(field.field),
+    amount: absorbNegative(field.value),
+    ...(type ? { type } : {}),
+  };
+}
+
 /** Strip negative signs from currency strings — premiums cannot be negative. */
 function absorbNegative(value: string): string {
   return value.replace(/^-\s*/, "").replace(/^\(\s*(.*?)\s*\)$/, "$1");
 }
 
 function promotePremium(doc: InsuranceDocument): void {
-  const raw = doc as Record<string, unknown>;
+  const raw = doc as RawRecord;
   const fields = getDeclarationFields(doc);
 
-  if (!raw.premium) {
-    const premium = findRawString(raw, PREMIUM_RAW_KEYS)
-      ?? findFieldValue(fields, PREMIUM_PATTERNS, (field) => isTaxOrFeeField(field.field));
-    if (premium) raw.premium = premium;
-  }
-
-  if (!raw.totalCost) {
-    const totalCost = findRawString(raw, TOTAL_COST_RAW_KEYS)
-      ?? findFieldValue(fields, TOTAL_COST_PATTERNS);
-    if (totalCost) raw.totalCost = totalCost;
-  }
+  promoteRawOrDeclarationString(raw, fields, "premium", PREMIUM_RAW_KEYS, {
+    patterns: PREMIUM_PATTERNS,
+    reject: (field) => isTaxOrFeeField(field.field),
+  });
+  promoteRawOrDeclarationString(raw, fields, "totalCost", TOTAL_COST_RAW_KEYS, {
+    patterns: TOTAL_COST_PATTERNS,
+  });
 
   // Premiums and costs are never negative; strip any negative signs from extraction artifacts
   if (typeof raw.premium === "string") raw.premium = absorbNegative(raw.premium);
@@ -630,11 +671,7 @@ function synthesizeTaxesAndFees(doc: InsuranceDocument): void {
     if (!isTaxOrFeeField(field.field)) continue;
     if (isTotalCostField(field.field)) continue;
 
-    const item: TaxFeeItem = {
-      name: titleizeFieldName(field.field),
-      amount: absorbNegative(field.value),
-      ...(taxFeeType(field.field) ? { type: taxFeeType(field.field) } : {}),
-    };
+    const item = taxFeeItemFromField(field);
     byKey.set(taxFeeKey(item), item);
   }
 

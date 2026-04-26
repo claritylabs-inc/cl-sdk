@@ -2,6 +2,9 @@
 import type { InsuranceDocument, PolicyDocument, QuoteDocument } from "../schemas/document";
 import type { DocumentChunk } from "../storage/chunk-types";
 
+type ChunkType = DocumentChunk["type"];
+type MetadataValue = string | number | boolean | undefined | null;
+
 function formatAddress(addr: { street1: string; street2?: string; city: string; state: string; zip: string; country?: string }): string {
   const parts = [addr.street1, addr.street2, addr.city, addr.state, addr.zip, addr.country].filter(Boolean);
   return parts.join(", ");
@@ -42,7 +45,7 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
     covered_reasons?: Array<Record<string, unknown>>;
   };
 
-  function stringMetadata(entries: Record<string, string | number | boolean | undefined | null>): Record<string, string> {
+  function stringMetadata(entries: Record<string, MetadataValue>): Record<string, string> {
     const base = Object.fromEntries(
       Object.entries(entries)
         .filter(([, value]) => value !== undefined && value !== null && String(value).length > 0)
@@ -52,12 +55,25 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
     return base;
   }
 
+  function lines(values: Array<string | null | undefined | false>): string {
+    return values.filter(Boolean).join("\n");
+  }
+
+  function pushChunk(idSuffix: string, type: ChunkType, text: string, metadata: Record<string, MetadataValue>): void {
+    chunks.push({
+      id: `${docId}:${idSuffix}`,
+      documentId: docId,
+      type,
+      text,
+      metadata: stringMetadata(metadata),
+    });
+  }
+
   // Carrier info chunk
-  chunks.push({
-    id: `${docId}:carrier_info:0`,
-    documentId: docId,
-    type: "carrier_info",
-    text: [
+  pushChunk(
+    "carrier_info:0",
+    "carrier_info",
+    lines([
       `Carrier: ${doc.carrier}`,
       doc.carrierLegalName ? `Legal Name: ${doc.carrierLegalName}` : null,
       doc.carrierNaicNumber ? `NAIC: ${doc.carrierNaicNumber}` : null,
@@ -74,104 +90,93 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
       doc.isPackage != null ? `Package: ${doc.isPackage ? "Yes" : "No"}` : null,
       doc.security ? `Security: ${doc.security}` : null,
       doc.policyTypes?.length ? `Policy Types: ${doc.policyTypes.join(", ")}` : null,
-    ].filter(Boolean).join("\n"),
-    metadata: stringMetadata({ carrier: doc.carrier, documentType: doc.type }),
-  });
+    ]),
+    { carrier: doc.carrier, documentType: doc.type },
+  );
 
   // Summary chunk
   if (doc.summary) {
-    chunks.push({
-      id: `${docId}:declaration:summary`,
-      documentId: docId,
-      type: "declaration",
-      text: `Policy Summary: ${doc.summary}`,
-      metadata: stringMetadata({ documentType: doc.type }),
-    });
+    pushChunk("declaration:summary", "declaration", `Policy Summary: ${doc.summary}`, { documentType: doc.type });
   }
 
   // Policy/quote identification chunk
   if (doc.type === "policy") {
     const pol = doc as PolicyDocument;
-    chunks.push({
-      id: `${docId}:declaration:policy_details`,
-      documentId: docId,
-      type: "declaration",
-      text: [
+    pushChunk(
+      "declaration:policy_details",
+      "declaration",
+      lines([
         `Policy Number: ${pol.policyNumber}`,
         `Effective Date: ${pol.effectiveDate}`,
         pol.expirationDate ? `Expiration Date: ${pol.expirationDate}` : null,
         pol.policyTermType ? `Term Type: ${pol.policyTermType}` : null,
         pol.effectiveTime ? `Effective Time: ${pol.effectiveTime}` : null,
         pol.nextReviewDate ? `Next Review Date: ${pol.nextReviewDate}` : null,
-      ].filter(Boolean).join("\n"),
-      metadata: stringMetadata({
+      ]),
+      {
         policyNumber: pol.policyNumber,
         effectiveDate: pol.effectiveDate,
         expirationDate: pol.expirationDate,
         documentType: doc.type,
-      }),
-    });
+      },
+    );
   } else {
     const quote = doc as QuoteDocument;
-    chunks.push({
-      id: `${docId}:declaration:quote_details`,
-      documentId: docId,
-      type: "declaration",
-      text: [
+    pushChunk(
+      "declaration:quote_details",
+      "declaration",
+      lines([
         `Quote Number: ${quote.quoteNumber}`,
         quote.proposedEffectiveDate ? `Proposed Effective Date: ${quote.proposedEffectiveDate}` : null,
         quote.proposedExpirationDate ? `Proposed Expiration Date: ${quote.proposedExpirationDate}` : null,
         quote.quoteExpirationDate ? `Quote Expiration Date: ${quote.quoteExpirationDate}` : null,
-      ].filter(Boolean).join("\n"),
-      metadata: stringMetadata({
+      ]),
+      {
         quoteNumber: quote.quoteNumber,
         documentType: doc.type,
-      }),
-    });
+      },
+    );
   }
 
   // Insurer info chunk (structured party data)
   if (doc.insurer) {
-    chunks.push({
-      id: `${docId}:party:insurer`,
-      documentId: docId,
-      type: "party",
-      text: [
+    pushChunk(
+      "party:insurer",
+      "party",
+      lines([
         `Insurer: ${doc.insurer.legalName}`,
         doc.insurer.naicNumber ? `NAIC: ${doc.insurer.naicNumber}` : null,
         doc.insurer.amBestRating ? `AM Best Rating: ${doc.insurer.amBestRating}` : null,
         doc.insurer.amBestNumber ? `AM Best Number: ${doc.insurer.amBestNumber}` : null,
         doc.insurer.admittedStatus ? `Admitted Status: ${doc.insurer.admittedStatus}` : null,
         doc.insurer.stateOfDomicile ? `State of Domicile: ${doc.insurer.stateOfDomicile}` : null,
-      ].filter(Boolean).join("\n"),
-      metadata: stringMetadata({ partyRole: "insurer", partyName: doc.insurer.legalName, documentType: doc.type }),
-    });
+      ]),
+      { partyRole: "insurer", partyName: doc.insurer.legalName, documentType: doc.type },
+    );
   }
 
   // Producer/broker info chunk
   if (doc.producer) {
-    chunks.push({
-      id: `${docId}:party:producer`,
-      documentId: docId,
-      type: "party",
-      text: [
+    pushChunk(
+      "party:producer",
+      "party",
+      lines([
         `Producer/Broker: ${doc.producer.agencyName}`,
         doc.producer.contactName ? `Contact: ${doc.producer.contactName}` : null,
         doc.producer.licenseNumber ? `License: ${doc.producer.licenseNumber}` : null,
         doc.producer.phone ? `Phone: ${doc.producer.phone}` : null,
         doc.producer.email ? `Email: ${doc.producer.email}` : null,
         doc.producer.address ? `Address: ${formatAddress(doc.producer.address)}` : null,
-      ].filter(Boolean).join("\n"),
-      metadata: stringMetadata({ partyRole: "producer", partyName: doc.producer.agencyName, documentType: doc.type }),
-    });
+      ]),
+      { partyRole: "producer", partyName: doc.producer.agencyName, documentType: doc.type },
+    );
   }
 
   // Named insured chunk
-  chunks.push({
-    id: `${docId}:named_insured:0`,
-    documentId: docId,
-    type: "named_insured",
-    text: [
+  pushChunk(
+    "named_insured:0",
+    "named_insured",
+    lines([
       `Insured: ${doc.insuredName}`,
       doc.insuredDba ? `DBA: ${doc.insuredDba}` : null,
       doc.insuredEntityType ? `Entity Type: ${doc.insuredEntityType}` : null,
@@ -179,40 +184,38 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
       doc.insuredSicCode ? `SIC: ${doc.insuredSicCode}` : null,
       doc.insuredNaicsCode ? `NAICS: ${doc.insuredNaicsCode}` : null,
       doc.insuredAddress ? `Address: ${formatAddress(doc.insuredAddress)}` : null,
-    ].filter(Boolean).join("\n"),
-    metadata: stringMetadata({ insuredName: doc.insuredName, documentType: doc.type }),
-  });
+    ]),
+    { insuredName: doc.insuredName, documentType: doc.type },
+  );
 
   // Additional named insureds — one per insured
   doc.additionalNamedInsureds?.forEach((insured, i) => {
-    chunks.push({
-      id: `${docId}:named_insured:${i + 1}`,
-      documentId: docId,
-      type: "named_insured",
-      text: [
+    pushChunk(
+      `named_insured:${i + 1}`,
+      "named_insured",
+      lines([
         `Additional Named Insured: ${insured.name}`,
         insured.address ? `Address: ${formatAddress(insured.address)}` : null,
         insured.relationship ? `Relationship: ${insured.relationship}` : null,
-      ].filter(Boolean).join("\n"),
-      metadata: stringMetadata({ insuredName: insured.name, role: "additional_named_insured", documentType: doc.type }),
-    });
+      ]),
+      { insuredName: insured.name, role: "additional_named_insured", documentType: doc.type },
+    );
   });
 
   // Coverage chunks — one per coverage
   doc.coverages.forEach((cov, i) => {
-    chunks.push({
-      id: `${docId}:coverage:${i}`,
-      documentId: docId,
-      type: "coverage",
-      text: [
+    pushChunk(
+      `coverage:${i}`,
+      "coverage",
+      lines([
         `Coverage: ${cov.name}`,
         `Limit: ${cov.limit}`,
         cov.limitValueType ? `Limit Type: ${cov.limitValueType}` : null,
         cov.deductible ? `Deductible: ${cov.deductible}` : null,
         cov.deductibleValueType ? `Deductible Type: ${cov.deductibleValueType}` : null,
         cov.originalContent ? `Source: ${cov.originalContent}` : null,
-      ].filter(Boolean).join("\n"),
-      metadata: stringMetadata({
+      ]),
+      {
         coverageName: cov.name,
         limit: cov.limit,
         limitValueType: cov.limitValueType,
@@ -222,17 +225,16 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
         pageNumber: cov.pageNumber,
         sectionRef: cov.sectionRef,
         documentType: doc.type,
-      }),
-    });
+      },
+    );
   });
 
   // Enriched coverages — one per coverage (richer detail than basic coverages)
   doc.enrichedCoverages?.forEach((cov, i) => {
-    chunks.push({
-      id: `${docId}:coverage:enriched:${i}`,
-      documentId: docId,
-      type: "coverage",
-      text: [
+    pushChunk(
+      `coverage:enriched:${i}`,
+      "coverage",
+      lines([
         `Coverage: ${cov.name}`,
         cov.coverageCode ? `Code: ${cov.coverageCode}` : null,
         `Limit: ${cov.limit}`,
@@ -249,8 +251,8 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
         `Included: ${cov.included ? "Yes" : "No"}`,
         cov.premium ? `Premium: ${cov.premium}` : null,
         cov.originalContent ? `Source: ${cov.originalContent}` : null,
-      ].filter(Boolean).join("\n"),
-      metadata: stringMetadata({
+      ]),
+      {
         coverageName: cov.name,
         coverageCode: cov.coverageCode,
         limit: cov.limit,
@@ -259,8 +261,8 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
         pageNumber: cov.pageNumber,
         included: cov.included,
         documentType: doc.type,
-      }),
-    });
+      },
+    );
   });
 
   // Limit schedule chunk
@@ -287,43 +289,35 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
     }
     if (lim.defenseCostTreatment) limitLines.push(`Defense Cost Treatment: ${lim.defenseCostTreatment}`);
 
-    chunks.push({
-      id: `${docId}:coverage:limit_schedule`,
-      documentId: docId,
-      type: "coverage",
-      text: limitLines.join("\n"),
-      metadata: stringMetadata({ coverageName: "limit_schedule", documentType: doc.type }),
-    });
+    pushChunk("coverage:limit_schedule", "coverage", limitLines.join("\n"), { coverageName: "limit_schedule", documentType: doc.type });
 
     // Sublimits — one per sublimit for precise retrieval
     lim.sublimits?.forEach((sub, i) => {
-      chunks.push({
-        id: `${docId}:coverage:sublimit:${i}`,
-        documentId: docId,
-        type: "coverage",
-        text: [
+      pushChunk(
+        `coverage:sublimit:${i}`,
+        "coverage",
+        lines([
           `Sublimit: ${sub.name}`,
           `Limit: ${sub.limit}`,
           sub.appliesTo ? `Applies To: ${sub.appliesTo}` : null,
           sub.deductible ? `Deductible: ${sub.deductible}` : null,
-        ].filter(Boolean).join("\n"),
-        metadata: stringMetadata({ coverageName: sub.name, limit: sub.limit, documentType: doc.type }),
-      });
+        ]),
+        { coverageName: sub.name, limit: sub.limit, documentType: doc.type },
+      );
     });
 
     // Shared limits — one per shared limit
     lim.sharedLimits?.forEach((sl, i) => {
-      chunks.push({
-        id: `${docId}:coverage:shared_limit:${i}`,
-        documentId: docId,
-        type: "coverage",
-        text: [
+      pushChunk(
+        `coverage:shared_limit:${i}`,
+        "coverage",
+        [
           `Shared Limit: ${sl.description}`,
           `Limit: ${sl.limit}`,
           `Coverage Parts: ${sl.coverageParts.join(", ")}`,
         ].join("\n"),
-        metadata: stringMetadata({ coverageName: sl.description, limit: sl.limit, documentType: doc.type }),
-      });
+        { coverageName: sl.description, limit: sl.limit, documentType: doc.type },
+      );
     });
   }
 
@@ -340,12 +334,9 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
     if (ded.appliesTo) dedLines.push(`Applies To: ${ded.appliesTo}`);
 
     if (dedLines.length > 1) {
-      chunks.push({
-        id: `${docId}:coverage:deductible_schedule`,
-        documentId: docId,
-        type: "coverage",
-        text: dedLines.join("\n"),
-        metadata: stringMetadata({ coverageName: "deductible_schedule", documentType: doc.type }),
+      pushChunk("coverage:deductible_schedule", "coverage", dedLines.join("\n"), {
+        coverageName: "deductible_schedule",
+        documentType: doc.type,
       });
     }
   }
@@ -360,107 +351,98 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
   ].filter(Boolean) as string[];
 
   if (claimsMadeLines.length > 0) {
-    chunks.push({
-      id: `${docId}:coverage:claims_made_details`,
-      documentId: docId,
-      type: "coverage",
-      text: claimsMadeLines.join("\n"),
-      metadata: stringMetadata({ coverageName: "claims_made_details", documentType: doc.type }),
+    pushChunk("coverage:claims_made_details", "coverage", claimsMadeLines.join("\n"), {
+      coverageName: "claims_made_details",
+      documentType: doc.type,
     });
   }
 
   // Form inventory — one per form
   doc.formInventory?.forEach((form, i) => {
-    chunks.push({
-      id: `${docId}:declaration:form:${i}`,
-      documentId: docId,
-      type: "declaration",
-      text: [
+    pushChunk(
+      `declaration:form:${i}`,
+      "declaration",
+      lines([
         `Form: ${form.formNumber}`,
         form.title ? `Title: ${form.title}` : null,
         `Type: ${form.formType}`,
         form.editionDate ? `Edition: ${form.editionDate}` : null,
         form.pageStart ? `Pages: ${form.pageStart}${form.pageEnd ? `-${form.pageEnd}` : ""}` : null,
-      ].filter(Boolean).join("\n"),
-      metadata: stringMetadata({
+      ]),
+      {
         formNumber: form.formNumber,
         formType: form.formType,
         documentType: doc.type,
-      }),
-    });
+      },
+    );
   });
 
   // Endorsement chunks
   doc.endorsements?.forEach((end, i) => {
-    chunks.push({
-      id: `${docId}:endorsement:${i}`,
-      documentId: docId,
-      type: "endorsement",
-      text: `Endorsement: ${end.title}\n${end.content}`.trim(),
-      metadata: stringMetadata({
+    pushChunk(
+      `endorsement:${i}`,
+      "endorsement",
+      `Endorsement: ${end.title}\n${end.content}`.trim(),
+      {
         endorsementType: end.endorsementType,
         formNumber: end.formNumber,
         pageStart: end.pageStart,
         pageEnd: end.pageEnd,
         documentType: doc.type,
-      }),
-    });
+      },
+    );
   });
 
   // Exclusion chunks
   doc.exclusions?.forEach((exc, i) => {
-    chunks.push({
-      id: `${docId}:exclusion:${i}`,
-      documentId: docId,
-      type: "exclusion",
-      text: `Exclusion: ${exc.name}\n${exc.content}`.trim(),
-      metadata: stringMetadata({ formNumber: exc.formNumber, pageNumber: exc.pageNumber, documentType: doc.type }),
+    pushChunk(`exclusion:${i}`, "exclusion", `Exclusion: ${exc.name}\n${exc.content}`.trim(), {
+      formNumber: exc.formNumber,
+      pageNumber: exc.pageNumber,
+      documentType: doc.type,
     });
   });
 
   // Condition chunks — one per condition
   doc.conditions?.forEach((cond, i) => {
-    chunks.push({
-      id: `${docId}:condition:${i}`,
-      documentId: docId,
-      type: "condition",
-      text: [
+    pushChunk(
+      `condition:${i}`,
+      "condition",
+      [
         `Condition: ${cond.name}`,
         `Type: ${cond.conditionType}`,
         cond.content,
         ...(cond.keyValues?.map((kv) => `${kv.key}: ${kv.value}`) ?? []),
       ].join("\n"),
-      metadata: stringMetadata({
+      {
         conditionName: cond.name,
         conditionType: cond.conditionType,
         pageNumber: cond.pageNumber,
         documentType: doc.type,
-      }),
-    });
+      },
+    );
   });
 
   // Definition chunks — one per defined term
   asRecordArray(extendedDoc.definitions).forEach((definition, i) => {
     const term = firstString(definition, ["term", "name", "title"]) ?? `Definition ${i + 1}`;
     const body = firstString(definition, ["definition", "content", "text", "meaning"]);
-    chunks.push({
-      id: `${docId}:definition:${i}`,
-      documentId: docId,
-      type: "definition",
-      text: [
+    pushChunk(
+      `definition:${i}`,
+      "definition",
+      lines([
         `Definition: ${term}`,
         body,
         firstString(definition, ["originalContent", "source"]) ? `Source: ${firstString(definition, ["originalContent", "source"])}` : null,
-      ].filter(Boolean).join("\n"),
-      metadata: stringMetadata({
+      ]),
+      {
         term,
         formNumber: firstString(definition, ["formNumber"]),
         formTitle: firstString(definition, ["formTitle"]),
         pageNumber: typeof definition.pageNumber === "number" ? definition.pageNumber : undefined,
         sectionRef: firstString(definition, ["sectionRef", "sectionTitle"]),
         documentType: doc.type,
-      }),
-    });
+      },
+    );
   });
 
   // Covered reason chunks — one per covered cause/peril/reason
@@ -470,18 +452,17 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
     const coverageName = firstString(coveredReason, ["coverageName", "coverage", "coveragePart"]);
     const reasonNumber = firstString(coveredReason, ["reasonNumber", "number"]);
     const body = firstString(coveredReason, ["content", "description", "text", "coverageGrant"]);
-    chunks.push({
-      id: `${docId}:covered_reason:${i}`,
-      documentId: docId,
-      type: "covered_reason",
-      text: [
+    pushChunk(
+      `covered_reason:${i}`,
+      "covered_reason",
+      lines([
         coverageName ? `Coverage: ${coverageName}` : null,
         reasonNumber ? `Reason Number: ${reasonNumber}` : null,
         `Covered Reason: ${title}`,
         body,
         firstString(coveredReason, ["originalContent", "source"]) ? `Source: ${firstString(coveredReason, ["originalContent", "source"])}` : null,
-      ].filter(Boolean).join("\n"),
-      metadata: stringMetadata({
+      ]),
+      {
         coverageName,
         reasonNumber,
         title,
@@ -490,24 +471,23 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
         pageNumber: typeof coveredReason.pageNumber === "number" ? coveredReason.pageNumber : undefined,
         sectionRef: firstString(coveredReason, ["sectionRef", "sectionTitle"]),
         documentType: doc.type,
-      }),
-    });
+      },
+    );
 
     const conditions = Array.isArray(coveredReason.conditions)
       ? coveredReason.conditions.filter((condition): condition is string => typeof condition === "string" && condition.trim().length > 0)
       : [];
     conditions.forEach((condition, conditionIndex) => {
-      chunks.push({
-        id: `${docId}:covered_reason:${i}:condition:${conditionIndex}`,
-        documentId: docId,
-        type: "covered_reason",
-        text: [
+      pushChunk(
+        `covered_reason:${i}:condition:${conditionIndex}`,
+        "covered_reason",
+        lines([
           coverageName ? `Coverage: ${coverageName}` : null,
           reasonNumber ? `Reason Number: ${reasonNumber}` : null,
           `Covered Reason Condition: ${title}`,
           condition,
-        ].filter(Boolean).join("\n"),
-        metadata: stringMetadata({
+        ]),
+        {
           coverageName,
           reasonNumber,
           title,
@@ -517,8 +497,8 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
           pageNumber: typeof coveredReason.pageNumber === "number" ? coveredReason.pageNumber : undefined,
           sectionRef: firstString(coveredReason, ["sectionRef", "sectionTitle"]),
           documentType: doc.type,
-        }),
-      });
+        },
+      );
     });
   });
 
@@ -535,13 +515,7 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
       const declMeta: Record<string, string | undefined> = { documentType: doc.type };
       if (typeof decl.formType === "string") declMeta.formType = decl.formType;
       if (typeof decl.line === "string") declMeta.declarationLine = decl.line;
-      chunks.push({
-        id: `${docId}:declaration:0`,
-        documentId: docId,
-        type: "declaration",
-        text: `Declarations\n${declLines.join("\n")}`,
-        metadata: stringMetadata(declMeta),
-      });
+      pushChunk("declaration:0", "declaration", `Declarations\n${declLines.join("\n")}`, declMeta);
     }
   }
 
@@ -552,36 +526,34 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
 
     if (hasSubsections) {
       // Parent section chunk with just the title and overview
-      chunks.push({
-        id: `${docId}:section:${i}`,
-        documentId: docId,
-        type: "section",
-        text: `Section: ${sec.title}\n${sec.content}`,
-        metadata: stringMetadata({
+      pushChunk(
+        `section:${i}`,
+        "section",
+        `Section: ${sec.title}\n${sec.content}`,
+        {
           sectionType: sec.type,
           sectionNumber: sec.sectionNumber,
           pageStart: sec.pageStart,
           pageEnd: sec.pageEnd,
           documentType: doc.type,
           hasSubsections: "true",
-        }),
-      });
+        },
+      );
 
       // Individual subsection chunks
       sec.subsections!.forEach((sub, j) => {
-        chunks.push({
-          id: `${docId}:section:${i}:sub:${j}`,
-          documentId: docId,
-          type: "section",
-          text: `${sec.title} > ${sub.title}\n${sub.content}`,
-          metadata: stringMetadata({
+        pushChunk(
+          `section:${i}:sub:${j}`,
+          "section",
+          `${sec.title} > ${sub.title}\n${sub.content}`,
+          {
             sectionType: sec.type,
             parentSection: sec.title,
             sectionNumber: sub.sectionNumber,
             pageNumber: sub.pageNumber,
             documentType: doc.type,
-          }),
-        });
+          },
+        );
       });
     } else if (contentLength > 2000) {
       // Split long sections into ~1000 char chunks at paragraph boundaries
@@ -591,20 +563,19 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
 
       for (const para of paragraphs) {
         if (currentChunk.length + para.length > 1000 && currentChunk.length > 0) {
-          chunks.push({
-            id: `${docId}:section:${i}:part:${chunkIndex}`,
-            documentId: docId,
-            type: "section",
-            text: `Section: ${sec.title} (part ${chunkIndex + 1})\n${currentChunk.trim()}`,
-            metadata: stringMetadata({
+          pushChunk(
+            `section:${i}:part:${chunkIndex}`,
+            "section",
+            `Section: ${sec.title} (part ${chunkIndex + 1})\n${currentChunk.trim()}`,
+            {
               sectionType: sec.type,
               sectionNumber: sec.sectionNumber,
               pageStart: sec.pageStart,
               pageEnd: sec.pageEnd,
               documentType: doc.type,
               partIndex: chunkIndex,
-            }),
-          });
+            },
+          );
           currentChunk = "";
           chunkIndex++;
         }
@@ -613,35 +584,33 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
 
       // Emit remaining content
       if (currentChunk.trim()) {
-        chunks.push({
-          id: `${docId}:section:${i}:part:${chunkIndex}`,
-          documentId: docId,
-          type: "section",
-          text: `Section: ${sec.title} (part ${chunkIndex + 1})\n${currentChunk.trim()}`,
-          metadata: stringMetadata({
+        pushChunk(
+          `section:${i}:part:${chunkIndex}`,
+          "section",
+          `Section: ${sec.title} (part ${chunkIndex + 1})\n${currentChunk.trim()}`,
+          {
             sectionType: sec.type,
             sectionNumber: sec.sectionNumber,
             pageStart: sec.pageStart,
             pageEnd: sec.pageEnd,
             documentType: doc.type,
             partIndex: chunkIndex,
-          }),
-        });
+          },
+        );
       }
     } else {
-      chunks.push({
-        id: `${docId}:section:${i}`,
-        documentId: docId,
-        type: "section",
-        text: `Section: ${sec.title}\n${sec.content}`,
-        metadata: stringMetadata({
+      pushChunk(
+        `section:${i}`,
+        "section",
+        `Section: ${sec.title}\n${sec.content}`,
+        {
           sectionType: sec.type,
           sectionNumber: sec.sectionNumber,
           pageStart: sec.pageStart,
           pageEnd: sec.pageEnd,
           documentType: doc.type,
-        }),
-      });
+        },
+      );
     }
   });
 

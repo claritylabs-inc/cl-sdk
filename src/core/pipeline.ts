@@ -34,6 +34,8 @@ export interface PipelineContextOptions<TState> {
   onSave?: (checkpoint: PipelineCheckpoint<TState>) => Promise<void>;
   /** Resume from a previously saved checkpoint. */
   resumeFrom?: PipelineCheckpoint<TState>;
+  /** Ordered phase names. When provided, resuming from a phase marks prior phases complete too. */
+  phaseOrder?: string[];
 }
 
 /**
@@ -48,9 +50,15 @@ export function createPipelineContext<TState>(
   let latest: PipelineCheckpoint<TState> | undefined = opts.resumeFrom;
   const completedPhases = new Set<string>();
 
-  // If resuming, all phases up to and including the resume phase are complete
   if (opts.resumeFrom) {
-    completedPhases.add(opts.resumeFrom.phase);
+    const phaseIndex = opts.phaseOrder?.indexOf(opts.resumeFrom.phase) ?? -1;
+    if (phaseIndex >= 0 && opts.phaseOrder) {
+      for (const phase of opts.phaseOrder.slice(0, phaseIndex + 1)) {
+        completedPhases.add(phase);
+      }
+    } else {
+      completedPhases.add(opts.resumeFrom.phase);
+    }
   }
 
   return {

@@ -13,17 +13,29 @@ import { chunkDocument } from "./chunking";
 import { mergeExtractorResult } from "./merge";
 import { getTemplate } from "../prompts/templates/index";
 import { buildClassifyPrompt, ClassifyResultSchema, type ClassifyResult } from "../prompts/coordinator/classify";
-import { type ExtractionPlan } from "../prompts/coordinator/plan";
+import { type ExtractionPlan } from "./plan";
 import { buildFormInventoryPrompt, FormInventorySchema, type FormInventoryResult } from "../prompts/coordinator/form-inventory";
 import { buildPageMapPrompt, PageMapChunkSchema, formatFormInventoryForPageMap, type PageAssignment } from "../prompts/coordinator/page-map";
 import { buildReviewPrompt, ReviewResultSchema, type ReviewResult } from "../prompts/coordinator/review";
 import { buildSummaryPrompt, SummaryResultSchema, type SummaryResult } from "../prompts/coordinator/summarize";
-import { getExtractor } from "../prompts/extractors/index";
+import { formatExtractorCatalogForPrompt } from "../prompts/extractors/index";
 import { buildSupplementaryPrompt, SupplementarySchema } from "../prompts/extractors/supplementary";
 import { resolveReferentialCoverages } from "./resolve-referential";
+import { runFocusedExtractorWithFallback } from "./focused-dispatch";
 import { buildExtractionReviewReport, toReviewRoundRecord, type ExtractionReviewReport, type ReviewRoundRecord } from "./quality";
 import { shouldFailQualityGate } from "../core/quality";
-import type { FormInventoryEntry } from "../prompts/coordinator/form-inventory";
+import { buildPlanFromPageAssignments, buildTemplateHints, normalizePageAssignments } from "./planning";
+import {
+  getCarrierInfo,
+  getCoverageLimitCoverages,
+  getCoveredReasons,
+  getDefinitions,
+  getNamedInsured,
+  getSections,
+  readMemoryRecord,
+  readRecordArray,
+} from "./memory";
+import { looksCoveredReasonSection } from "./heuristics";
 
 /** Internal state checkpointed between extraction phases. */
 export interface ExtractionState {
@@ -88,6 +100,7 @@ export function createExtractor(config: ExtractorConfig) {
   } = config;
 
   const limit = pLimit(concurrency);
+  const extractorCatalog = formatExtractorCatalogForPrompt();
   let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
   let modelCalls = 0;
   let callsWithUsage = 0;
@@ -111,47 +124,32 @@ export function createExtractor(config: ExtractorConfig) {
   }
 
   function summarizeExtraction(memory: Map<string, unknown>): string {
-    const coverageResult = memory.get("coverage_limits") as Record<string, unknown> | undefined;
-    const declarationResult = memory.get("declarations") as Record<string, unknown> | undefined;
-    const endorsementResult = memory.get("endorsements") as Record<string, unknown> | undefined;
-    const exclusionResult = memory.get("exclusions") as Record<string, unknown> | undefined;
-    const conditionResult = memory.get("conditions") as Record<string, unknown> | undefined;
-    const sectionResult = memory.get("sections") as Record<string, unknown> | undefined;
-    const definitionsResult = memory.get("definitions") as Record<string, unknown> | undefined;
-    const coveredReasonsResult = memory.get("covered_reasons") as Record<string, unknown> | undefined;
-    const sections = Array.isArray(sectionResult?.sections) ? sectionResult.sections as Array<Record<string, unknown>> : [];
-    const definitionCount = Array.isArray(definitionsResult?.definitions)
-      ? definitionsResult.definitions.length
-      : sections.filter((section) => section.type === "definition").length;
-    const coveredReasonCount = Array.isArray(coveredReasonsResult?.coveredReasons)
-      ? coveredReasonsResult.coveredReasons.length
-      : Array.isArray(coveredReasonsResult?.covered_reasons)
-        ? coveredReasonsResult.covered_reasons.length
-        : sections.filter((section) => {
-            const title = String(section.title ?? "").toLowerCase();
-            const type = String(section.type ?? "").toLowerCase();
-            return type === "covered_reason" || title.includes("covered cause") || title.includes("covered reason") || title.includes("covered peril");
-          }).length;
+    const declarationResult = readMemoryRecord(memory, "declarations");
+    const endorsements = readRecordArray(readMemoryRecord(memory, "endorsements"), "endorsements") ?? [];
+    const exclusions = readRecordArray(readMemoryRecord(memory, "exclusions"), "exclusions") ?? [];
+    const conditions = readRecordArray(readMemoryRecord(memory, "conditions"), "conditions") ?? [];
+    const sections = getSections<Record<string, unknown>>(memory) ?? [];
+    const definitions = getDefinitions<Record<string, unknown>>(memory) ?? sections.filter((section) => section.type === "definition");
+    const coveredReasons = getCoveredReasons<Record<string, unknown>>(memory) ?? sections.filter(looksCoveredReasonSection);
+    const coverages = getCoverageLimitCoverages<Record<string, unknown>>(memory);
 
-    const coverageSummary = Array.isArray(coverageResult?.coverages)
-      ? coverageResult.coverages.slice(0, 12).map((coverage) => ({
-          name: (coverage as Record<string, unknown>).name,
-          limit: (coverage as Record<string, unknown>).limit,
-          deductible: (coverage as Record<string, unknown>).deductible,
-          formNumber: (coverage as Record<string, unknown>).formNumber,
-        }))
-      : [];
+    const coverageSummary = coverages.slice(0, 12).map((coverage) => ({
+      name: coverage.name,
+      limit: coverage.limit,
+      deductible: coverage.deductible,
+      formNumber: coverage.formNumber,
+    }));
 
     return JSON.stringify({
       extractedKeys: [...memory.keys()].filter((key) => key !== "classify"),
       declarationFieldCount: Array.isArray(declarationResult?.fields) ? declarationResult.fields.length : 0,
-      coverageCount: Array.isArray(coverageResult?.coverages) ? coverageResult.coverages.length : 0,
+      coverageCount: coverages.length,
       coverageSamples: coverageSummary,
-      endorsementCount: Array.isArray(endorsementResult?.endorsements) ? endorsementResult.endorsements.length : 0,
-      exclusionCount: Array.isArray(exclusionResult?.exclusions) ? exclusionResult.exclusions.length : 0,
-      conditionCount: Array.isArray(conditionResult?.conditions) ? conditionResult.conditions.length : 0,
-      definitionCount,
-      coveredReasonCount,
+      endorsementCount: endorsements.length,
+      exclusionCount: exclusions.length,
+      conditionCount: conditions.length,
+      definitionCount: definitions.length,
+      coveredReasonCount: coveredReasons.length,
       sectionCount: sections.length,
     }, null, 2);
   }
@@ -159,7 +157,7 @@ export function createExtractor(config: ExtractorConfig) {
   function buildAlreadyExtractedSummary(memory: Map<string, unknown>): string {
     const lines: string[] = [];
 
-    const declarationResult = memory.get("declarations") as Record<string, unknown> | undefined;
+    const declarationResult = readMemoryRecord(memory, "declarations");
     if (Array.isArray(declarationResult?.fields)) {
       for (const field of declarationResult.fields as Array<Record<string, unknown>>) {
         if (field.key && field.value) {
@@ -169,22 +167,19 @@ export function createExtractor(config: ExtractorConfig) {
       }
     }
 
-    const coverageResult = memory.get("coverage_limits") as Record<string, unknown> | undefined;
-    if (Array.isArray(coverageResult?.coverages)) {
-      for (const cov of coverageResult.coverages as Array<Record<string, unknown>>) {
-        const parts = [cov.name, cov.limit && `limit=${cov.limit}`, cov.deductible && `deductible=${cov.deductible}`].filter(Boolean);
-        if (parts.length > 0) lines.push(`- coverage: ${parts.join(", ")}`);
-      }
+    for (const cov of getCoverageLimitCoverages<Record<string, unknown>>(memory)) {
+      const parts = [cov.name, cov.limit && `limit=${cov.limit}`, cov.deductible && `deductible=${cov.deductible}`].filter(Boolean);
+      if (parts.length > 0) lines.push(`- coverage: ${parts.join(", ")}`);
     }
 
-    const namedInsured = memory.get("named_insured") as Record<string, unknown> | undefined;
+    const namedInsured = getNamedInsured(memory);
     if (namedInsured) {
       for (const [key, value] of Object.entries(namedInsured)) {
         if (value && typeof value === "string") lines.push(`- ${key}: ${value}`);
       }
     }
 
-    const carrierInfo = memory.get("carrier_info") as Record<string, unknown> | undefined;
+    const carrierInfo = getCarrierInfo(memory);
     if (carrierInfo) {
       for (const [key, value] of Object.entries(carrierInfo)) {
         if (value && typeof value === "string") lines.push(`- ${key}: ${value}`);
@@ -194,154 +189,16 @@ export function createExtractor(config: ExtractorConfig) {
     return lines.length > 0 ? lines.join("\n") : "";
   }
 
-  function isFocusedResultEmpty(extractorName: string, data: unknown): boolean {
-    if (!data || typeof data !== "object") return true;
-    const record = data as Record<string, unknown>;
-
-    if (extractorName === "covered_reasons") {
-      const coveredReasons = Array.isArray(record.coveredReasons)
-        ? record.coveredReasons
-        : Array.isArray(record.covered_reasons)
-          ? record.covered_reasons
-          : [];
-      return coveredReasons.length === 0;
-    }
-
-    if (extractorName === "definitions") {
-      return !Array.isArray(record.definitions) || record.definitions.length === 0;
-    }
-
-    return false;
-  }
-
-  function sectionLooksLikeCoveredReason(section: Record<string, unknown>): boolean {
-    const type = String(section.type ?? "").toLowerCase();
-    const title = String(section.title ?? "").toLowerCase();
-    return type === "covered_reason"
-      || title.includes("covered cause")
-      || title.includes("covered reason")
-      || title.includes("covered peril")
-      || title.includes("named peril")
-      || title.includes("insuring agreement");
-  }
-
-  function deriveFocusedResultFromSections(
-    extractorName: string,
-    sectionsData: unknown,
-  ): unknown | undefined {
-    if (!sectionsData || typeof sectionsData !== "object") return undefined;
-    const sections = (sectionsData as { sections?: unknown }).sections;
-    if (!Array.isArray(sections)) return undefined;
-
-    if (extractorName === "covered_reasons") {
-      const coveredReasons = (sections as Array<Record<string, unknown>>)
-        .filter(sectionLooksLikeCoveredReason)
-        .map((section) => ({
-          coverageName: String(section.coverageName ?? section.formTitle ?? section.title ?? "Covered Reasons"),
-          title: typeof section.title === "string" ? section.title : undefined,
-          content: String(section.content ?? ""),
-          pageNumber: typeof section.pageStart === "number" ? section.pageStart : undefined,
-          formNumber: typeof section.formNumber === "string" ? section.formNumber : undefined,
-          formTitle: typeof section.formTitle === "string" ? section.formTitle : undefined,
-          sectionRef: typeof section.sectionNumber === "string" ? section.sectionNumber : undefined,
-          originalContent: typeof section.content === "string" ? section.content.slice(0, 500) : undefined,
-        }))
-        .filter((coveredReason) => coveredReason.content.trim().length > 0);
-
-      return coveredReasons.length > 0 ? { coveredReasons } : undefined;
-    }
-
-    if (extractorName === "definitions") {
-      const definitions = (sections as Array<Record<string, unknown>>)
-        .filter((section) => String(section.type ?? "").toLowerCase() === "definition")
-        .map((section) => ({
-          term: String(section.title ?? "Definitions"),
-          definition: String(section.content ?? ""),
-          pageNumber: typeof section.pageStart === "number" ? section.pageStart : undefined,
-          formNumber: typeof section.formNumber === "string" ? section.formNumber : undefined,
-          formTitle: typeof section.formTitle === "string" ? section.formTitle : undefined,
-          sectionRef: typeof section.sectionNumber === "string" ? section.sectionNumber : undefined,
-          originalContent: typeof section.content === "string" ? section.content.slice(0, 500) : undefined,
-        }))
-        .filter((definition) => definition.definition.trim().length > 0);
-
-      return definitions.length > 0 ? { definitions } : undefined;
-    }
-
-    return undefined;
-  }
-
   async function runFocusedExtractorTask(task: ExtractionPlan["tasks"][number], pdfInput: PdfInput) {
-    const ext = getExtractor(task.extractorName) ?? (
-      task.extractorName === "definitions" || task.extractorName === "covered_reasons"
-        ? getExtractor("sections")
-        : undefined
-    );
-    if (!ext) {
-      await log?.(`Unknown extractor: ${task.extractorName}, skipping`);
-      return null;
-    }
-
-    try {
-      const result = await runExtractor({
-        name: task.extractorName,
-        prompt: ext.buildPrompt(),
-        schema: ext.schema,
-        pdfInput,
-        startPage: task.startPage,
-        endPage: task.endPage,
-        generateObject,
-        convertPdfToImages,
-        maxTokens: ext.maxTokens ?? 4096,
-        providerOptions,
-      });
-      trackUsage(result.usage);
-
-      if (!isFocusedResultEmpty(task.extractorName, result.data)) {
-        return result;
-      }
-
-      if (task.extractorName !== "definitions" && task.extractorName !== "covered_reasons") {
-        return result;
-      }
-    } catch (error) {
-      if (task.extractorName !== "definitions" && task.extractorName !== "covered_reasons") {
-        await log?.(`Extractor ${task.extractorName} failed: ${error}`);
-        return null;
-      }
-      await log?.(`Extractor ${task.extractorName} failed: ${error}`);
-    }
-
-    const sectionsExt = getExtractor("sections");
-    if (!sectionsExt) return null;
-
-    await log?.(`Extractor ${task.extractorName} produced no usable records; trying sections fallback for pages ${task.startPage}-${task.endPage}`);
-    try {
-      const sectionsResult = await runExtractor({
-        name: "sections",
-        prompt: sectionsExt.buildPrompt(),
-        schema: sectionsExt.schema,
-        pdfInput,
-        startPage: task.startPage,
-        endPage: task.endPage,
-        generateObject,
-        convertPdfToImages,
-        maxTokens: sectionsExt.maxTokens ?? 4096,
-        providerOptions,
-      });
-      trackUsage(sectionsResult.usage);
-
-      const focusedData = deriveFocusedResultFromSections(task.extractorName, sectionsResult.data);
-      return focusedData
-        ? [
-            sectionsResult,
-            { name: task.extractorName, data: focusedData, usage: undefined },
-          ]
-        : sectionsResult;
-    } catch (fallbackError) {
-      await log?.(`Sections fallback for ${task.extractorName} failed: ${fallbackError}`);
-      return null;
-    }
+    return runFocusedExtractorWithFallback({
+      task,
+      pdfInput,
+      generateObject,
+      convertPdfToImages,
+      providerOptions,
+      trackUsage,
+      log,
+    });
   }
 
   function formatPageMapSummary(pageAssignments: PageAssignment[]): string {
@@ -358,185 +215,6 @@ export function createExtractor(config: ExtractorConfig) {
     return [...extractorPages.entries()]
       .map(([extractorName, pages]) => `${extractorName}: ${pages.length} page(s), pages ${pages.join(", ")}`)
       .join("\n");
-  }
-
-  function normalizePageAssignments(
-    pageAssignments: PageAssignment[],
-    formInventory?: FormInventoryResult,
-  ): PageAssignment[] {
-    // Build a lookup: page number → form types from inventory
-    const pageFormTypes = new Map<number, Set<string>>();
-    if (formInventory) {
-      for (const form of formInventory.forms) {
-        if (form.pageStart != null) {
-          const end = form.pageEnd ?? form.pageStart;
-          for (let p = form.pageStart; p <= end; p++) {
-            const types = pageFormTypes.get(p) ?? new Set();
-            types.add(form.formType);
-            pageFormTypes.set(p, types);
-          }
-        }
-      }
-    }
-
-    return pageAssignments.map((assignment) => {
-      let extractorNames: PageAssignment["extractorNames"] = [...new Set(
-        (assignment.extractorNames.length > 0 ? assignment.extractorNames : ["sections"]).filter(Boolean),
-      )] as PageAssignment["extractorNames"];
-
-      const hasDeclarations = extractorNames.includes("declarations");
-      const hasConditions = extractorNames.includes("conditions");
-      const hasExclusions = extractorNames.includes("exclusions");
-      const hasEndorsements = extractorNames.includes("endorsements");
-      const looksLikeScheduleValues = assignment.hasScheduleValues === true;
-      const roleBlocksCoverageLimits = assignment.pageRole === "policy_form"
-        || assignment.pageRole === "condition_exclusion_form"
-        || assignment.pageRole === "endorsement_form";
-
-      // Use form inventory to further constrain: if the inventory says this page
-      // belongs to an endorsement/notice/application form, block coverage_limits
-      // unless the page has explicit schedule values.
-      const inventoryTypes = pageFormTypes.get(assignment.localPageNumber);
-      const inventoryBlocksCoverageLimits = inventoryTypes != null
-        && !looksLikeScheduleValues
-        && !hasDeclarations
-        && (inventoryTypes.has("endorsement") || inventoryTypes.has("notice") || inventoryTypes.has("application"));
-
-      if (extractorNames.includes("coverage_limits")) {
-        const shouldDropCoverageLimits = inventoryBlocksCoverageLimits
-          || (!looksLikeScheduleValues && roleBlocksCoverageLimits)
-          || (!hasDeclarations && !looksLikeScheduleValues && (hasConditions || hasExclusions))
-          || (!hasDeclarations && !looksLikeScheduleValues && hasEndorsements);
-
-        if (shouldDropCoverageLimits) {
-          extractorNames = extractorNames.filter((name) => name !== "coverage_limits") as PageAssignment["extractorNames"];
-        }
-      }
-
-      // If inventory says this page is an endorsement form, ensure endorsements extractor is assigned
-      if (inventoryTypes?.has("endorsement") && !extractorNames.includes("endorsements")) {
-        extractorNames = [...extractorNames, "endorsements"] as PageAssignment["extractorNames"];
-      }
-
-      if (extractorNames.length === 0) {
-        extractorNames = ["sections"];
-      }
-
-      return {
-        ...assignment,
-        extractorNames,
-      };
-    });
-  }
-
-  function buildTemplateHints(
-    primaryType: string,
-    documentType: "policy" | "quote",
-    pageCount: number,
-    template: ReturnType<typeof getTemplate>,
-  ): string {
-    return [
-      `Document type: ${primaryType} ${documentType}`,
-      `Expected sections: ${template.expectedSections.join(", ")}`,
-      `Page hints: ${Object.entries(template.pageHints).map(([k, v]) => `${k}: ${v}`).join("; ")}`,
-      `Total pages: ${pageCount}`,
-    ].join("\n");
-  }
-
-  function groupContiguousPages(pages: number[]): Array<{ startPage: number; endPage: number }> {
-    if (pages.length === 0) return [];
-    const sorted = [...new Set(pages)].sort((a, b) => a - b);
-    const ranges: Array<{ startPage: number; endPage: number }> = [];
-    let start = sorted[0];
-    let previous = sorted[0];
-
-    for (let i = 1; i < sorted.length; i += 1) {
-      const current = sorted[i];
-      if (current === previous + 1) {
-        previous = current;
-        continue;
-      }
-      ranges.push({ startPage: start, endPage: previous });
-      start = current;
-      previous = current;
-    }
-
-    ranges.push({ startPage: start, endPage: previous });
-    return ranges;
-  }
-
-  function buildPlanFromPageAssignments(
-    pageAssignments: PageAssignment[],
-    pageCount: number,
-    formInventory?: FormInventoryResult,
-  ): ExtractionPlan {
-    const extractorPages = new Map<string, number[]>();
-
-    for (const assignment of pageAssignments) {
-      const extractors = assignment.extractorNames.length > 0 ? assignment.extractorNames : ["sections"];
-      for (const extractorName of extractors) {
-        extractorPages.set(extractorName, [...(extractorPages.get(extractorName) ?? []), assignment.localPageNumber]);
-      }
-    }
-
-    const coveredPages = new Set<number>();
-    for (const pages of extractorPages.values()) {
-      for (const page of pages) coveredPages.add(page);
-    }
-    for (let page = 1; page <= pageCount; page += 1) {
-      if (!coveredPages.has(page)) {
-        extractorPages.set("sections", [...(extractorPages.get("sections") ?? []), page]);
-      }
-    }
-
-    const contextualExtractors = new Set(["conditions", "covered_reasons", "definitions", "exclusions", "endorsements"]);
-    const contextualForms = (formInventory?.forms ?? []).filter((form): form is FormInventoryEntry & { pageStart: number; pageEnd: number } =>
-      form.pageStart != null && (form.pageEnd ?? form.pageStart) != null,
-    );
-
-    const expandPagesToFormRanges = (extractorName: string, pages: number[]): number[] => {
-      if (!contextualExtractors.has(extractorName)) return pages;
-
-      const expanded = new Set<number>(pages);
-      for (const page of pages) {
-        for (const form of contextualForms) {
-          const pageStart = form.pageStart;
-          const pageEnd = form.pageEnd ?? form.pageStart;
-          const formType = form.formType;
-          const supportsContextualExpansion = extractorName === "endorsements"
-            ? formType === "endorsement"
-            : formType === "coverage" || formType === "endorsement";
-
-          if (!supportsContextualExpansion) continue;
-          if (page < pageStart || page > pageEnd) continue;
-
-          for (let current = pageStart; current <= pageEnd; current += 1) {
-            expanded.add(current);
-          }
-        }
-      }
-
-      return [...expanded].sort((a, b) => a - b);
-    };
-
-    const tasks = [...extractorPages.entries()]
-      .flatMap(([extractorName, pages]) =>
-        groupContiguousPages(expandPagesToFormRanges(extractorName, pages)).map(({ startPage, endPage }) => ({
-          extractorName,
-          startPage,
-          endPage,
-          description: `Page-mapped ${extractorName} extraction for pages ${startPage}-${endPage}`,
-        }))
-      )
-      .sort((a, b) => a.startPage - b.startPage || a.extractorName.localeCompare(b.extractorName));
-
-    return {
-      tasks,
-      pageMap: [...extractorPages.entries()].map(([section, pages]) => ({
-        section,
-        pages: `pages ${[...new Set(pages)].sort((a, b) => a - b).join(", ")}`,
-      })),
-    };
   }
 
   async function extract(
@@ -556,6 +234,7 @@ export function createExtractor(config: ExtractorConfig) {
       id,
       onSave: onCheckpointSave,
       resumeFrom: options?.resumeFrom,
+      phaseOrder: ["classify", "form_inventory", "page_map", "plan", "extract", "resolve_referential", "review", "assemble"],
     });
 
     // Restore memory from checkpoint if resuming
@@ -861,7 +540,7 @@ export function createExtractor(config: ExtractorConfig) {
         const reviewResponse = await safeGenerateObject(
           generateObject as GenerateObject<ReviewResult>,
           {
-            prompt: buildReviewPrompt(template.required, extractedKeys, extractionSummary, pageMapSummary),
+            prompt: buildReviewPrompt(template.required, extractedKeys, extractionSummary, pageMapSummary, extractorCatalog),
             schema: ReviewResultSchema,
             maxTokens: 1536,
             providerOptions: await buildPdfProviderOptions(pdfInput, providerOptions),

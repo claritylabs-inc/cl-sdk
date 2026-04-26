@@ -1,4 +1,12 @@
-import { z } from "zod";
+export { ExtractionPlanSchema, ExtractionTaskSchema, PageMapEntrySchema };
+export type { ExtractionPlan, ExtractionTask };
+import {
+  ExtractionPlanSchema,
+  ExtractionTaskSchema,
+  PageMapEntrySchema,
+  type ExtractionPlan,
+  type ExtractionTask,
+} from "../../extraction/plan";
 
 /**
  * Deprecated candidate: the extraction coordinator no longer uses this prompt
@@ -7,24 +15,6 @@ import { z } from "zod";
  * then builds tasks deterministically. Keep this module only for compatibility
  * until the old prompt-based planning path is removed everywhere.
  */
-export const ExtractionTaskSchema = z.object({
-  extractorName: z.string(),
-  startPage: z.number(),
-  endPage: z.number(),
-  description: z.string(),
-});
-
-export const PageMapEntrySchema = z.object({
-  section: z.string(),
-  pages: z.string(),
-});
-
-export const ExtractionPlanSchema = z.object({
-  tasks: z.array(ExtractionTaskSchema),
-  pageMap: z.array(PageMapEntrySchema).optional(),
-});
-export type ExtractionPlan = z.infer<typeof ExtractionPlanSchema>;
-
 export function buildPlanPrompt(templateHints: string): string {
   return `You are planning the extraction of an insurance document. You have already classified this document. Now scan the full document and create a page map + extraction plan.
 

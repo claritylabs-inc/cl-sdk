@@ -18,6 +18,84 @@ export interface ExtractorDef {
   buildPrompt: () => string;
   schema: ZodSchema;
   maxTokens?: number;
+  fallback?: FocusedExtractorFallback;
+}
+
+export interface FocusedExtractorFallback {
+  extractorName: string;
+  isEmpty: (data: unknown) => boolean;
+  deriveFocusedResult: (fallbackData: unknown) => unknown | undefined;
+}
+
+function asRecord(data: unknown): Record<string, unknown> | undefined {
+  return data && typeof data === "object" ? data as Record<string, unknown> : undefined;
+}
+
+function getSections(data: unknown): Array<Record<string, unknown>> {
+  const sections = asRecord(data)?.sections;
+  return Array.isArray(sections) ? sections as Array<Record<string, unknown>> : [];
+}
+
+function isCoveredReasonsEmpty(data: unknown): boolean {
+  const record = asRecord(data);
+  if (!record) return true;
+  const coveredReasons = Array.isArray(record.coveredReasons)
+    ? record.coveredReasons
+    : Array.isArray(record.covered_reasons)
+      ? record.covered_reasons
+      : [];
+  return coveredReasons.length === 0;
+}
+
+function isDefinitionsEmpty(data: unknown): boolean {
+  const definitions = asRecord(data)?.definitions;
+  return !Array.isArray(definitions) || definitions.length === 0;
+}
+
+function sectionLooksLikeCoveredReason(section: Record<string, unknown>): boolean {
+  const type = String(section.type ?? "").toLowerCase();
+  const title = String(section.title ?? "").toLowerCase();
+  return type === "covered_reason"
+    || title.includes("covered cause")
+    || title.includes("covered reason")
+    || title.includes("covered peril")
+    || title.includes("named peril")
+    || title.includes("insuring agreement");
+}
+
+function deriveCoveredReasonsFromSections(data: unknown): unknown | undefined {
+  const coveredReasons = getSections(data)
+    .filter(sectionLooksLikeCoveredReason)
+    .map((section) => ({
+      coverageName: String(section.coverageName ?? section.formTitle ?? section.title ?? "Covered Reasons"),
+      title: typeof section.title === "string" ? section.title : undefined,
+      content: String(section.content ?? ""),
+      pageNumber: typeof section.pageStart === "number" ? section.pageStart : undefined,
+      formNumber: typeof section.formNumber === "string" ? section.formNumber : undefined,
+      formTitle: typeof section.formTitle === "string" ? section.formTitle : undefined,
+      sectionRef: typeof section.sectionNumber === "string" ? section.sectionNumber : undefined,
+      originalContent: typeof section.content === "string" ? section.content.slice(0, 500) : undefined,
+    }))
+    .filter((coveredReason) => coveredReason.content.trim().length > 0);
+
+  return coveredReasons.length > 0 ? { coveredReasons } : undefined;
+}
+
+function deriveDefinitionsFromSections(data: unknown): unknown | undefined {
+  const definitions = getSections(data)
+    .filter((section) => String(section.type ?? "").toLowerCase() === "definition")
+    .map((section) => ({
+      term: String(section.title ?? "Definitions"),
+      definition: String(section.content ?? ""),
+      pageNumber: typeof section.pageStart === "number" ? section.pageStart : undefined,
+      formNumber: typeof section.formNumber === "string" ? section.formNumber : undefined,
+      formTitle: typeof section.formTitle === "string" ? section.formTitle : undefined,
+      sectionRef: typeof section.sectionNumber === "string" ? section.sectionNumber : undefined,
+      originalContent: typeof section.content === "string" ? section.content.slice(0, 500) : undefined,
+    }))
+    .filter((definition) => definition.definition.trim().length > 0);
+
+  return definitions.length > 0 ? { definitions } : undefined;
 }
 
 const EXTRACTORS: Record<string, ExtractorDef> = {
@@ -32,12 +110,41 @@ const EXTRACTORS: Record<string, ExtractorDef> = {
   loss_history: { buildPrompt: buildLossHistoryPrompt, schema: LossHistorySchema, maxTokens: 4096 },
   sections: { buildPrompt: buildSectionsPrompt, schema: SectionsSchema, maxTokens: 8192 },
   supplementary: { buildPrompt: buildSupplementaryPrompt, schema: SupplementarySchema, maxTokens: 2048 },
-  definitions: { buildPrompt: buildDefinitionsPrompt, schema: DefinitionsSchema, maxTokens: 8192 },
-  covered_reasons: { buildPrompt: buildCoveredReasonsPrompt, schema: CoveredReasonsSchema, maxTokens: 8192 },
+  definitions: {
+    buildPrompt: buildDefinitionsPrompt,
+    schema: DefinitionsSchema,
+    maxTokens: 8192,
+    fallback: {
+      extractorName: "sections",
+      isEmpty: isDefinitionsEmpty,
+      deriveFocusedResult: deriveDefinitionsFromSections,
+    },
+  },
+  covered_reasons: {
+    buildPrompt: buildCoveredReasonsPrompt,
+    schema: CoveredReasonsSchema,
+    maxTokens: 8192,
+    fallback: {
+      extractorName: "sections",
+      isEmpty: isCoveredReasonsEmpty,
+      deriveFocusedResult: deriveCoveredReasonsFromSections,
+    },
+  },
 };
 
 export function getExtractor(name: string): ExtractorDef | undefined {
   return EXTRACTORS[name];
+}
+
+export function formatExtractorCatalogForPrompt(): string {
+  return Object.entries(EXTRACTORS)
+    .map(([name, extractor]) => {
+      const fallback = extractor.fallback
+        ? `; fallback: ${extractor.fallback.extractorName}`
+        : "";
+      return `- ${name} (maxTokens: ${extractor.maxTokens ?? 4096}${fallback})`;
+    })
+    .join("\n");
 }
 
 export * from "./carrier-info";

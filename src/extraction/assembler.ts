@@ -1,5 +1,17 @@
 import type { PolicyDocument, QuoteDocument, InsuranceDocument } from "../schemas/document";
 import { sanitizeNulls } from "../core/sanitize";
+import {
+  getCarrierInfo,
+  getCoverageLimitCoverages,
+  getCoverageLimits,
+  getCoveredReasons,
+  getDefinitions,
+  getNamedInsured,
+  getSections,
+  readMemoryRecord,
+  readRecordArray,
+  readRecordValue,
+} from "./memory";
 import { promoteExtractedFields } from "./promote";
 
 /**
@@ -10,48 +22,52 @@ export function assembleDocument(
   documentType: "policy" | "quote",
   memory: Map<string, unknown>,
 ): InsuranceDocument {
-  const carrier = memory.get("carrier_info") as Record<string, unknown> | undefined;
-  const insured = memory.get("named_insured") as Record<string, unknown> | undefined;
-  const coverages = memory.get("coverage_limits") as Record<string, unknown> | undefined;
-  const endorsements = memory.get("endorsements") as Record<string, unknown> | undefined;
-  const exclusions = memory.get("exclusions") as Record<string, unknown> | undefined;
-  const conditions = memory.get("conditions") as Record<string, unknown> | undefined;
-  const premium = memory.get("premium_breakdown") as Record<string, unknown> | undefined;
-  const declarations = memory.get("declarations") as Record<string, unknown> | undefined;
-  const lossHistory = memory.get("loss_history") as Record<string, unknown> | undefined;
-  const sections = memory.get("sections") as Record<string, unknown> | undefined;
-  const supplementary = memory.get("supplementary") as Record<string, unknown> | undefined;
-  const formInventory = memory.get("form_inventory") as Record<string, unknown> | undefined;
-  const definitions = memory.get("definitions") as Record<string, unknown> | undefined;
-  const coveredReasons = memory.get("covered_reasons") as Record<string, unknown> | undefined;
-  const classify = memory.get("classify") as Record<string, unknown> | undefined;
+  const carrier = getCarrierInfo(memory);
+  const insured = getNamedInsured(memory);
+  const coverages = getCoverageLimits(memory);
+  const endorsements = readMemoryRecord(memory, "endorsements");
+  const exclusions = readMemoryRecord(memory, "exclusions");
+  const conditions = readMemoryRecord(memory, "conditions");
+  const premium = readMemoryRecord(memory, "premium_breakdown");
+  const declarations = readMemoryRecord(memory, "declarations");
+  const lossHistory = readMemoryRecord(memory, "loss_history");
+  const supplementary = readMemoryRecord(memory, "supplementary");
+  const formInventory = readMemoryRecord(memory, "form_inventory");
+  const classify = readMemoryRecord(memory, "classify");
+  const lossPayees = readRecordArray(insured, "lossPayees");
+  const mortgageHolders = readRecordArray(insured, "mortgageHolders");
 
   const base = {
     id: documentId,
-    carrier: (carrier as any)?.carrierName ?? "Unknown",
-    insuredName: (insured as any)?.insuredName ?? "Unknown",
-    coverages: (coverages as any)?.coverages ?? [],
-    policyTypes: (classify as any)?.policyTypes,
+    carrier: readRecordValue(carrier, "carrierName") ?? "Unknown",
+    insuredName: readRecordValue(insured, "insuredName") ?? "Unknown",
+    coverages: getCoverageLimitCoverages(memory),
+    policyTypes: readRecordValue(classify, "policyTypes"),
     ...sanitizeNulls(carrier ?? {}),
     ...sanitizeNulls(insured ?? {}),
     // Map named_insured extractor's loss payees/mortgage holders to EndorsementParty shape
-    ...(Array.isArray((insured as any)?.lossPayees) && (insured as any).lossPayees.length > 0
-      ? { lossPayees: (insured as any).lossPayees.map((lp: any) => ({ ...lp, role: "loss_payee" })) }
+    ...(lossPayees && lossPayees.length > 0
+      ? { lossPayees: lossPayees.map((lp) => ({ ...(lp as Record<string, unknown>), role: "loss_payee" })) }
       : {}),
-    ...(Array.isArray((insured as any)?.mortgageHolders) && (insured as any).mortgageHolders.length > 0
-      ? { mortgageHolders: (insured as any).mortgageHolders.map((mh: any) => ({ ...mh, role: "mortgage_holder" })) }
+    ...(mortgageHolders && mortgageHolders.length > 0
+      ? {
+          mortgageHolders: mortgageHolders.map((mh) => ({
+            ...(mh as Record<string, unknown>),
+            role: "mortgage_holder",
+          })),
+        }
       : {}),
     ...sanitizeNulls(coverages ?? {}),
     ...sanitizeNulls(premium ?? {}),
     ...sanitizeNulls(supplementary ?? {}),
-    supplementaryFacts: (supplementary as any)?.auxiliaryFacts,
-    endorsements: (endorsements as any)?.endorsements,
-    exclusions: (exclusions as any)?.exclusions,
-    conditions: (conditions as any)?.conditions,
-    sections: (sections as any)?.sections,
-    formInventory: (formInventory as any)?.forms,
-    definitions: (definitions as any)?.definitions,
-    coveredReasons: (coveredReasons as any)?.coveredReasons ?? (coveredReasons as any)?.covered_reasons,
+    supplementaryFacts: readRecordValue(supplementary, "auxiliaryFacts"),
+    endorsements: readRecordValue(endorsements, "endorsements"),
+    exclusions: readRecordValue(exclusions, "exclusions"),
+    conditions: readRecordValue(conditions, "conditions"),
+    sections: getSections(memory),
+    formInventory: readRecordValue(formInventory, "forms"),
+    definitions: getDefinitions(memory),
+    coveredReasons: getCoveredReasons(memory),
     declarations: declarations ? sanitizeNulls(declarations) : undefined,
     ...sanitizeNulls(lossHistory ?? {}),
   };
@@ -62,21 +78,21 @@ export function assembleDocument(
     doc = {
       ...base,
       type: "policy",
-      policyNumber: (carrier as any)?.policyNumber ?? (insured as any)?.policyNumber ?? "Unknown",
-      effectiveDate: (carrier as any)?.effectiveDate ?? (insured as any)?.effectiveDate ?? "Unknown",
-      expirationDate: (carrier as any)?.expirationDate,
-      policyTermType: (carrier as any)?.policyTermType,
+      policyNumber: readRecordValue(carrier, "policyNumber") ?? readRecordValue(insured, "policyNumber") ?? "Unknown",
+      effectiveDate: readRecordValue(carrier, "effectiveDate") ?? readRecordValue(insured, "effectiveDate") ?? "Unknown",
+      expirationDate: readRecordValue(carrier, "expirationDate"),
+      policyTermType: readRecordValue(carrier, "policyTermType"),
     } as PolicyDocument;
   } else {
     doc = {
       ...base,
       type: "quote",
-      quoteNumber: (carrier as any)?.quoteNumber ?? "Unknown",
-      proposedEffectiveDate: (carrier as any)?.proposedEffectiveDate,
-      proposedExpirationDate: (carrier as any)?.proposedExpirationDate,
-      subjectivities: (coverages as any)?.subjectivities,
-      underwritingConditions: (coverages as any)?.underwritingConditions,
-      premiumBreakdown: (premium as any)?.premiumBreakdown,
+      quoteNumber: readRecordValue(carrier, "quoteNumber") ?? "Unknown",
+      proposedEffectiveDate: readRecordValue(carrier, "proposedEffectiveDate"),
+      proposedExpirationDate: readRecordValue(carrier, "proposedExpirationDate"),
+      subjectivities: readRecordValue(coverages, "subjectivities"),
+      underwritingConditions: readRecordValue(coverages, "underwritingConditions"),
+      premiumBreakdown: readRecordValue(premium, "premiumBreakdown"),
     } as QuoteDocument;
   }
 

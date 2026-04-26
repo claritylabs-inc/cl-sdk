@@ -20,4 +20,19 @@ describe("assembleDocument", () => {
       { coverageName: "Property", title: "Fire", content: "Fire is covered." },
     ]);
   });
+
+  it("accepts snake_case covered reasons from extractor memory", () => {
+    const memory = new Map<string, unknown>([
+      ["carrier_info", { carrierName: "Test Carrier", policyNumber: "P-1", effectiveDate: "01/01/2025" }],
+      ["named_insured", { insuredName: "Test Insured" }],
+      ["coverage_limits", { coverages: [] }],
+      ["covered_reasons", { covered_reasons: [{ coverageName: "Property", title: "Wind", content: "Wind is covered." }] }],
+    ]);
+
+    const doc = assembleDocument("doc-1", "policy", memory) as any;
+
+    expect(doc.coveredReasons).toEqual([
+      { coverageName: "Property", title: "Wind", content: "Wind is covered." },
+    ]);
+  });
 });

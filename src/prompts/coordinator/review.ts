@@ -18,11 +18,15 @@ export function buildReviewPrompt(
   extractedKeys: string[],
   extractionSummary: string,
   pageMapSummary: string,
+  extractorCatalog: string,
 ): string {
-  return `You are reviewing an extraction for completeness and quality. Compare what was expected vs what was found.
+  return `You are the extraction coordinator for an insurance-document agent system. Review the current extraction state, decide whether the result is complete enough, and choose any follow-up extractor tasks needed to improve it.
 
 EXPECTED FIELDS (from document type template):
 ${templateExpected.map((f) => `- ${f}`).join("\n")}
+
+AVAILABLE FOLLOW-UP EXTRACTORS:
+${extractorCatalog}
 
 FIELDS ALREADY EXTRACTED:
 ${extractedKeys.map((f) => `- ${f}`).join("\n")}
@@ -37,7 +41,7 @@ Determine:
 1. Is the extraction complete enough?
 2. What fields are missing?
 3. What quality issues are present?
-4. Should any additional extraction tasks be dispatched?
+4. Which follow-up extraction tasks, if any, should be dispatched?
 
 Mark the extraction as NOT complete if any of these are true:
 - required fields are missing
@@ -48,7 +52,9 @@ Mark the extraction as NOT complete if any of these are true:
 - page assignments suggest declaration, schedule, endorsement, exclusion, or condition pages were not actually extracted with the matching focused extractor
 - a focused extractor exists but returned too little substance for the relevant pages
 
-When reviewing CURRENT EXTRACTION SUMMARY, compare the page-map counts to extracted counts. For definitions and covered_reasons, missing extraction should produce a quality issue and a narrow follow-up task over the mapped page range.
+When reviewing CURRENT EXTRACTION SUMMARY, compare the page-map counts to extracted counts. If an assigned extractor produced no useful records, produce a quality issue and a narrow follow-up task over the mapped page range.
+
+Choose follow-up tasks from AVAILABLE FOLLOW-UP EXTRACTORS. You may dispatch any listed extractor when the page map, current extraction summary, or quality evidence shows that the focused extraction is missing, generic, referential, or too thin. Do not invent extractor names.
 
 Return JSON:
 {
@@ -60,7 +66,7 @@ Return JSON:
   ]
 }
 
-Use the page map to target follow-up extraction pages precisely. Prefer narrow, declaration/schedule-focused follow-up tasks over broad page ranges.
+Use the page map to target follow-up extraction pages precisely. Prefer narrow, declaration/schedule-focused follow-up tasks over broad page ranges. If no additional model work is likely to improve the extraction, return an empty additionalTasks array.
 
 Respond with JSON only.`;
 }

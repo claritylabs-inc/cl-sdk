@@ -3,6 +3,7 @@ import type { ReviewResult } from "../prompts/coordinator/review";
 import type { BaseQualityIssue, QualityArtifact, QualityGateStatus, QualityRound, UnifiedQualityReport } from "../core/quality";
 import { evaluateQualityGate } from "../core/quality";
 import type { FormInventoryEntry as ExtractedFormInventoryEntry } from "../prompts/coordinator/form-inventory";
+import { looksCoveredReasonSection, looksReferential } from "./heuristics";
 
 export interface FormInventoryEntry {
   formNumber: string;
@@ -71,16 +72,6 @@ function addFormEntry(
   });
 }
 
-function looksReferential(value: unknown): boolean {
-  if (typeof value !== "string") return false;
-  const normalized = value.toLowerCase();
-  return normalized.includes("shown in the declarations")
-    || normalized.includes("shown in declarations")
-    || normalized.includes("shown in the schedule")
-    || normalized.includes("as stated")
-    || normalized.includes("if applicable");
-}
-
 function looksTocArtifact(value: unknown): boolean {
   if (typeof value !== "string") return false;
   return /\.{4,}\d{1,3}$/.test(value.trim()) || /^\d+\.\s+[A-Z][\s\S]*\.{3,}\d{1,3}$/.test(value.trim());
@@ -120,11 +111,7 @@ export function buildExtractionReviewReport(params: {
     ? coveredReasonsResult.coveredReasons as Array<Record<string, unknown>>
     : Array.isArray(coveredReasonsResult?.covered_reasons)
       ? coveredReasonsResult.covered_reasons as Array<Record<string, unknown>>
-      : sections.filter((section) => {
-          const title = String(section.title ?? "").toLowerCase();
-          const type = String(section.type ?? "").toLowerCase();
-          return type === "covered_reason" || title.includes("covered cause") || title.includes("covered reason") || title.includes("covered peril");
-        });
+      : sections.filter(looksCoveredReasonSection);
   const mappedDefinitions = params.pageAssignments.some((assignment) => assignment.extractorNames.includes("definitions"));
   const mappedCoveredReasons = params.pageAssignments.some((assignment) => assignment.extractorNames.includes("covered_reasons"));
 
