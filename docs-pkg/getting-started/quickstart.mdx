@@ -69,7 +69,8 @@ const generateObject = async ({ prompt, system, schema, maxTokens, providerOptio
 
 For extraction calls, CL SDK uses `providerOptions` to carry document content into your callback:
 
-- classify and plan calls include the full PDF in `providerOptions.pdfBase64`
+- classify, form inventory, and review calls include the full PDF in `providerOptions.pdfBase64`
+- page mapping calls include page-scoped PDFs in `providerOptions.pdfBase64`
 - worker extractor calls include a page-scoped PDF in `providerOptions.pdfBase64`
 - if you configure `convertPdfToImages`, worker extractor calls include `providerOptions.images` instead
 - multimodal query calls may include `providerOptions.attachments`, `providerOptions.pdfBase64`, and `providerOptions.images`
@@ -149,11 +150,11 @@ const result = await agent.query({
 });
 ```
 
-The query pipeline interprets those attachments into evidence first, then combines that evidence with stored document chunks and conversation history before answering.
+The query workflow interprets those attachments into evidence first, then uses classification to decide whether stored document retrieval is needed. Attachment-only and general questions can skip retrieval; document-backed questions still retrieve chunks and verify grounding before answering.
 
 ## Process an application
 
-Handle insurance application intake with an agentic pipeline:
+Handle insurance application intake with a bounded agentic workflow:
 
 ```typescript
 import { createApplicationPipeline } from "@claritylabs/cl-sdk";
@@ -171,6 +172,8 @@ const { state } = await pipeline.processApplication({
 console.log(state.fields);    // extracted and auto-filled fields
 console.log(state.batches);   // topic-based question batches for user collection
 ```
+
+Application processing plans optional backfill, context auto-fill, document lookup, batching, reply parsing, lookup, explanations, and next-batch email generation from the current state so unnecessary provider and storage calls are skipped.
 
 ## Add logging
 

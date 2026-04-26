@@ -5,7 +5,7 @@ description: Turn insurance PDFs into structured data with the agentic extractio
 
 import { Callout } from "@/components/ui/callout";
 
-CL SDK's extraction pipeline uses an agentic coordinator/worker pattern to process insurance documents. It classifies the document, maps pages to focused extractors, builds deterministic tasks, dispatches focused extractors in parallel, runs a full-document supplementary pass for hidden retrieval facts, merges repeated extractor runs, reviews for completeness and quality, assembles a fully typed `InsuranceDocument`, promotes declarations data into typed top-level fields, generates a document summary, and produces retrieval-ready chunks.
+CL SDK's extraction pipeline uses an agentic coordinator/worker pattern to process insurance documents. It classifies the document, maps pages to focused extractors, builds deterministic tasks, dispatches focused extractors in parallel, conditionally runs supplementary extraction for hidden retrieval facts, resolves referential coverage values, reviews for completeness and quality, assembles a fully typed `InsuranceDocument`, promotes declarations data into typed top-level fields, generates a document summary, and produces retrieval-ready chunks.
 
 ## Quick start
 
@@ -33,7 +33,7 @@ CL SDK is provider-agnostic. You supply plain callback functions (`GenerateText`
 
 ## Pipeline overview
 
-The pipeline runs ten phases sequentially. Extraction and review dispatch work in parallel internally.
+The pipeline runs twelve phases sequentially. Extraction, review follow-ups, and bounded optional work dispatch in parallel internally where useful.
 
 ```mermaid
 flowchart TD
@@ -41,14 +41,18 @@ flowchart TD
     B --> C[2. Page Map]
     C --> D[3. Plan]
     D --> E[4. Extract + Merge]
-    E --> F[5. Review]
-    F -->|gaps found| E
-    F -->|complete| G[6. Assemble]
-    G --> H[7. Promote]
-    H --> I[8. Summarize]
-    I --> J[9. Format]
-    J --> K[10. Chunk]
-    K --> L[InsuranceDocument + DocumentChunks]
+    E --> F{5. Supplementary signal?}
+    F -->|yes| G[Supplementary]
+    F -->|no| H[6. Resolve Referential]
+    G --> H
+    H --> I[7. Review]
+    I -->|gaps found| E
+    I -->|complete| J[8. Assemble]
+    J --> K[9. Promote]
+    K --> L[10. Summarize]
+    L --> M[11. Cost-aware Format]
+    M --> N[12. Chunk]
+    N --> O[InsuranceDocument + DocumentChunks]
 ```
 
 ## Phase 1: Classify
@@ -125,6 +129,8 @@ Before each worker callback is invoked, the SDK slices the assigned page range w
 
 If the same extractor runs multiple times, results merge instead of overwrite. This is especially important for `coverage_limits`, `definitions`, `covered_reasons`, `endorsements`, `exclusions`, `conditions`, `sections`, `declarations`, and `supplementary`.
 
+Focused extractors can declare fallback behavior. Definitions and covered reasons fall back through section extraction when the focused extractor fails or returns no usable records, so a single no-output response does not leave those first-class fields empty.
+
 ### The 13 focused extractors
 
 | Extractor | Domain | What it extracts |
@@ -145,9 +151,11 @@ If the same extractor runs multiple times, results merge instead of overwrite. T
 
 Each extractor is defined with `{ buildPrompt(), schema, maxTokens }` and accessed via `getExtractor(name)`.
 
-### Hidden supplementary facts pass
+## Phase 5: Conditional supplementary facts pass
 
-After the page-mapped extractor tasks complete, the coordinator runs a full-document `supplementary` pass across the entire PDF. This pass is intended for memory and retrieval rather than consumer-facing structured output.
+After the page-mapped extractor tasks complete, the coordinator decides whether a `supplementary` pass is needed. This pass is intended for memory and retrieval rather than consumer-facing structured output.
+
+The pass is skipped when there are no signals that hidden retrieval facts are present. It runs when page assignments, form inventory, existing extracted text, or review follow-up tasks indicate regulatory, claims, notice, cancellation/nonrenewal, contact, TPA, driver, household, lienholder, or schedule-row facts are likely present.
 
 The pass still captures regulatory contacts and notice periods, but it also emits `auxiliaryFacts`: normalized key/value facts that do not fit the strict primary schema.
 
@@ -166,7 +174,13 @@ Each auxiliary fact can include optional `subject` and `context` fields so downs
 
 This data is assembled onto the final document as `supplementaryFacts` and chunked for vector retrieval, but it is meant to remain hidden from normal consumer UI rendering unless your application explicitly chooses to surface it.
 
-## Phase 5: Review
+## Phase 6: Resolve referential coverage values
+
+Some coverage rows contain referential text such as "shown in the declarations", "see schedule", or "per endorsement". The resolver handles these values before review so downstream coverage fields are more useful.
+
+Resolution is bounded. It first tries cheap local matches against already extracted sections and forms. Only unresolved high-value references can trigger targeted actions such as declaration lookup, schedule lookup, section lookup, page-location lookup, or skip. This avoids turning every vague form phrase into an expensive search chain.
+
+## Phase 7: Review
 
 After initial extraction, a review loop (up to `maxReviewRounds`, default 2) checks completeness and quality against the template's `required` fields. The reviewer compares what has been extracted against what is expected, sees the document again, and receives a summary of extracted outputs and page assignments.
 
@@ -176,11 +190,13 @@ If gaps or quality issues are found, the reviewer generates additional extractio
 
 Typical quality issues include generic placeholders like "shown in declarations", "per schedule", values that look copied from generic form wording instead of declaration-specific schedules, mapped definitions pages with no definition records, and mapped covered-cause/inclusion pages with no covered reason records.
 
-## Phase 6: Assemble
+The reviewer receives the live extractor catalog, including registered fallback-capable extractors, so follow-up work can target definitions, covered reasons, supplementary facts, declarations, or section fallback extraction without relying on a hardcoded task list.
+
+## Phase 8: Assemble
 
 The assembler merges all extractor results from the in-memory `Map` into a single validated `InsuranceDocument` (either `PolicyDocument` or `QuoteDocument`).
 
-## Phase 7: Promote
+## Phase 9: Promote
 
 After assembly, a promotion pass fills in top-level typed fields from data that was extracted but not directly surfaced. The extractors do detailed work — 100+ declaration fields, dozens of coverages — but the initial assembly only spreads flat results. The promotion pass bridges this gap.
 
@@ -203,7 +219,7 @@ All sub-passes are idempotent — they never overwrite fields that already have 
   The promotion pass runs in `src/extraction/promote.ts` and is called automatically by `assembleDocument()`. It produces no model calls and adds no latency.
 </Callout>
 
-## Phase 8: Summarize
+## Phase 10: Summarize
 
 After promotion, the pipeline generates a 1–3 sentence summary of the document using a model call. The summary captures the essential facts a broker or underwriter would want at a glance: who is insured, by whom, key coverages, policy period, and premium.
 
@@ -211,9 +227,9 @@ The summarizer receives a compact snapshot of the assembled document (not the fu
 
 If summary generation fails, the pipeline continues without it — the field remains `undefined`.
 
-## Phase 9: Format
+## Phase 11: Cost-aware format
 
-After assembly, a formatting agent pass cleans up markdown in all content-bearing string fields — section content, subsection content, definition text, covered-reason content and conditions, endorsement content, exclusion content, condition content, and the document summary.
+After assembly, a formatting agent pass cleans up markdown in content-bearing string fields only when the content is likely to need it. Plain prose skips the model call. Long text, markdown artifacts, lists/headings, excessive spacing, and table-like content are batched for cleanup.
 
 Insurance document extraction commonly produces content with formatting issues that prevent proper markdown rendering:
 
@@ -225,13 +241,13 @@ Insurance document extraction commonly produces content with formatting issues t
 | Mixed table/prose content | Paragraphs followed by tables followed by more paragraphs | Handle each segment independently |
 | General cleanup | Excessive blank lines, trailing whitespace, orphaned `**` or `*` markers | Standard markdown normalization |
 
-Content fields are collected and batched (up to 20 per model call) for efficient processing. The formatting prompt includes specific before/after examples for each pattern. Token usage from formatting is tracked and included in the total.
+Content fields are collected and batched (up to 20 per model call) for efficient processing. The formatting prompt includes specific before/after examples for each pattern. Token usage from formatting is tracked and included in the total, but no-op formatting calls are avoided.
 
 <Callout type="info">
   The formatter only fixes formatting — it never changes the meaning or substance of extracted content. Dollar amounts, dates, policy numbers, and technical terms are preserved exactly as extracted.
 </Callout>
 
-## Phase 10: Chunk
+## Phase 12: Chunk
 
 The formatted document is broken into retrieval-ready `DocumentChunk` objects via `chunkDocument()`. Chunks inherit the cleaned formatting, ensuring consistent rendering in downstream applications like query results and chat UIs.
 

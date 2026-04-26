@@ -3,7 +3,7 @@ title: Application Processing
 description: Agentic pipeline for insurance application intake, auto-fill, and form completion
 ---
 
-CL SDK provides a full agentic pipeline for processing insurance applications. Small, focused agents handle classification, field extraction, auto-fill, question batching, reply routing, and PDF mapping — running in parallel where possible and using persistent state with vector-based answer backfill.
+CL SDK provides a full agentic pipeline for processing insurance applications. Small, focused agents handle classification, field extraction, auto-fill, question batching, reply routing, and PDF mapping. A bounded workflow planner decides which optional agents are useful from the current state, so the pipeline can handle edge cases without running every storage lookup or provider call on every application.
 
 ## Quick start
 
@@ -44,8 +44,9 @@ const { fieldsFilled, responseText } = await pipeline.processReply({
 flowchart LR
   PDF[Application PDF] --> C[Classify]
   C --> E[Extract Fields]
-  E --> AF[Backfill + Auto-Fill]
-  AF --> B[Batch Questions]
+  E --> P[Plan Optional Actions]
+  P --> AF[Backfill + Auto-Fill + Search]
+  AF --> B[Batch Questions If Needed]
   B --> RL[Reply Loop]
   RL --> CF[Confirm + Map PDF]
   RL -.->|next batch| RL
@@ -59,15 +60,18 @@ A tiny agent determines whether the PDF is an insurance application form. Return
 
 Extracts all fillable fields as structured data — text, numeric, currency, date, yes/no, table, and declaration types. Each field gets an ID, label, section, type, and required flag.
 
-### Phase 3: Backfill + auto-fill (parallel)
+### Phase 3: Plan optional fill actions
 
-Three fill strategies run in parallel to maximize pre-filled fields before asking the user anything:
+The planner looks at extracted fields, available stores, org context, and current completion state before launching optional work. It can choose:
 
-1. **Vector backfill** — searches prior application answers via the `BackfillProvider` interface. Uses embedding similarity to find answers from previous applications that match the current fields.
-2. **Context auto-fill** — matches fields to business context key-value pairs (company name, address, FEIN, etc.) using an LLM agent.
-3. **Document search** — searches extracted policy/quote chunks for relevant data via the memory store.
+- **Vector backfill** — only when a `BackfillProvider` is configured and unfilled fields are worth searching
+- **Context auto-fill** — only when `orgContext` is available and fields can plausibly match known business facts
+- **Document search** — only for selected high-value fields when document or memory stores are configured
+- **Batching** — only when unfilled fields remain after optional fill work
 
-### Phase 4: Batch questions
+Selected fill strategies run in parallel to maximize pre-filled fields before asking the user anything.
+
+### Phase 4: Batch questions if needed
 
 Groups remaining unfilled fields into topic-based batches (3-8 batches). Keeps related fields together (address components, conditional fields with their parents). Orders by importance: company info first, declarations last.
 
@@ -77,11 +81,12 @@ For each batch, the pipeline:
 
 1. **Generates a professional email** requesting answers for the batch
 2. **Classifies the user's reply** — answers, questions about fields, lookup requests, or mixed
-3. **Routes to the right agent:**
+3. **Plans the needed actions** from the reply intent and current batch state
+4. **Routes to the right agent:**
    - Answers → parsed and applied to state
    - Questions → field explanation generated
    - Lookup requests → searches documents/records to fill fields
-4. **Advances to the next batch** when current batch is complete
+5. **Advances to the next batch** when current batch is complete
 
 ### Phase 6: Confirm + map PDF
 

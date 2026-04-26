@@ -30,25 +30,27 @@ const extractor = createExtractor({
 const { document, chunks, tokenUsage, usageReporting } = await extractor.extract(pdfBase64);
 ```
 
-The pipeline runs ten phases automatically:
+The pipeline runs twelve phases automatically:
 
 1. **Classify** -- detect document type (policy/quote) and identify policy types, using the full PDF from `providerOptions.pdfBase64`
-2. **Page map** -- map each page to focused extractors using page-scoped PDFs
+2. **Form inventory and page map** -- identify form signals and map each page to focused extractors using page-scoped PDFs
 3. **Plan** -- build deterministic extraction tasks from the page map and template hints
-4. **Extract** -- dispatch focused extractors in parallel (concurrency-limited), with each worker receiving a page-scoped PDF from `extractPageRange()` via `providerOptions.pdfBase64` or `providerOptions.images`
-5. **Review** -- check completeness and quality against template requirements, dispatch additional extractors for gaps (up to `maxReviewRounds`)
-6. **Assemble** -- merge all extractor results into an `InsuranceDocument`
-7. **Promote** -- fill top-level typed fields from declarations and coverages (carrier field mapping, broker, locations, loss payees, limits/deductibles synthesis, premium/total-cost fallback, taxes/fees synthesis)
-8. **Summarize** -- generate a 1–3 sentence document summary via model call
-9. **Format** -- clean up markdown formatting in content fields (pipe tables, space-aligned tables, sub-items, whitespace)
-10. **Chunk** -- break the formatted document into `DocumentChunk[]` for vector storage
+4. **Extract + merge** -- dispatch focused extractors in parallel (concurrency-limited), with each worker receiving a page-scoped PDF from `extractPageRange()` via `providerOptions.pdfBase64` or `providerOptions.images`
+5. **Conditional supplementary extraction** -- run `supplementary` only when page assignments, form inventory, extracted text, or review follow-up tasks indicate hidden retrieval facts are likely present
+6. **Referential coverage resolution** -- resolve values like "shown in declarations" or "per schedule" with cheap local matches first, then bounded targeted lookups when useful
+7. **Review** -- check completeness and quality against template requirements and the live extractor catalog, dispatch additional extractors for gaps (up to `maxReviewRounds`)
+8. **Assemble** -- merge all extractor results into an `InsuranceDocument`
+9. **Promote** -- fill top-level typed fields from declarations and coverages (carrier field mapping, broker, locations, loss payees, limits/deductibles synthesis, premium/total-cost fallback, taxes/fees synthesis)
+10. **Summarize** -- generate a 1-3 sentence document summary via model call
+11. **Cost-aware format** -- clean up markdown formatting in content fields only when content is likely to need it
+12. **Chunk** -- break the formatted document into `DocumentChunk[]` for vector storage
 
 <Callout type="info">
   The `extract` method accepts an optional `documentId`. If omitted, a timestamped ID is generated automatically.
 </Callout>
 
 <Callout type="info">
-  After the page-mapped extractor tasks complete, the coordinator also runs a full-document `supplementary` pass to capture hidden retrieval-only facts such as personal auto driver names, ages, DOBs, garaging details, and other structured key/value facts that do not belong in the strict primary schema.
+  Focused extractors can declare fallback behavior. Definitions and covered reasons fall back through section extraction when the focused extractor fails or returns no usable records.
 </Callout>
 
 ---
@@ -170,6 +172,10 @@ interface ExtractionResult {
     callsWithUsage: number;
     callsMissingUsage: number;
   };
+  /** Structured extraction review details, when review ran */
+  reviewReport?: ExtractionReviewReport;
+  /** Last saved checkpoint when checkpoint persistence is configured */
+  checkpoint?: PipelineCheckpoint;
 }
 ```
 
@@ -185,6 +191,8 @@ interface ExtractorDef {
   schema: ZodSchema;
   /** Optional max tokens override for this extractor */
   maxTokens?: number;
+  /** Optional fallback behavior when a focused extractor fails or returns empty results */
+  fallback?: FocusedExtractorFallback;
 }
 ```
 

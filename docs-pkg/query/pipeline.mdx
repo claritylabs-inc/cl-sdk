@@ -3,7 +3,7 @@ title: Query Pipeline
 description: How the query agent answers questions with citation-backed provenance
 ---
 
-The query agent pipeline answers user questions against stored insurance documents and inbound multimodal context. It mirrors the extraction pipeline's coordinator/worker pattern — attachments are interpreted first, a classifier decomposes questions, retrievers pull evidence in parallel, reasoners answer from evidence only, and a verifier checks grounding before composing the final response.
+The query agent pipeline answers user questions against stored insurance documents and inbound multimodal context. It mirrors the extraction pipeline's deterministic scaffold plus agentic decision points: attachments are interpreted first, a classifier decomposes questions, a bounded planner decides whether retrieval is needed, reasoners answer from available evidence only, and a verifier checks grounding before composing the final response.
 
 ## Quick start
 
@@ -52,17 +52,20 @@ const result = await agent.query({
 
 ## Pipeline phases
 
-The pipeline runs six phases, with parallel dispatch in phases 3 and 4:
+The pipeline runs six phases, with parallel dispatch in retrieval and reasoning when lookup is useful:
 
 ```mermaid
 flowchart LR
   Q[User Question + Attachments] --> A[1. Interpret Attachments]
   A --> C[2. Classify]
-  C --> R[3. Retrieve]
-  R --> RE[4. Reason]
+  C --> P[3. Plan Retrieval]
+  P --> N{Lookup needed?}
+  N -->|yes| R[Retrieve]
+  N -->|no| RE[4. Reason]
+  R --> RE
   RE --> V[5. Verify]
   V --> RS[6. Respond]
-  V -.->|retry| R
+  V -.->|targeted retry| P
 ```
 
 ### Phase 1: Interpret attachments
@@ -94,9 +97,11 @@ Simple questions produce one sub-question. Complex questions like "compare the d
 
 When attachments are present, the classifier also sees an attachment summary so it can route questions correctly even when the crucial context is visual or comes from an inbound PDF.
 
-### Phase 3: Retrieve (parallel)
+### Phase 3: Plan retrieval and retrieve when needed
 
-For each sub-question, a retriever runs in parallel (concurrency-limited, default 3):
+For each sub-question, the planner checks classification flags and attachment evidence before launching storage work. If a question is general, attachment-only, or classified as not requiring document/chunk lookup, retrieval is skipped and the reasoner receives the available context directly.
+
+When lookup is needed, retrievers run in parallel (concurrency-limited, default 3):
 
 1. **Chunk search** — semantic search over document chunks using the memory store's embedding-based similarity
 2. **Document lookup** — structured query by carrier, policy number, insured name, or document type
@@ -106,7 +111,7 @@ Each retriever returns ranked `EvidenceItem` objects with source references and 
 
 ### Phase 4: Reason (parallel)
 
-For each sub-question, a reasoner receives **only the evidence set** — attachment evidence plus retrieved chunk/document/conversation evidence, but never the full raw corpus. This forces grounding. The reasoner produces a `SubAnswer` with:
+For each sub-question, a reasoner receives **only the evidence set** — attachment evidence, retrieved chunk/document/conversation evidence, or the explicit no-retrieval context selected by the planner. It never receives the full raw corpus. This forces grounding when evidence exists and keeps simple questions cheap. The reasoner produces a `SubAnswer` with:
 
 - Text answer to the sub-question
 - Citations referencing specific evidence items
@@ -123,7 +128,7 @@ The verifier checks all sub-answers for:
 2. **Consistency** — sub-answers must not contradict each other
 3. **Completeness** — each sub-question must be adequately answered
 
-If issues are found and the verify round limit hasn't been reached, the verifier triggers re-retrieval with broader context and re-reasoning for flagged sub-questions.
+If issues are found and the verify round limit hasn't been reached, the verifier triggers targeted retrieval/reasoning for flagged sub-questions instead of replaying the whole pipeline.
 
 ### Phase 6: Respond
 

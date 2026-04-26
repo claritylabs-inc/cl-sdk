@@ -13,11 +13,15 @@ All notable changes to `@claritylabs/cl-sdk` are documented here.
 - **First-class covered reasons extraction** — new `covered_reasons` extractor and `document.coveredReasons[]` field for covered causes of loss, covered losses, inclusions, qualifying reasons, attached conditions/exceptions, and provenance.
 - **Dedicated retrieval chunks** — new `definition` and `covered_reason` chunk types. Covered-reason conditions are emitted as separate `covered_reason` chunks for precise retrieval.
 - **Quality checks** — deterministic warnings for mapped definitions/covered-reason pages with empty structured output, missing definition/covered-reason content, missing page provenance, and referential covered-reason text.
+- **Bounded workflow planners** — query, application processing, referential coverage resolution, and generic workflow helpers can now skip unnecessary subagents/tool chains while preserving targeted retry paths.
+- **Focused extractor fallbacks** — fallback-capable extractors can route through section extraction when focused output fails or comes back empty.
 
 ### Changed
 
 - **Extraction pipeline now has 13 focused extractors** with page-map routing and review follow-up support for `definitions` and `covered_reasons`.
-- **Formatter coverage expanded** to definition text plus covered-reason content and conditions.
+- **Supplementary extraction is now conditional** based on page assignments, form inventory, extraction signals, or review follow-up tasks.
+- **Formatter coverage expanded and cost-gated** to definition text plus covered-reason content and conditions while skipping plain prose that does not need cleanup.
+- **Query retrieval and application optional agents are now gated** by classifier/planner decisions to reduce cost and improve edge-case routing.
 - **Financial promotion expanded** to more premium and total-cost aliases and declaration-derived `taxesAndFees[]`, including common GST/HST/PST/QST-style fields.
 
 ## v0.11.0 — Declarations Promotion & Summary Generation

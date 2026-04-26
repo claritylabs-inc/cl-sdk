@@ -90,7 +90,7 @@ These fields appear on both `PolicyDocument` and `QuoteDocument`:
 | `claimsContacts` | `Contact[]?` | Claims contact information |
 | `regulatoryContacts` | `Contact[]?` | Regulatory contacts |
 | `thirdPartyAdministrators` | `Contact[]?` | TPA contacts |
-| `supplementaryFacts` | `{ key: string; value: string; subject?: string; context?: string }[]?` | Hidden retrieval-only facts captured by the full-document supplementary pass |
+| `supplementaryFacts` | `{ key: string; value: string; subject?: string; context?: string }[]?` | Hidden retrieval-only facts captured when conditional supplementary extraction runs |
 | `additionalInsureds` | `EndorsementParty[]?` | Additional insureds |
 | `lossPayees` | `EndorsementParty[]?` | Loss payees (promoted from declarations and named insured extractor) |
 | `mortgageHolders` | `EndorsementParty[]?` | Mortgage holders (promoted from declarations and named insured extractor) |

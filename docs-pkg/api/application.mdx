@@ -7,7 +7,7 @@ description: Complete reference for the application processing pipeline and prom
 
 ### `createApplicationPipeline(config)`
 
-Create an application processing pipeline with persistent state, parallel auto-fill, and vector-based backfill.
+Create an application processing pipeline with persistent state, bounded workflow planning, optional auto-fill, and vector-based backfill.
 
 ```typescript
 import { createApplicationPipeline } from "@claritylabs/cl-sdk";
@@ -24,7 +24,7 @@ const pipeline = createApplicationPipeline({
 
 ### `pipeline.processApplication(input)`
 
-Process a new PDF: classify → extract → backfill + auto-fill → batch.
+Process a new PDF: classify -> extract -> plan optional backfill/auto-fill/search -> batch if needed.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -36,7 +36,7 @@ Process a new PDF: classify → extract → backfill + auto-fill → batch.
 
 ### `pipeline.processReply(input)`
 
-Process a user reply: classify intent → parse answers / handle lookups / explain fields → advance batch.
+Process a user reply: classify intent -> plan actions -> parse answers / handle lookups / explain fields -> advance batch.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -45,6 +45,8 @@ Process a user reply: classify intent → parse answers / handle lookups / expla
 | `input.context` | `AgentContext?` | Platform context |
 
 **Returns:** `Promise<{ state, intent, fieldsFilled, responseText?, tokenUsage }>`
+
+Application workflow gates optional work from the current state. Backfill requires an available backfill provider and unfilled fields, context auto-fill requires relevant org context, document search targets selected high-value fields, and reply handling runs only the agents needed for the classified intent.
 
 ### `pipeline.generateCurrentBatchEmail(applicationId, opts?)`
 

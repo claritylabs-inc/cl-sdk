@@ -34,7 +34,7 @@ const agent = createQueryAgent({
 
 ### `agent.query(input)`
 
-Run the full query pipeline: classify, retrieve, reason, verify, respond.
+Run the full query pipeline: interpret attachments, classify, plan retrieval, retrieve if needed, reason, verify, respond.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -59,6 +59,8 @@ console.log(result.followUp);    // Optional follow-up suggestion
 console.log(result.tokenUsage);  // { inputTokens, outputTokens }
 console.log(result.reviewReport); // Deterministic grounding/citation quality report
 ```
+
+Retrieval is bounded by the classifier and planner. Simple general questions and attachment-only questions can skip document/chunk lookup entirely, while document-backed questions still retrieve evidence and verify grounding before responding.
 
 ### Multimodal example
 

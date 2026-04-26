@@ -7,7 +7,7 @@ CL SDK is organized into five systems: **document extraction**, **query agent**,
 
 ## Document extraction pipeline
 
-The core of CL SDK is an agentic pipeline that turns insurance PDFs into structured, queryable data. A coordinator classifies the document, maps each page to focused extractors, builds deterministic tasks, merges repeated extractor runs, reviews for completeness and quality, and assembles the final document.
+The core of CL SDK is an agentic pipeline that turns insurance PDFs into structured, queryable data. A coordinator classifies the document, maps each page to focused extractors, builds deterministic tasks, merges repeated extractor runs, resolves referential values, reviews for completeness and quality, and assembles the final document. Deterministic gates avoid unnecessary model calls while still preserving agentic follow-up paths for edge cases.
 
 ```mermaid
 flowchart LR
@@ -15,7 +15,9 @@ flowchart LR
   CL --> PM[Page Map]
   PM --> PL[Plan]
   PL --> EX[Extract + Merge]
-  EX --> RV[Review]
+  EX --> SUP[Supplementary Gate]
+  SUP --> REF[Referential Resolution]
+  REF --> RV[Review]
   RV --> AS[Assemble]
   RV -.->|gaps found| EX
   AS --> FMT[Format]
@@ -57,9 +59,17 @@ Results accumulate in an in-memory map as each extractor completes. Repeated ext
 
 Each worker call is page-scoped. Before invoking the callback, the SDK slices the requested range with `extractPageRange()` and passes that PDF through `providerOptions.pdfBase64`, or passes `providerOptions.images` when `convertPdfToImages` is configured.
 
+Focused extractors can declare fallback behavior. Definitions and covered reasons fall back through section extraction when a focused run fails or returns no usable records, which prevents a single model no-output response from leaving those first-class fields empty.
+
+### Supplementary and referential gates
+
+Supplementary extraction is conditional. It runs only when page assignments, form inventory, existing extracted text, or review follow-up tasks indicate regulatory, claims, notice, cancellation/nonrenewal, contact, or TPA facts are likely present.
+
+Referential coverage values use a bounded resolver: cheap local section/form matches first, then target-specific actions for declarations, schedules, sections, page-location lookup, or skip. This improves edge-case reliability without always launching extra lookup calls.
+
 ### Review
 
-A review loop (up to `maxReviewRounds`, default 2) checks completeness and quality against the template and the extracted results. The reviewer sees the document again and is expected to catch generic placeholders, declaration-free schedule outputs, and other weak extraction artifacts before dispatching focused follow-up tasks.
+A review loop (up to `maxReviewRounds`, default 2) checks completeness and quality against the template and the extracted results. The reviewer sees the document again, the page map, the extraction summary, and the live extractor catalog. It is expected to catch generic placeholders, declaration-free schedule outputs, and other weak extraction artifacts before dispatching focused follow-up tasks from registered extractors.
 
 ### Assemble
 
@@ -67,7 +77,7 @@ Merges all extractor results into a final `InsuranceDocument`.
 
 ### Format
 
-A post-extraction agent pass cleans up markdown formatting in all content-bearing fields — fixing pipe tables missing separator rows, space-aligned tables, sub-items mixed into tables, and general whitespace issues. This ensures sections, definitions, covered reasons, endorsements, exclusions, and conditions render correctly in downstream UIs.
+A post-extraction formatting pass cleans up markdown in content-bearing fields only when the content is likely to need it — long text, markdown artifacts, lists/headings, excessive spacing, or table-like content. Plain prose skips the LLM formatting call. This ensures sections, definitions, covered reasons, endorsements, exclusions, and conditions render correctly in downstream UIs without paying for unnecessary no-op cleanup.
 
 ### Chunk
 
@@ -75,36 +85,42 @@ Breaks the formatted document into `DocumentChunk` objects for vector storage an
 
 ## Query agent pipeline
 
-The query agent answers user questions against stored documents with citation-backed provenance. It follows the same coordinator/worker pattern as extraction:
+The query agent answers user questions against stored documents and inbound attachments with citation-backed provenance. It follows the same deterministic scaffold plus agentic decision-point pattern as extraction:
 
 ```mermaid
 flowchart LR
   Q[User Question] --> C[Classify]
-  C --> R[Retrieve]
+  C --> P[Plan Actions]
+  P --> R{Need Retrieval?}
   R --> RE[Reason]
+  P --> RE
   RE --> V[Verify]
   V --> RS[Respond]
   V -.->|retry| R
 ```
 
 1. **Classify** — determine intent and decompose into atomic sub-questions
-2. **Retrieve** (parallel) — semantic chunk search, structured document lookup, and conversation history
-3. **Reason** (parallel) — answer each sub-question from evidence only, with intent-specific prompts
-4. **Verify** — check grounding (every claim has a citation), consistency, and completeness
+2. **Plan actions** — decide whether retrieval is needed from classification and attachment evidence
+3. **Retrieve** (parallel, when needed) — semantic chunk search, structured document lookup, and conversation history
+4. **Reason** (parallel) — answer each sub-question from retrieved evidence, attachment evidence, or no-retrieval context when lookup is unnecessary
+5. **Verify** — check grounding (every claim has a citation when evidence exists), consistency, and completeness
 5. **Respond** — merge sub-answers into a final response with inline citations
+
+Simple or attachment-only questions can skip retrieval entirely. Verification can still request targeted retry retrieval/reasoning when evidence is weak.
 
 The pipeline uses the same provider-agnostic callbacks (`generateText`, `generateObject`), concurrency control, and retry logic as extraction.
 
 ## Application processing pipeline
 
-An agentic pipeline for insurance application intake. Eight small, focused agents handle each step, running in parallel where possible:
+An agentic workflow for insurance application intake. Small, focused agents handle each step, with a deterministic planner gating optional calls so the pipeline does not run every agent on every application:
 
 ```mermaid
 flowchart LR
   PDF[Application PDF] --> C[Classify]
   C --> E[Extract Fields]
-  E --> AF[Backfill + Auto-Fill]
-  AF --> B[Batch Questions]
+  E --> P[Plan Optional Actions]
+  P --> AF[Backfill + Auto-Fill]
+  AF --> B[Batch Questions If Needed]
   B --> RL[Reply Loop]
   RL --> CF[Confirm + Map PDF]
   RL -.->|next batch| RL
@@ -112,10 +128,11 @@ flowchart LR
 
 1. **Classify** — detect if PDF is an application form (tiny agent, fast model)
 2. **Extract fields** — read every field as structured data
-3. **Backfill + auto-fill** (parallel) — vector search prior answers, match business context, search document chunks
-4. **Batch questions** — organize unfilled fields into topic-based batches
-5. **Reply loop** — route reply intent, parse answers / handle lookups / explain fields, advance batch
-6. **Confirm + map PDF** — generate confirmation summary, write answers to PDF
+3. **Plan optional actions** — decide whether prior-answer backfill, context auto-fill, document search, or batching is useful from the current state and available stores/context
+4. **Backfill + auto-fill** — vector search prior answers, match business context, search selected high-value document fields
+5. **Batch questions** — organize remaining unfilled fields into topic-based batches only when unfilled fields remain
+6. **Reply loop** — route reply intent, then run only the needed actions: parse answers, handle lookups, explain fields, advance batch, or generate the next email
+7. **Confirm + map PDF** — generate confirmation summary, write answers to PDF
 
 Persistent `ApplicationStore` tracks state across the multi-turn collection. `BackfillProvider` enables vector-based answer reuse from prior applications.
 
@@ -141,5 +158,5 @@ Each module is independently importable for custom composition. The system suppo
 
 - **Provider-agnostic** — uses plain callback functions (`GenerateText`, `GenerateObject`). Wrap any LLM provider — no framework dependency.
 - **Pure TypeScript** — no framework dependencies. Works in Node.js, Deno, edge runtimes.
-- **Fail gracefully** — page-aware planning, merged follow-up extraction, review loops that check quality as well as completeness, and adaptive retry with exponential backoff.
+- **Fail gracefully** — page-aware planning, bounded workflow gates, merged follow-up extraction, review loops that check quality as well as completeness, and adaptive retry with exponential backoff.
 - **Schema-only tools** — tool definitions provide schemas without implementations, so consumers control execution.
