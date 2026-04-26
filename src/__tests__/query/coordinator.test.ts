@@ -190,4 +190,116 @@ describe("createQueryAgent multimodal query support", () => {
     expect(memoryStore.search).toHaveBeenCalledTimes(1);
     expect(calls[0]?.prompt).toContain("interpreting a user-supplied attachment");
   });
+
+  it("skips retrieval when classification does not require document or chunk lookup", async () => {
+    const generateObject: GenerateObject = vi.fn(async ({ prompt }) => {
+      if (prompt.includes("You are a query classifier")) {
+        return {
+          object: {
+            intent: "general_knowledge",
+            subQuestions: [
+              {
+                question: "Summarize the uploaded claim note.",
+                intent: "general_knowledge",
+              },
+            ],
+            requiresDocumentLookup: false,
+            requiresChunkSearch: false,
+            requiresConversationHistory: false,
+          },
+        };
+      }
+
+      if (prompt.includes("Answer the sub-question based on the evidence above")) {
+        expect(prompt).toContain("Original text:");
+        expect(prompt).toContain("Kitchen ceiling has active staining after a recent leak.");
+
+        return {
+          object: {
+            subQuestion: "Summarize the uploaded claim note.",
+            answer: "The note says there is active kitchen ceiling staining after a recent leak.",
+            citations: [
+              {
+                index: 1,
+                chunkId: "note-1",
+                documentId: "note-1",
+                quote: "Kitchen ceiling has active staining after a recent leak.",
+                relevance: 0.95,
+              },
+            ],
+            confidence: 0.9,
+            needsMoreContext: false,
+          },
+        };
+      }
+
+      if (prompt.includes("You are a verification agent")) {
+        return {
+          object: {
+            approved: true,
+            issues: [],
+          },
+        };
+      }
+
+      if (prompt.includes("You are composing a final answer")) {
+        return {
+          object: {
+            answer: "The uploaded note reports active kitchen ceiling staining after a recent leak [1].",
+            citations: [
+              {
+                index: 1,
+                chunkId: "note-1",
+                documentId: "note-1",
+                quote: "Kitchen ceiling has active staining after a recent leak.",
+                relevance: 0.95,
+              },
+            ],
+            intent: "general_knowledge",
+            confidence: 0.9,
+          },
+        };
+      }
+
+      throw new Error(`Unexpected prompt: ${prompt.slice(0, 120)}`);
+    });
+
+    const documentStore: DocumentStore = {
+      save: vi.fn(),
+      get: vi.fn(),
+      query: vi.fn(async () => []),
+      delete: vi.fn(),
+    };
+
+    const memoryStore: MemoryStore = {
+      addChunks: vi.fn(),
+      search: vi.fn(async (): Promise<DocumentChunk[]> => []),
+      addTurn: vi.fn(),
+      getHistory: vi.fn(async () => []),
+      searchHistory: vi.fn(async () => []),
+    };
+
+    const agent = createQueryAgent({
+      generateText: vi.fn(),
+      generateObject,
+      documentStore,
+      memoryStore,
+    });
+
+    const result = await agent.query({
+      question: "Can you summarize this note?",
+      attachments: [
+        {
+          id: "note-1",
+          kind: "text",
+          name: "claim-note.txt",
+          text: "Kitchen ceiling has active staining after a recent leak.",
+        },
+      ],
+    });
+
+    expect(result.answer).toContain("active kitchen ceiling staining");
+    expect(memoryStore.search).not.toHaveBeenCalled();
+    expect(documentStore.query).not.toHaveBeenCalled();
+  });
 });

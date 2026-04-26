@@ -9,6 +9,42 @@ interface ContentEntry {
   text: string;
 }
 
+const LONG_CONTENT_THRESHOLD = 1200;
+
+/**
+ * Deterministically identify content that is likely to benefit from the
+ * markdown cleanup pass. Plain prose is intentionally skipped to avoid a
+ * model call that should return the same text.
+ */
+function shouldFormatContent(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return false;
+  if (trimmed.length >= LONG_CONTENT_THRESHOLD) return true;
+
+  // Markdown syntax or common extraction artifacts.
+  if (/```|~~~|<br\s*\/?>/i.test(trimmed)) return true;
+  if (/(^|\s)(\*\*|__|`)/.test(trimmed)) return true;
+  if (/!?\[[^\]]+\]\([^)]+\)/.test(trimmed)) return true;
+
+  // Headings and lists often need spacing or marker normalization.
+  if (/^\s{0,3}#{1,6}\s*\S/m.test(trimmed)) return true;
+  if (/^\s{0,6}(?:[-*+]|\d+[.)])\s+\S/m.test(trimmed)) return true;
+
+  // Excessive spacing, tabs, trailing whitespace, or too many blank lines.
+  if (/\t|[^\S\r\n]{3,}|\n{3,}|[ \t]+$/m.test(text)) return true;
+
+  const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+
+  // Pipe-delimited rows, even without valid markdown table separators.
+  if (lines.some((line) => (line.match(/\|/g)?.length ?? 0) >= 2)) return true;
+
+  // Space-aligned table-ish content: multiple rows with repeated column gaps.
+  const spaceAlignedRows = lines.filter((line) => /\S\s{2,}\S\s{2,}\S/.test(line));
+  if (spaceAlignedRows.length >= 2) return true;
+
+  return false;
+}
+
 /**
  * Collect all content-bearing string fields from the assembled document
  * that are likely to contain markdown formatting.
@@ -176,7 +212,7 @@ export async function formatDocumentContent(
     log?: LogFn;
   },
 ): Promise<{ document: InsuranceDocument; usage: TokenUsage }> {
-  const entries = collectContentFields(doc);
+  const entries = collectContentFields(doc).filter((entry) => shouldFormatContent(entry.text));
   const totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 
   if (entries.length === 0) {

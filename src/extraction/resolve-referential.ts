@@ -11,6 +11,11 @@ import {
 } from "../prompts/extractors/referential-lookup";
 import type { FormInventoryEntry } from "../prompts/coordinator/form-inventory";
 import { looksReferential } from "./heuristics";
+import {
+  decideReferentialResolutionAction,
+  findLocalReferentialPages,
+  type ReferentialSectionEntry,
+} from "./referential-workflow";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,8 +35,9 @@ export interface ReferentialResolutionResult {
   }>;
 }
 
-interface SectionEntry {
+interface SectionEntry extends ReferentialSectionEntry {
   title?: string;
+  type?: string;
   pageStart?: number;
   pageEnd?: number;
 }
@@ -63,6 +69,12 @@ export function parseReferenceTarget(text: string): string | undefined {
   // "Section N" / "Section N of ..."
   const sectionMatch = normalized.match(/\b(Section\s+\d+[A-Za-z]?)/i);
   if (sectionMatch) return sectionMatch[1];
+
+  const itemMatch = normalized.match(/\b(Item\s+\d+[A-Za-z]?)/i);
+  if (itemMatch) return itemMatch[1];
+
+  const premisesMatch = normalized.match(/\b(Premises?(?:\s+No\.?\s*\d+[A-Za-z]?|\s+\d+[A-Za-z]?)?)/i);
+  if (premisesMatch) return premisesMatch[1].trim();
 
   // "Shown in the Declarations" / "shown in declarations"
   if (/declarations/i.test(normalized)) return "Declarations";
@@ -110,6 +122,7 @@ export async function findReferencedPages(params: {
   pageCount: number;
   generateObject: GenerateObject;
   providerOptions?: Record<string, unknown>;
+  trackUsage?: (usage?: TokenUsage) => void;
   log?: LogFn;
 }): Promise<{ startPage: number; endPage: number } | undefined> {
   const {
@@ -120,41 +133,39 @@ export async function findReferencedPages(params: {
     pageCount,
     generateObject,
     providerOptions,
+    trackUsage,
     log,
   } = params;
 
-  const targetLower = referenceTarget.toLowerCase();
+  const localPageRange = findLocalReferentialPages({
+    referenceTarget,
+    sections,
+    formInventory,
+  });
 
-  // Tier 1: Match against extracted sections
-  for (const section of sections) {
-    if (
-      section.title &&
-      section.pageStart != null &&
-      section.title.toLowerCase().includes(targetLower)
-    ) {
-      return {
-        startPage: section.pageStart,
-        endPage: section.pageEnd ?? section.pageStart,
-      };
-    }
+  const action = decideReferentialResolutionAction({
+    referenceTarget,
+    sections,
+    formInventory,
+    localPageRange,
+  });
+
+  if (action.kind === "lookup_pages") {
+    await log?.(
+      `Referential target "${referenceTarget}" resolved to pages ${action.pageRange.startPage}-${action.pageRange.endPage} via ${action.source}.`,
+    );
+    return action.pageRange;
   }
 
-  // Tier 2: Match against form inventory entries
-  for (const form of formInventory) {
-    const titleMatch =
-      form.title && form.title.toLowerCase().includes(targetLower);
-    const typeMatch =
-      form.formType && form.formType.toLowerCase().includes(targetLower);
-
-    if ((titleMatch || typeMatch) && form.pageStart != null) {
-      return {
-        startPage: form.pageStart,
-        endPage: form.pageEnd ?? form.pageStart,
-      };
-    }
+  if (action.kind === "skip") {
+    await log?.(
+      `Skipping referential target "${referenceTarget}": ${action.reason}.`,
+    );
+    return undefined;
   }
 
-  // Tier 3: LLM fallback — ask which pages contain the referenced section
+  // Bounded LLM fallback — ask which pages contain the referenced section only
+  // after deterministic memory lookups fail.
   try {
     const result = await safeGenerateObject(
       generateObject as GenerateObject<z.infer<typeof PageLocationSchema>>,
@@ -182,6 +193,7 @@ Return JSON only.`,
           ),
       },
     );
+    trackUsage?.(result.usage);
 
     if (result.object.startPage > 0 && result.object.endPage > 0) {
       return {
@@ -283,7 +295,12 @@ export async function resolveReferentialCoverages(params: {
       (looksReferential(cov.deductible) ? (cov.deductible as string) : undefined) ??
       (cov.limit as string | undefined) ??
       "";
-    const target = parseReferenceTarget(refString) ?? "unknown";
+    const sectionRef = typeof cov.sectionRef === "string" ? cov.sectionRef : "";
+    const parsedTarget =
+      parseReferenceTarget(refString) ??
+      parseReferenceTarget(sectionRef) ??
+      sectionRef;
+    const target = parsedTarget || "unknown";
 
     const group = targetGroups.get(target) ?? [];
     group.push({ coverage: cov, index: i });
@@ -320,6 +337,7 @@ export async function resolveReferentialCoverages(params: {
           pageCount,
           generateObject,
           providerOptions,
+          trackUsage,
           log,
         });
 

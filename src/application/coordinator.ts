@@ -20,6 +20,7 @@ import { fillFromLookup } from "./agents/lookup-filler";
 import { generateBatchEmail } from "./agents/email-generator";
 import { buildApplicationQualityReport, reviewBatchEmail } from "./quality";
 import { shouldFailQualityGate } from "../core/quality";
+import { planApplicationWorkflow, planReplyActions } from "./workflow";
 
 export function createApplicationPipeline(config: ApplicationPipelineConfig) {
   const {
@@ -140,34 +141,46 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     state.updatedAt = Date.now();
     await applicationStore?.save(state);
 
-    // -- Phase 3: Backfill + Auto-Fill (parallel) --
+    // -- Phase 3: Backfill + Auto-Fill --
     onProgress?.(`Auto-filling ${fields.length} fields...`);
+
+    let workflowPlan = planApplicationWorkflow({
+      fields: state.fields,
+      hasBackfillProvider: Boolean(backfillProvider),
+      orgContextCount: orgContext.length,
+      hasDocumentStore: Boolean(documentStore),
+      hasMemoryStore: Boolean(memoryStore),
+    });
+
+    // 3a: Vector-based backfill from prior answers
+    if (workflowPlan.runBackfill && backfillProvider) {
+      try {
+        const priorAnswers = await backfillFromPriorAnswers(state.fields, backfillProvider);
+        for (const pa of priorAnswers) {
+          const field = state.fields.find((f) => f.id === pa.fieldId);
+          if (field && !field.value && pa.relevance > 0.8) {
+            field.value = pa.value;
+            field.source = `backfill: ${pa.source}`;
+            field.confidence = "high";
+          }
+        }
+      } catch (e) {
+        await log?.(`Backfill failed: ${e}`);
+      }
+    }
+
+    workflowPlan = planApplicationWorkflow({
+      fields: state.fields,
+      hasBackfillProvider: false,
+      orgContextCount: orgContext.length,
+      hasDocumentStore: Boolean(documentStore),
+      hasMemoryStore: Boolean(memoryStore),
+    });
 
     const fillTasks: Promise<void>[] = [];
 
-    // 3a: Vector-based backfill from prior answers
-    if (backfillProvider) {
-      fillTasks.push(
-        (async () => {
-          try {
-            const priorAnswers = await backfillFromPriorAnswers(fields, backfillProvider);
-            for (const pa of priorAnswers) {
-              const field = state.fields.find((f) => f.id === pa.fieldId);
-              if (field && !field.value && pa.relevance > 0.8) {
-                field.value = pa.value;
-                field.source = `backfill: ${pa.source}`;
-                field.confidence = "high";
-              }
-            }
-          } catch (e) {
-            await log?.(`Backfill failed: ${e}`);
-          }
-        })(),
-      );
-    }
-
     // 3b: Context-based auto-fill (LLM agent)
-    if (orgContext.length > 0) {
+    if (workflowPlan.runContextAutoFill) {
       fillTasks.push(
         limit(async () => {
           const unfilledFields = state.fields.filter((f) => !f.value);
@@ -198,19 +211,13 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     }
 
     // 3c: Document-based backfill (search policies/quotes for matching data)
-    if (documentStore && memoryStore) {
+    if (workflowPlan.documentSearchFields.length > 0 && memoryStore) {
       fillTasks.push(
         (async () => {
           try {
-            const unfilledFields = state.fields.filter((f) => !f.value);
-            const searchPromises = unfilledFields.slice(0, 10).map((f) =>
+            const searchPromises = workflowPlan.documentSearchFields.map((f) =>
               limit(async () => {
-                const chunks = await memoryStore.search(f.label, { limit: 3 });
-                for (const chunk of chunks) {
-                  if (!state.fields.find((sf) => sf.id === f.id)?.value) {
-                    // Store as potential match -- don't auto-fill from chunks directly
-                  }
-                }
+                await memoryStore.search(f.label, { limit: 3 });
               }),
             );
             await Promise.all(searchPromises);
@@ -227,8 +234,15 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     await applicationStore?.save(state);
 
     // -- Phase 4: Batch remaining questions --
-    const unfilledFields = state.fields.filter((f) => !f.value);
-    if (unfilledFields.length > 0) {
+    workflowPlan = planApplicationWorkflow({
+      fields: state.fields,
+      hasBackfillProvider: false,
+      orgContextCount: 0,
+      hasDocumentStore: false,
+      hasMemoryStore: false,
+    });
+    const unfilledFields = workflowPlan.unfilledFields;
+    if (workflowPlan.runBatching) {
       onProgress?.(`Batching ${unfilledFields.length} remaining questions...`);
       state.status = "batching";
 
@@ -316,8 +330,14 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     let fieldsFilled = 0;
     let responseText: string | undefined;
 
+    let replyPlan = planReplyActions({
+      intent,
+      currentBatchFields,
+      hasDocumentStore: Boolean(documentStore),
+    });
+
     // -- Step 2: Parse answers if present --
-    if (intent.hasAnswers) {
+    if (replyPlan.parseAnswers) {
       onProgress?.("Parsing answers...");
       try {
         const { result: parseResult, usage: parseUsage } = await parseAnswers(
@@ -343,7 +363,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     }
 
     // -- Step 3: Handle lookup requests --
-    if (intent.lookupRequests?.length) {
+    if (replyPlan.runLookup && intent.lookupRequests?.length) {
       onProgress?.("Processing lookup requests...");
       let availableData = "";
       if (documentStore) {
@@ -391,20 +411,18 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     }
 
     // -- Step 4: Handle questions about fields --
-    if (intent.primaryIntent === "question" || intent.primaryIntent === "mixed") {
-      if (intent.questionText) {
-        try {
-          const { text, usage } = await generateText({
-            prompt: `The user is filling out an insurance application and asked: "${intent.questionText}"\n\nProvide a brief, helpful explanation (2-3 sentences). End with "Just reply with the answer when you're ready and I'll fill it in."`,
-            maxTokens: 512,
-            providerOptions,
-          });
-          trackUsage(usage);
-          responseText = text;
-        } catch (error) {
-          await log?.(`Question response generation failed: ${error instanceof Error ? error.message : String(error)}`);
-          responseText = `I wasn't able to generate an explanation for your question. Could you rephrase it, or just provide the answer directly?`;
-        }
+    if (replyPlan.answerQuestion && intent.questionText) {
+      try {
+        const { text, usage } = await generateText({
+          prompt: `The user is filling out an insurance application and asked: "${intent.questionText}"\n\nProvide a brief, helpful explanation (2-3 sentences). End with "Just reply with the answer when you're ready and I'll fill it in."`,
+          maxTokens: 512,
+          providerOptions,
+        });
+        trackUsage(usage);
+        responseText = text;
+      } catch (error) {
+        await log?.(`Question response generation failed: ${error instanceof Error ? error.message : String(error)}`);
+        responseText = `I wasn't able to generate an explanation for your question. Could you rephrase it, or just provide the answer directly?`;
       }
     }
 
@@ -413,45 +431,62 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       (fid) => state!.fields.find((f) => f.id === fid)?.value,
     );
 
-    if (currentBatchComplete && state.batches) {
-      if (state.currentBatchIndex < state.batches.length - 1) {
-        state.currentBatchIndex++;
+    let nextBatchIndex: number | undefined;
+    let nextBatchFields: ApplicationField[] | undefined;
+    if (state.batches) {
+      for (let index = state.currentBatchIndex + 1; index < state.batches.length; index++) {
+        const candidateFields = state.fields.filter((f) => state.batches![index].includes(f.id));
+        if (candidateFields.some((f) => !f.value)) {
+          nextBatchIndex = index;
+          nextBatchFields = candidateFields;
+          break;
+        }
+      }
+    }
 
-        const nextBatchFieldIds = state.batches[state.currentBatchIndex];
-        const nextBatchFields = state.fields.filter((f) =>
-          nextBatchFieldIds.includes(f.id),
-        );
+    replyPlan = planReplyActions({
+      intent,
+      currentBatchFields,
+      nextBatchFields,
+      hasDocumentStore: Boolean(documentStore),
+    });
+
+    if (currentBatchComplete && replyPlan.advanceBatch && state.batches) {
+      if (nextBatchIndex !== undefined && nextBatchFields) {
+        state.currentBatchIndex = nextBatchIndex;
 
         const filledCount = state.fields.filter((f) => f.value).length;
 
-        try {
-          const { text: emailText, usage: emailUsage } = await generateBatchEmail(
-            nextBatchFields,
-            state.currentBatchIndex,
-            state.batches.length,
-            {
-              appTitle: state.title,
-              totalFieldCount: state.fields.length,
-              filledFieldCount: filledCount,
-              companyName: context?.companyName,
-            },
-            generateText,
-            providerOptions,
-          );
-          trackUsage(emailUsage);
-          const emailReview = reviewBatchEmail(emailText, nextBatchFields);
-          state.qualityReport = {
-            ...(buildApplicationQualityReport(state)),
-            emailReview,
-          };
+        if (replyPlan.generateNextEmail) {
+          try {
+            const { text: emailText, usage: emailUsage } = await generateBatchEmail(
+              nextBatchFields,
+              state.currentBatchIndex,
+              state.batches.length,
+              {
+                appTitle: state.title,
+                totalFieldCount: state.fields.length,
+                filledFieldCount: filledCount,
+                companyName: context?.companyName,
+              },
+              generateText,
+              providerOptions,
+            );
+            trackUsage(emailUsage);
+            const emailReview = reviewBatchEmail(emailText, nextBatchFields);
+            state.qualityReport = {
+              ...(buildApplicationQualityReport(state)),
+              emailReview,
+            };
 
-          if (!responseText) {
-            responseText = emailText;
-          } else {
-            responseText += `\n\n${emailText}`;
+            if (!responseText) {
+              responseText = emailText;
+            } else {
+              responseText += `\n\n${emailText}`;
+            }
+          } catch (error) {
+            await log?.(`Batch email generation failed: ${error instanceof Error ? error.message : String(error)}`);
           }
-        } catch (error) {
-          await log?.(`Batch email generation failed: ${error instanceof Error ? error.message : String(error)}`);
         }
       } else {
         // All batches complete

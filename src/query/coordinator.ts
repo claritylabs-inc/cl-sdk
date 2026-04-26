@@ -20,11 +20,13 @@ import type { QueryConfig, QueryInput, QueryOutput } from "./types";
 import { buildQueryReviewReport, type QueryReviewReport, type QueryVerifyRoundRecord } from "./quality";
 import { shouldFailQualityGate } from "../core/quality";
 import { interpretAttachments } from "./multimodal";
+import { buildInitialQueryWorkflowPlan, getWorkflowAction, type QueryWorkflowPlan } from "./workflow";
 
 /** Internal state checkpointed between query phases. */
 export interface QueryState {
   classification?: QueryClassifyResult;
   attachmentEvidence?: EvidenceItem[];
+  workflowPlan?: QueryWorkflowPlan;
   evidence?: EvidenceItem[];
   subAnswers?: SubAnswer[];
   reviewReport?: QueryReviewReport;
@@ -83,7 +85,6 @@ export function createQueryAgent(config: QueryConfig) {
     await pipelineCtx.save("classify", { classification, attachmentEvidence });
 
     // -- Phase 2: Retrieve (parallel) --
-    onProgress?.(`Retrieving evidence for ${classification.subQuestions.length} sub-question(s)...`);
     const retrieverConfig: RetrieverConfig = {
       documentStore,
       memoryStore,
@@ -91,11 +92,21 @@ export function createQueryAgent(config: QueryConfig) {
       log,
     };
 
-    const retrievalResults = await Promise.all(
-      classification.subQuestions.map((sq) =>
-        limit(() => retrieve(sq, conversationId, retrieverConfig)),
-      ),
-    );
+    const workflowPlan = buildInitialQueryWorkflowPlan({ classification, attachmentEvidence });
+    const retrieveAction = getWorkflowAction(workflowPlan, "retrieve");
+    const reasonAction = getWorkflowAction(workflowPlan, "reason");
+    await pipelineCtx.save("workflow", { classification, attachmentEvidence, workflowPlan });
+
+    const retrievalResults = retrieveAction
+      ? await (async () => {
+          onProgress?.(`Retrieving evidence for ${retrieveAction.subQuestions.length} sub-question(s)...`);
+          return Promise.all(
+            retrieveAction.subQuestions.map((sq) =>
+              limit(() => retrieve(sq, conversationId, retrieverConfig)),
+            ),
+          );
+        })()
+      : [];
 
     const allEvidence: EvidenceItem[] = [...attachmentEvidence, ...retrievalResults.flatMap((r) => r.evidence)];
     await pipelineCtx.save("retrieve", { classification, attachmentEvidence, evidence: allEvidence });
@@ -105,13 +116,15 @@ export function createQueryAgent(config: QueryConfig) {
     const reasonerConfig: ReasonerConfig = { generateObject, providerOptions };
 
     // Use Promise.allSettled so one failing sub-question doesn't kill the rest
+    const subQuestionsToReason = reasonAction?.subQuestions ?? classification.subQuestions;
     const reasonResults = await Promise.allSettled(
-      classification.subQuestions.map((sq, i) =>
+      subQuestionsToReason.map((sq) =>
         limit(async () => {
+          const retrievedEvidence = retrievalResults.find((r) => r.subQuestion === sq.question)?.evidence ?? [];
           const { subAnswer, usage } = await reason(
             sq.question,
             sq.intent,
-            [...attachmentEvidence, ...retrievalResults[i].evidence],
+            [...attachmentEvidence, ...retrievedEvidence],
             reasonerConfig,
           );
           trackUsage(usage);
@@ -126,10 +139,10 @@ export function createQueryAgent(config: QueryConfig) {
       if (result.status === "fulfilled") {
         subAnswers.push(result.value);
       } else {
-        await log?.(`Reasoner failed for sub-question "${classification.subQuestions[i].question}": ${result.reason}`);
+        await log?.(`Reasoner failed for sub-question "${subQuestionsToReason[i].question}": ${result.reason}`);
         // Insert a degraded sub-answer so downstream phases have something to work with
         subAnswers.push({
-          subQuestion: classification.subQuestions[i].question,
+          subQuestion: subQuestionsToReason[i].question,
           answer: "Unable to answer this part of the question due to a processing error.",
           citations: [],
           confidence: 0,

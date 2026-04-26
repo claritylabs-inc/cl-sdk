@@ -154,6 +154,38 @@ export function createExtractor(config: ExtractorConfig) {
     }, null, 2);
   }
 
+  function textIncludesSupplementarySignal(value: unknown): boolean {
+    if (typeof value !== "string") return false;
+    return /\b(supplementary|regulatory|department of insurance|ombudsman|complaint|claim|claims|contact|phone|email|cancellation|cancelled|nonrenewal|non-renewal|non renew|notice|governing law|jurisdiction|third[- ]party administrator|tpa)\b/i.test(value);
+  }
+
+  function hasSupplementaryExtractionSignal(
+    pageAssignments: PageAssignment[],
+    formInventory: FormInventoryResult | undefined,
+    memory: Map<string, unknown>,
+  ): boolean {
+    const hasPageSignal = pageAssignments.some((assignment) =>
+      assignment.pageRole === "supplementary"
+      || assignment.extractorNames.includes("supplementary")
+      || textIncludesSupplementarySignal(assignment.notes)
+    );
+    if (hasPageSignal) return true;
+
+    const hasFormSignal = (formInventory?.forms ?? []).some((form) =>
+      form.formType === "notice"
+      || textIncludesSupplementarySignal(form.title)
+      || textIncludesSupplementarySignal(form.formNumber)
+    );
+    if (hasFormSignal) return true;
+
+    const likelySupplementaryKeys = ["sections", "conditions", "endorsements", "exclusions"];
+    return likelySupplementaryKeys.some((key) => {
+      const value = memory.get(key);
+      if (!value) return false;
+      return textIncludesSupplementarySignal(JSON.stringify(value));
+    });
+  }
+
   function buildAlreadyExtractedSummary(memory: Map<string, unknown>): string {
     const lines: string[] = [];
 
@@ -189,7 +221,29 @@ export function createExtractor(config: ExtractorConfig) {
     return lines.length > 0 ? lines.join("\n") : "";
   }
 
-  async function runFocusedExtractorTask(task: ExtractionPlan["tasks"][number], pdfInput: PdfInput) {
+  async function runFocusedExtractorTask(
+    task: ExtractionPlan["tasks"][number],
+    pdfInput: PdfInput,
+    memory: Map<string, unknown>,
+  ) {
+    if (task.extractorName === "supplementary") {
+      const alreadyExtractedSummary = buildAlreadyExtractedSummary(memory);
+      const result = await runExtractor({
+        name: "supplementary",
+        prompt: buildSupplementaryPrompt(alreadyExtractedSummary),
+        schema: SupplementarySchema,
+        pdfInput,
+        startPage: task.startPage,
+        endPage: task.endPage,
+        generateObject,
+        convertPdfToImages,
+        maxTokens: 4096,
+        providerOptions,
+      });
+      trackUsage(result.usage);
+      return result;
+    }
+
     return runFocusedExtractorWithFallback({
       task,
       pdfInput,
@@ -448,7 +502,7 @@ export function createExtractor(config: ExtractorConfig) {
         tasks.map((task) =>
           limit(async () => {
             onProgress?.(`Extracting ${task.extractorName} (pages ${task.startPage}-${task.endPage})...`);
-            return runFocusedExtractorTask(task, pdfInput);
+            return runFocusedExtractorTask(task, pdfInput, memory);
           })
         )
       );
@@ -459,7 +513,8 @@ export function createExtractor(config: ExtractorConfig) {
         }
       }
 
-      {
+      const planIncludesSupplementary = tasks.some((task) => task.extractorName === "supplementary");
+      if (!planIncludesSupplementary && hasSupplementaryExtractionSignal(pageAssignments, formInventory, memory)) {
         onProgress?.("Extracting supplementary retrieval facts...");
         try {
           const alreadyExtractedSummary = buildAlreadyExtractedSummary(memory);
@@ -568,7 +623,7 @@ export function createExtractor(config: ExtractorConfig) {
         const followUpResults = await Promise.all(
           reviewResponse.object.additionalTasks.map((task) =>
             limit(async () => {
-              return runFocusedExtractorTask(task, pdfInput);
+              return runFocusedExtractorTask(task, pdfInput, memory);
             })
           )
         );

@@ -164,15 +164,7 @@ describe("createExtractor", () => {
         providerOptions: { anthropic: { thinking: true } },
       }),
     );
-    expect(runExtractor).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "supplementary",
-        startPage: 1,
-        endPage: 6,
-        pdfInput: "full-pdf-base64",
-        providerOptions: { anthropic: { thinking: true } },
-      }),
-    );
+    expect(runExtractor.mock.calls.some(([arg]) => arg.name === "supplementary")).toBe(false);
     expect(result.reviewReport).toEqual(expect.objectContaining({
       qualityGateStatus: expect.stringMatching(/passed|warning|failed/),
       rounds: expect.any(Array),
@@ -255,6 +247,108 @@ describe("createExtractor", () => {
       startPage: 1,
       endPage: 1,
     }));
+  });
+
+  it("runs supplementary extraction when form inventory suggests notice or regulatory facts", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValueOnce({
+        object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          forms: [
+            {
+              formNumber: "IL 01 46",
+              formType: "notice",
+              pageStart: 6,
+              pageEnd: 6,
+              title: "State Department of Insurance Complaint Notice",
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          pages: [
+            { localPageNumber: 1, extractorNames: ["declarations"], pageRole: "declarations_schedule", hasScheduleValues: true },
+            { localPageNumber: 2, extractorNames: ["sections"], pageRole: "policy_form", hasScheduleValues: false },
+            { localPageNumber: 3, extractorNames: ["sections"], pageRole: "policy_form", hasScheduleValues: false },
+            { localPageNumber: 4, extractorNames: ["sections"], pageRole: "policy_form", hasScheduleValues: false },
+            { localPageNumber: 5, extractorNames: ["sections"], pageRole: "policy_form", hasScheduleValues: false },
+            { localPageNumber: 6, extractorNames: ["sections"], pageRole: "other", hasScheduleValues: false },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        object: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
+      });
+
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+    });
+
+    await extractor.extract("full-pdf-base64", "doc-1");
+
+    expect(runExtractor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "supplementary",
+        startPage: 1,
+        endPage: 6,
+        pdfInput: "full-pdf-base64",
+      }),
+    );
+  });
+
+  it("lets review request supplementary as a focused follow-up", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValueOnce({
+        object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
+      })
+      .mockResolvedValueOnce({
+        object: { forms: [] },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          pages: [
+            { localPageNumber: 1, extractorNames: ["declarations"], pageRole: "declarations_schedule", hasScheduleValues: true },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          complete: false,
+          missingFields: ["claims contact"],
+          qualityIssues: ["Claims contact notice appears missing"],
+          additionalTasks: [
+            {
+              extractorName: "supplementary",
+              startPage: 1,
+              endPage: 1,
+              description: "Extract claims contact details",
+            },
+          ],
+        },
+      });
+
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+      maxReviewRounds: 1,
+    });
+
+    await extractor.extract("full-pdf-base64", "doc-1");
+
+    expect(runExtractor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "supplementary",
+        startPage: 1,
+        endPage: 1,
+        pdfInput: "full-pdf-base64",
+      }),
+    );
   });
 
   it("broadens exclusions and conditions to the containing form range before dispatch", async () => {
