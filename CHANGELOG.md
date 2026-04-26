@@ -1,3 +1,10 @@
+## [0.17.1](https://github.com/claritylabs-inc/cl-sdk/compare/v0.17.0...v0.17.1) (2026-04-26)
+
+
+### Bug Fixes
+
+* **docs-pkg:** sync release documentation ([ea32b7b](https://github.com/claritylabs-inc/cl-sdk/commit/ea32b7b0ab825bb17bdb9e98dca3b6ea31901588))
+
 # [0.17.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.16.2...v0.17.0) (2026-04-26)
 
 
