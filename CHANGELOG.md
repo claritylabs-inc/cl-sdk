@@ -1,3 +1,13 @@
+# [0.18.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.17.1...v0.18.0) (2026-05-08)
+
+
+* feat!: release source-grounded v1 workflows ([725c64d](https://github.com/claritylabs-inc/cl-sdk/commit/725c64db196de6ae6bd061d96810d7a659cef119))
+
+
+### BREAKING CHANGES
+
+* promote @claritylabs/cl-sdk and @claritylabs/cl-sdk-docs from 0.x to 1.0.0 with source-grounded extraction, query, application, PCE, and case workflow APIs.
+
 # [1.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.17.1...v1.0.0) (2026-05-08)
 
 
