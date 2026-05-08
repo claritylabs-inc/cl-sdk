@@ -1,3 +1,13 @@
+# [1.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.18.0...v1.0.0) (2026-05-08)
+
+
+* fix!: publish core sdk as v1 ([f8fd25d](https://github.com/claritylabs-inc/cl-sdk/commit/f8fd25dcef2c4496331d6b91d1030b3fc64924b9))
+
+
+### BREAKING CHANGES
+
+* release automation now treats breaking changes as major releases so @claritylabs/cl-sdk publishes the 1.0.0 line.
+
 # [0.18.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.17.1...v0.18.0) (2026-05-08)
 
 
