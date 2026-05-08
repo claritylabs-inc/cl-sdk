@@ -1,21 +1,21 @@
 ---
 title: CL SDK
-description: Open infrastructure for AI agents working with insurance
+description: Deterministic insurance intelligence primitives for regulated AI agents
 ---
 
 import { Cards, Card } from "fumadocs-ui/components/card";
 
-[Clarity Labs](https://claritylabs.inc) is an applied AI research lab building the infrastructure for AI to work safely with insurance.
+[Clarity Labs](https://claritylabs.inc) builds deterministic AI agents for regulated industries, starting with commercial insurance.
 
-CL SDK is the open infrastructure layer for AI agents working with insurance — a pure TypeScript library for extracting, reasoning about, and acting on insurance documents. Provider-agnostic by design: bring any LLM via plain callback functions. No framework dependency.
+CL SDK is the insurance intelligence layer behind those agents: a pure TypeScript library for extracting, reasoning about, and acting on insurance documents with deterministic scaffolding around model calls. It is provider-agnostic by design: bring any LLM via plain callback functions. No framework dependency.
 
 ## Capabilities
 
 <Cards>
-  <Card title="Document Extraction" description="Agentic pipeline with 13 focused extractors that turns insurance PDFs into structured data — coverages, limits, definitions, covered reasons, exclusions, endorsements — with page-level provenance and review loops." />
+  <Card title="Document Extraction" description="Deterministic extraction pipeline with focused model calls that turns insurance PDFs into structured data — coverages, limits, definitions, covered reasons, exclusions, endorsements — with page-level provenance and review loops." />
   <Card title="Query Agent" description="Citation-backed question answering over stored documents plus inbound photos, PDFs, and text. Decomposes questions, retrieves evidence, reasons with intent-specific prompts, and verifies grounding." />
-  <Card title="Application Processing" description="Eight focused agents handle application intake — field extraction, auto-fill from prior answers, topic-based question batching, and PDF mapping." />
-  <Card title="Agent System" description="Composable prompt modules for building insurance-aware conversational agents across email, chat, SMS, Slack, and Discord." />
+  <Card title="Application Processing" description="Bounded application workflows handle intake — field extraction, auto-fill from prior answers, topic-based question batching, and PDF mapping." />
+  <Card title="Agent System" description="Composable prompt modules for building insurance-aware agents across email, chat, SMS, Slack, and Discord with human-reviewable behavior." />
   <Card title="Storage & Memory" description="DocumentStore and MemoryStore interfaces for persisting extracted documents, vector chunks, and conversation history. Includes SQLite reference implementation." />
 </Cards>
 

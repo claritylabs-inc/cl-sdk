@@ -1,6 +1,6 @@
 # CL-SDK
 
-Open infrastructure for building AI agents that work with insurance. Pure TypeScript, provider-agnostic — bring any LLM, any embedding model, any storage backend.
+Deterministic insurance intelligence primitives for regulated AI agents. Pure TypeScript, provider-agnostic — bring any LLM, any embedding model, any storage backend.
 
 **[Documentation](https://cl-sdk.claritylabs.inc/docs)** | **[npm](https://www.npmjs.com/package/@claritylabs/cl-sdk)** | **[GitHub](https://github.com/claritylabs-inc/cl-sdk)**
 
@@ -12,10 +12,10 @@ npm install @claritylabs/cl-sdk pdf-lib zod
 
 ## What It Does
 
-- **Document Extraction** — Agentic pipeline with 13 focused extractors that turns insurance PDFs into structured data with page-level provenance, quality gates, first-class definitions and covered reasons, referential coverage resolution, cost-aware formatting, and automatic declarations-to-schema promotion (limits, deductibles, locations, broker, loss payees, premium, taxes/fees, summary)
+- **Document Extraction** — Deterministic extraction pipeline with focused model calls that turns insurance PDFs into structured data with page-level provenance, quality gates, first-class definitions and covered reasons, referential coverage resolution, cost-aware formatting, and automatic declarations-to-schema promotion (limits, deductibles, locations, broker, loss payees, premium, taxes/fees, summary)
 - **Query Agent** — Citation-backed question answering over stored documents and inbound photos/PDFs/text with sub-question decomposition, bounded retrieval planning, attachment-only reasoning when retrieval is unnecessary, and grounding verification
-- **Application Processing** — Focused agents handle intake with bounded workflow planning — field extraction, prior-answer backfill, context auto-fill, document lookup gating, topic-based question batching, reply parsing, and PDF mapping
-- **Agent System** — Composable prompt modules for building insurance-aware conversational agents across email, chat, SMS, Slack, and Discord
+- **Application Processing** — Bounded workflows handle intake with deterministic planning — field extraction, prior-answer backfill, context auto-fill, document lookup gating, topic-based question batching, reply parsing, and PDF mapping
+- **Agent System** — Composable prompt modules for building insurance-aware agents across email, chat, SMS, Slack, and Discord with human-reviewable behavior
 - **Storage** — DocumentStore and MemoryStore interfaces with SQLite reference implementation
 
 ## Quick Start
