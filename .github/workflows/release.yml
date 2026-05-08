@@ -83,10 +83,48 @@ jobs:
         if: steps.semantic.outputs.released == 'true'
         id: npm_publish
         run: |
-          echo "Publishing version ${{ steps.semantic.outputs.version }} to npm..."
+          VERSION="${{ steps.semantic.outputs.version }}"
+          if npm view "@claritylabs/cl-sdk@$VERSION" version >/dev/null 2>&1; then
+            echo "Version $VERSION is already published to npm"
+            echo "published=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Publishing version $VERSION to npm..."
           npm publish --provenance --access public
           echo "published=true" >> $GITHUB_OUTPUT
           echo "Successfully published to npm"
+
+      - name: Repair npm publish for existing release tag
+        if: steps.semantic.outputs.released != 'true'
+        id: npm_publish_repair
+        run: |
+          VERSION=$(node -p 'require("./package.json").version')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          if npm view "@claritylabs/cl-sdk@$VERSION" version >/dev/null 2>&1; then
+            echo "Version $VERSION is already published to npm"
+            echo "published=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if ! git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "No release tag v$VERSION exists; skipping repair publish"
+            echo "published=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if ! gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release create "v$VERSION" \
+              --title "v$VERSION" \
+              --notes "Republished release metadata for @claritylabs/cl-sdk@$VERSION after npm publish repair."
+          fi
+
+          echo "Repair publishing version $VERSION to npm..."
+          npm publish --provenance --access public
+          echo "published=true" >> $GITHUB_OUTPUT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Rollback on npm publish failure
         if: failure() && steps.semantic.outputs.released == 'true' && steps.npm_publish.outputs.published != 'true'
@@ -105,9 +143,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify release consistency
-        if: steps.semantic.outputs.released == 'true' && steps.npm_publish.outputs.published == 'true'
+        if: (steps.semantic.outputs.released == 'true' && steps.npm_publish.outputs.published == 'true') || steps.npm_publish_repair.outputs.published == 'true'
         run: |
-          VERSION="${{ steps.semantic.outputs.version }}"
+          VERSION="${{ steps.semantic.outputs.version || steps.npm_publish_repair.outputs.version }}"
           echo "Verifying release consistency for version $VERSION..."
 
           # Verify GitHub release exists
