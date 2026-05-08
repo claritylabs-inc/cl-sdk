@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/claritylabs-inc/cl-sdk/compare/v1.0.0...v1.0.1) (2026-05-08)
+
+
+### Bug Fixes
+
+* publish installable v1.0.1 packages ([0766768](https://github.com/claritylabs-inc/cl-sdk/commit/0766768972490f62fc3768730c330cefb52ed7c4))
+
 # [1.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.18.0...v1.0.0) (2026-05-08)
 
 
