@@ -36,6 +36,9 @@ In the extraction pipeline, `providerOptions` can include:
 
 - `pdfBase64` — the PDF to attach to the provider request
 - `images` — rendered page images to attach to the provider request
+- `sourceSpans` — source evidence relevant to the current model call
+- `sourceChunks` — grouped source evidence windows derived from spans
+- `attachments` — query/application attachment payloads when available
 
 The coordinator uses the full PDF for classify and plan. Worker extractors use a page-scoped PDF produced by `extractPageRange()`, unless `convertPdfToImages` is enabled.
 
@@ -74,7 +77,7 @@ type LogFn = (message: string) => Promise<void>;
 
 ### `ExtractorConfig`
 
-Configuration for `createExtractor()`. See [Extraction API](/docs/api-reference/extraction) for full details.
+Configuration for `createExtractor()`. See [Extraction API](/docs/api/extraction) for full details.
 
 ```typescript
 interface ExtractorConfig {
@@ -87,6 +90,10 @@ interface ExtractorConfig {
   onProgress?: (message: string) => void;
   log?: LogFn;
   providerOptions?: Record<string, unknown>;
+  sourceStore?: SourceStore;
+  qualityGate?: "off" | "warn" | "strict";
+  modelCapabilities?: ModelCapabilities;
+  modelBudgetConstraints?: Partial<Record<ModelTaskKind, ModelBudgetConstraint>>;
 }
 ```
 
@@ -96,7 +103,46 @@ interface ExtractorConfig {
 interface ExtractionResult {
   document: InsuranceDocument;
   chunks: DocumentChunk[];
+  sourceSpans: SourceSpan[];
+  sourceChunks: SourceChunk[];
   tokenUsage: TokenUsage;
+  usageReporting: {
+    modelCalls: number;
+    callsWithUsage: number;
+    callsMissingUsage: number;
+  };
+  performanceReport: PerformanceReport;
+}
+```
+
+## Source grounding types
+
+```typescript
+interface SourceSpan {
+  id: string;
+  documentId: string;
+  sourceKind?: "policy_pdf" | "application_pdf" | "email" | "attachment" | "manual_note";
+  kind: "pdf_text" | "pdf_image" | "html" | "markdown" | "plain_text" | "structured_field";
+  text: string;
+  hash: string;
+  textHash?: string;
+  pageStart?: number;
+  pageEnd?: number;
+  sectionId?: string;
+  formNumber?: string;
+  location?: SourceSpanLocation;
+  metadata?: Record<string, string>;
+}
+
+interface SourceChunk {
+  id: string;
+  documentId: string;
+  sourceSpanIds: string[];
+  text: string;
+  textHash: string;
+  pageStart?: number;
+  pageEnd?: number;
+  metadata: Record<string, string>;
 }
 ```
 

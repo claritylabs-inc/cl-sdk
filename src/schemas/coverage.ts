@@ -28,6 +28,9 @@ export const CoverageSchema = z.object({
   pageNumber: z.number().optional(),
   sectionRef: z.string().optional(),
   originalContent: z.string().optional(),
+  recordId: z.string().optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+  sourceTextHash: z.string().optional(),
 });
 export type Coverage = z.infer<typeof CoverageSchema>;
 
@@ -54,5 +57,8 @@ export const EnrichedCoverageSchema = z.object({
   pageNumber: z.number().optional(),
   sectionRef: z.string().optional(),
   originalContent: z.string().optional(),
+  recordId: z.string().optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+  sourceTextHash: z.string().optional(),
 });
 export type EnrichedCoverage = z.infer<typeof EnrichedCoverageSchema>;

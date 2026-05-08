@@ -12,6 +12,7 @@ export async function classifyReplyIntent(
   replyText: string,
   generateObject: GenerateObject,
   providerOptions?: Record<string, unknown>,
+  maxTokens = 1024,
 ): Promise<{ intent: ReplyIntent; usage?: TokenUsage }> {
   const fieldSummaries = fields.map((f) => ({ id: f.id, label: f.label }));
   const prompt = buildReplyIntentClassificationPrompt(fieldSummaries, replyText);
@@ -20,7 +21,7 @@ export async function classifyReplyIntent(
     generateObject({
       prompt,
       schema: ReplyIntentSchema,
-      maxTokens: 1024,
+      maxTokens,
       providerOptions,
     }),
   );

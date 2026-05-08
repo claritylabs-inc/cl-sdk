@@ -1,10 +1,12 @@
 import type { GenerateText, GenerateObject, TokenUsage, LogFn } from "../core/types";
 import type { QualityGateMode } from "../core/quality";
+import type { ModelBudgetConstraint, ModelCapabilities, ModelTaskKind } from "../core/model-budget";
 import type { DocumentStore, MemoryStore } from "../storage/interfaces";
 import type { AgentContext } from "../schemas/platform";
 import type { ApplicationState, ApplicationField } from "../schemas/application";
 import type { ApplicationStore, BackfillProvider } from "./store";
 import type { ApplicationQualityReport } from "./quality";
+import type { SourceSpan } from "../source";
 
 export interface ApplicationPipelineConfig {
   generateText: GenerateText;
@@ -33,11 +35,15 @@ export interface ApplicationPipelineConfig {
   log?: LogFn;
   providerOptions?: Record<string, unknown>;
   qualityGate?: QualityGateMode;
+  modelCapabilities?: ModelCapabilities;
+  modelBudgetConstraints?: Partial<Record<ModelTaskKind, ModelBudgetConstraint>>;
 }
 
 export interface ProcessApplicationInput {
   /** Base64-encoded application PDF */
   pdfBase64: string;
+  /** Optional caller-extracted application source spans for page/field grounding */
+  sourceSpans?: SourceSpan[];
   /** Application ID (auto-generated if not provided) */
   applicationId?: string;
   /** Agent context for email formatting */
@@ -57,6 +63,8 @@ export interface ProcessReplyInput {
   applicationId: string;
   /** User's email/message reply text */
   replyText: string;
+  /** Stable caller-provided source span IDs for the reply message or attachments */
+  replySourceSpanIds?: string[];
   /** Agent context for response formatting */
   context?: AgentContext;
 }

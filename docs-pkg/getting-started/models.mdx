@@ -45,6 +45,8 @@ For extraction and multimodal query calls, `providerOptions` is also the documen
 - `providerOptions.pdfBase64` carries the PDF to include as a file/document part
 - `providerOptions.images` carries rendered page images to include as image parts
 - `providerOptions.attachments` carries generic query attachments such as inbound photos, PDFs, and text snippets
+- `providerOptions.sourceSpans` carries source evidence relevant to the current call
+- `providerOptions.sourceChunks` carries grouped source evidence windows derived from spans
 - classify and plan receive the full PDF
 - worker extractors receive a page-scoped PDF produced by `extractPageRange()`, unless `convertPdfToImages` is enabled
 - query attachment interpretation calls may set both `providerOptions.attachments` and the convenience fields above for the current attachment

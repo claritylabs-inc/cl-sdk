@@ -22,11 +22,61 @@ export interface QueryReviewReport extends UnifiedQualityReport<QueryReviewIssue
 }
 
 function sourceIdForEvidence(evidence: EvidenceItem): string | undefined {
-  return evidence.chunkId ?? evidence.documentId ?? evidence.turnId ?? evidence.attachmentId;
+  return evidence.sourceSpanId ?? evidence.chunkId ?? evidence.documentId ?? evidence.turnId ?? evidence.attachmentId;
 }
 
-function citationSourceId(citation: Citation): string | undefined {
-  return citation.chunkId || citation.documentId;
+export function citationSourceId(citation: Citation): string | undefined {
+  return citation.sourceSpanId || citation.chunkId || citation.documentId;
+}
+
+export function hasGroundingEvidence(evidence: EvidenceItem[]): boolean {
+  return evidence.some((item) => item.source === "chunk" || item.source === "source_span");
+}
+
+export function containsQuotedNumericDateOrContractualClaim(text: string): boolean {
+  const normalized = text.toLowerCase();
+  return (
+    /[$€£]\s?\d|\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\s?(?:%|percent|days?|months?|years?)\b/.test(text) ||
+    /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b/.test(text) ||
+    /\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{4}\b/i.test(text) ||
+    /\b(?:shall|must|required|subject to|excluded|exclusion|condition|endorsement|deductible|limit|premium|retention)\b/.test(normalized)
+  );
+}
+
+export function deterministicQueryGroundingIssues(
+  subAnswers: SubAnswer[],
+  evidence: EvidenceItem[],
+): string[] {
+  const issues: string[] = [];
+  const evidenceBySource = new Map<string, EvidenceItem[]>();
+  for (const item of evidence) {
+    const sourceId = sourceIdForEvidence(item);
+    if (!sourceId) continue;
+    evidenceBySource.set(sourceId, [...(evidenceBySource.get(sourceId) ?? []), item]);
+  }
+
+  for (const subAnswer of subAnswers) {
+    if (
+      !subAnswer.needsMoreContext &&
+      subAnswer.citations.length === 0 &&
+      containsQuotedNumericDateOrContractualClaim(subAnswer.answer)
+    ) {
+      issues.push(`Sub-answer "${subAnswer.subQuestion}" contains a numeric, date, or contractual claim without citations.`);
+    }
+
+    for (const citation of subAnswer.citations) {
+      const sourceId = citationSourceId(citation);
+      const supportedEvidence = sourceId ? evidenceBySource.get(sourceId) ?? [] : [];
+      if (
+        containsQuotedNumericDateOrContractualClaim(citation.quote) &&
+        !hasGroundingEvidence(supportedEvidence)
+      ) {
+        issues.push(`Citation [${citation.index}] in "${subAnswer.subQuestion}" supports a numeric, date, or contractual claim without chunk or source-span evidence.`);
+      }
+    }
+  }
+
+  return issues;
 }
 
 export function buildQueryReviewReport(params: {
@@ -91,6 +141,20 @@ export function buildQueryReviewReport(params: {
           sourceId,
         });
       }
+
+      if (
+        containsQuotedNumericDateOrContractualClaim(citation.quote) &&
+        !hasGroundingEvidence(supportedEvidence)
+      ) {
+        issues.push({
+          code: "citation_claim_lacks_chunk_or_source_span",
+          severity: "blocking",
+          message: `Citation [${citation.index}] in "${subAnswer.subQuestion}" supports a numeric, date, or contractual claim without chunk or source-span evidence.`,
+          subQuestion: subAnswer.subQuestion,
+          citationIndex: citation.index,
+          sourceId,
+        });
+      }
     }
   }
 
@@ -104,11 +168,11 @@ export function buildQueryReviewReport(params: {
     }
 
     const knownCitationIds = new Set(
-      subAnswers.flatMap((sa) => sa.citations.map((citation) => `${citation.index}|${citation.chunkId}|${citation.documentId}`)),
+      subAnswers.flatMap((sa) => sa.citations.map((citation) => `${citation.index}|${citation.sourceSpanId ?? ""}|${citation.chunkId ?? ""}|${citation.documentId}`)),
     );
 
     for (const citation of finalResult.citations) {
-      const key = `${citation.index}|${citation.chunkId}|${citation.documentId}`;
+      const key = `${citation.index}|${citation.sourceSpanId ?? ""}|${citation.chunkId ?? ""}|${citation.documentId}`;
       if (!knownCitationIds.has(key)) {
         issues.push({
           code: "final_answer_unknown_citation",

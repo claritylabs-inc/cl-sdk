@@ -115,11 +115,12 @@ IMPORTANT: The "source" field must be a specific, citable reference that will be
 - "Business Context (company_info)"
 - "User Profile"
 Never use vague sources like "existing records" or "available data".
+If AVAILABLE DATA contains sourceSpanId values, include them in "sourceSpanIds" for every value filled from that source. Existing policy values such as policy numbers, dates, limits, deductibles, premiums, coverages, exclusions, conditions, endorsements, locations, vehicles, or named insureds must not be filled without sourceSpanIds unless the value is explicitly marked for review.
 
 Respond with JSON only:
 {
   "fills": [
-    { "fieldId": "field_id", "value": "the value from data", "source": "Specific source with identifier (e.g. GL Policy #ABC123, stripe.com)" }
+    { "fieldId": "field_id", "value": "the value from data", "source": "Specific source with identifier (e.g. GL Policy #ABC123, stripe.com)", "sourceSpanIds": ["doc-1:span:1:0:abcd1234"] }
   ],
   "unfillable": ["field_ids that couldn't be matched"],
   "explanation": "Brief note about what was filled and what couldn't be found, citing sources"

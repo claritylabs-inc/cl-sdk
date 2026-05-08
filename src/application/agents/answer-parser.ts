@@ -12,6 +12,7 @@ export async function parseAnswers(
   replyText: string,
   generateObject: GenerateObject,
   providerOptions?: Record<string, unknown>,
+  maxTokens = 4096,
 ): Promise<{ result: AnswerParsingResult; usage?: TokenUsage }> {
   const questions = fields.map((f) => ({
     id: f.id,
@@ -26,7 +27,7 @@ export async function parseAnswers(
     generateObject({
       prompt,
       schema: AnswerParsingResultSchema,
-      maxTokens: 4096,
+      maxTokens,
       providerOptions,
     }),
   );

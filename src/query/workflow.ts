@@ -1,6 +1,7 @@
 import type {
   EvidenceItem,
   QueryClassifyResult,
+  QueryRetrievalMode,
   SubQuestion,
 } from "../schemas/query";
 
@@ -27,19 +28,37 @@ export type QueryWorkflowAction =
 export interface QueryWorkflowPlan {
   actions: QueryWorkflowAction[];
   shouldRetrieve: boolean;
+  retrievalMode: QueryRetrievalMode;
 }
 
 export function shouldRetrieveForClassification(classification: QueryClassifyResult): boolean {
   return classification.requiresDocumentLookup || classification.requiresChunkSearch;
 }
 
+export function resolveQueryRetrievalMode(params: {
+  inputMode?: QueryRetrievalMode;
+  configMode?: QueryRetrievalMode;
+  classificationMode?: QueryRetrievalMode;
+  supportsSourceRetrieval: boolean;
+}): QueryRetrievalMode {
+  const requestedMode = params.inputMode ?? params.configMode ?? params.classificationMode;
+  if (requestedMode) return requestedMode;
+  return params.supportsSourceRetrieval ? "hybrid" : "graph_only";
+}
+
 export function buildInitialQueryWorkflowPlan(params: {
   classification: QueryClassifyResult;
   attachmentEvidence: EvidenceItem[];
+  retrievalMode?: QueryRetrievalMode;
+  supportsSourceRetrieval?: boolean;
 }): QueryWorkflowPlan {
   const { classification, attachmentEvidence } = params;
   const actions: QueryWorkflowAction[] = [];
   const shouldRetrieve = shouldRetrieveForClassification(classification);
+  const retrievalMode = params.retrievalMode ?? resolveQueryRetrievalMode({
+    classificationMode: classification.retrievalMode,
+    supportsSourceRetrieval: !!params.supportsSourceRetrieval,
+  });
 
   if (shouldRetrieve) {
     actions.push({
@@ -71,7 +90,7 @@ export function buildInitialQueryWorkflowPlan(params: {
     },
   );
 
-  return { actions, shouldRetrieve };
+  return { actions, shouldRetrieve, retrievalMode };
 }
 
 export function getWorkflowAction<T extends QueryWorkflowAction["type"]>(

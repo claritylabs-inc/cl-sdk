@@ -1,0 +1,50 @@
+---
+title: Source Grounding API
+description: Reference for source span builders, stores, and retrievers
+---
+
+## Builders
+
+```typescript
+import {
+  buildSourceSpan,
+  buildPageSourceSpans,
+  buildSectionSourceSpans,
+  buildTextSourceSpans,
+  chunkSourceSpans,
+} from "@claritylabs/cl-sdk";
+```
+
+- `buildSourceSpan(input, localIndex?)`: build one normalized `SourceSpan`.
+- `buildPageSourceSpans(pages)`: build one span per page.
+- `buildSectionSourceSpans(pages, options?)`: split pages into section candidate spans.
+- `buildTextSourceSpans(input, options?)`: split long text into stable spans.
+- `chunkSourceSpans(spans, options?)`: group spans into `SourceChunk[]`.
+
+## Store and retriever
+
+```typescript
+import { MemorySourceStore } from "@claritylabs/cl-sdk";
+
+const store = new MemorySourceStore();
+await store.addSourceSpans(spans);
+await store.addSourceChunks(chunks);
+const results = await store.searchSourceSpans({ question, limit: 5 });
+```
+
+Implement `SourceStore` for production persistence:
+
+```typescript
+interface SourceStore extends SourceRetriever {
+  addSourceSpans(spans: SourceSpan[]): Promise<void>;
+  addSourceChunks(chunks: SourceChunk[]): Promise<void>;
+  getSourceSpan(id: string): Promise<SourceSpan | null>;
+  getSourceSpansByDocument(documentId: string): Promise<SourceSpan[]>;
+  getSourceChunksByDocument(documentId: string): Promise<SourceChunk[]>;
+  deleteDocumentSource(documentId: string): Promise<void>;
+}
+```
+
+## Ordering helpers
+
+`orderSourceEvidence()` sorts evidence by descending relevance and stable tie-break ID. Use it when combining vector, lexical, and structured retrieval results.

@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { GenerateObject, TokenUsage, ConvertPdfToImagesFn, LogFn, PdfInput } from "../core/types";
+import type { ModelBudgetConstraint, ModelCapabilities } from "../core/model-budget";
+import { resolveModelBudget } from "../core/model-budget";
 import { pLimit } from "../core/concurrency";
 import { safeGenerateObject } from "../core/safe-generate";
 import { runExtractor } from "./extractor";
@@ -123,6 +125,8 @@ export async function findReferencedPages(params: {
   generateObject: GenerateObject;
   providerOptions?: Record<string, unknown>;
   trackUsage?: (usage?: TokenUsage) => void;
+  modelCapabilities?: ModelCapabilities;
+  modelBudgetConstraints?: { extraction_referential_lookup?: ModelBudgetConstraint };
   log?: LogFn;
 }): Promise<{ startPage: number; endPage: number } | undefined> {
   const {
@@ -134,6 +138,8 @@ export async function findReferencedPages(params: {
     generateObject,
     providerOptions,
     trackUsage,
+    modelCapabilities,
+    modelBudgetConstraints,
     log,
   } = params;
 
@@ -167,6 +173,12 @@ export async function findReferencedPages(params: {
   // Bounded LLM fallback — ask which pages contain the referenced section only
   // after deterministic memory lookups fail.
   try {
+    const budget = resolveModelBudget({
+      taskKind: "extraction_referential_lookup",
+      hintTokens: 256,
+      modelCapabilities,
+      constraint: modelBudgetConstraints?.extraction_referential_lookup,
+    });
     const result = await safeGenerateObject(
       generateObject as GenerateObject<z.infer<typeof PageLocationSchema>>,
       {
@@ -180,7 +192,7 @@ If you cannot find the section, return startPage: 0 and endPage: 0.
 
 Return JSON only.`,
         schema: PageLocationSchema,
-        maxTokens: 256,
+        maxTokens: budget.maxTokens,
         providerOptions: await buildPdfProviderOptions(pdfInput, providerOptions),
       },
       {
@@ -222,6 +234,8 @@ export async function resolveReferentialCoverages(params: {
   convertPdfToImages?: ConvertPdfToImagesFn;
   concurrency?: number;
   providerOptions?: Record<string, unknown>;
+  modelCapabilities?: ModelCapabilities;
+  modelBudgetConstraints?: { extraction_referential_lookup?: ModelBudgetConstraint };
   log?: LogFn;
   onProgress?: (message: string) => void;
 }): Promise<ReferentialResolutionResult> {
@@ -233,6 +247,8 @@ export async function resolveReferentialCoverages(params: {
     convertPdfToImages,
     concurrency = 2,
     providerOptions,
+    modelCapabilities,
+    modelBudgetConstraints,
     log,
     onProgress,
   } = params;
@@ -338,6 +354,8 @@ export async function resolveReferentialCoverages(params: {
           generateObject,
           providerOptions,
           trackUsage,
+          modelCapabilities,
+          modelBudgetConstraints,
           log,
         });
 
@@ -373,6 +391,12 @@ export async function resolveReferentialCoverages(params: {
         }));
 
         try {
+          const budget = resolveModelBudget({
+            taskKind: "extraction_referential_lookup",
+            hintTokens: 4096,
+            modelCapabilities,
+            constraint: modelBudgetConstraints?.extraction_referential_lookup,
+          });
           const result = await runExtractor<ReferentialLookupResult>({
             name: "referential_lookup",
             prompt: buildReferentialLookupPrompt(promptCoverages),
@@ -382,7 +406,7 @@ export async function resolveReferentialCoverages(params: {
             endPage: pageRange.endPage,
             generateObject: generateObject as GenerateObject<ReferentialLookupResult>,
             convertPdfToImages,
-            maxTokens: 4096,
+            maxTokens: budget.maxTokens,
             providerOptions,
           });
 

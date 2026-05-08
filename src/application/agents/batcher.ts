@@ -11,6 +11,7 @@ export async function batchQuestions(
   unfilledFields: ApplicationField[],
   generateObject: GenerateObject,
   providerOptions?: Record<string, unknown>,
+  maxTokens = 2048,
 ): Promise<{ result: QuestionBatchResult; usage?: TokenUsage }> {
   const fieldSummaries = unfilledFields.map((f) => ({
     id: f.id,
@@ -28,7 +29,7 @@ export async function batchQuestions(
     generateObject({
       prompt,
       schema: QuestionBatchResultSchema,
-      maxTokens: 2048,
+      maxTokens,
       providerOptions,
     }),
   );

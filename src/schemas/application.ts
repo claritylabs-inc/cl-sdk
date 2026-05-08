@@ -33,6 +33,12 @@ export const ApplicationFieldSchema = z.object({
   value: z.string().optional(),
   source: z.string().optional().describe("Where the value came from: auto-fill, user, lookup"),
   confidence: z.enum(["confirmed", "high", "medium", "low"]).optional(),
+  sourceSpanIds: z.array(z.string()).optional().describe("Stable source spans that support the field value or field anchor"),
+  userSourceSpanIds: z.array(z.string()).optional().describe("Message or attachment spans that support user-provided values"),
+  pageNumber: z.number().int().positive().optional().describe("Application page where the field label or anchor appears"),
+  fieldAnchorId: z.string().optional().describe("Stable field anchor ID derived from page, section, label, and form metadata"),
+  acroFormName: z.string().optional().describe("Native PDF AcroForm field name when available"),
+  validationStatus: z.enum(["valid", "needs_review", "unsupported", "missing"]).optional(),
 });
 export type ApplicationField = z.infer<typeof ApplicationFieldSchema>;
 
@@ -114,6 +120,7 @@ export const LookupFillSchema = z.object({
   fieldId: z.string(),
   value: z.string(),
   source: z.string().describe("Specific citable reference, e.g. 'GL Policy #POL-12345 (Hartford)'"),
+  sourceSpanIds: z.array(z.string()).optional(),
 });
 export type LookupFill = z.infer<typeof LookupFillSchema>;
 

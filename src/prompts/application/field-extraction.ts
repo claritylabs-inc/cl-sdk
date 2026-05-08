@@ -4,13 +4,18 @@ export function buildFieldExtractionPrompt(): string {
 Field types: "text", "numeric", "currency", "date", "yes_no", "table", "declaration"
 
 Required keys per field:
-- "id": short snake_case ID
+- "id": short provisional snake_case ID. The SDK will replace this with a stable deterministic ID.
 - "label": field label — a clear, natural question that a human would understand
 - "section": section heading
 - "fieldType": one of the types above
 - "required": boolean
 
 Optional keys (only include when applicable):
+- "sourceSpanIds": stable source span IDs if the caller provided source units for this application
+- "pageNumber": PDF page number where the field label/anchor appears
+- "fieldAnchorId": stable caller-provided field anchor ID, when available
+- "acroFormName": native PDF form field name, when visible or provided
+- "validationStatus": "missing" for extracted blank fields, "needs_review" for prefilled fields that need source validation
 - "options": array of strings — for fields with checkboxes/radio buttons/multiple choices (e.g. business type, state selections). Use "text" fieldType with options.
 - "columns": array of {"name","type"} — tables only
 - "requiresExplanationIfYes": boolean — declarations only
@@ -26,5 +31,5 @@ Example:
   {"id":"prior_claims","text":"Any claims in past 5 years?","section":"Declarations","fieldType":"declaration","required":true,"requiresExplanationIfYes":true}
 ]
 
-Extract ALL fields. Respond with ONLY the JSON array, no other text.`;
+Extract ALL fields. Prefer page numbers and source span IDs over model-generated guesses whenever source units are supplied. Respond with ONLY the JSON array, no other text.`;
 }

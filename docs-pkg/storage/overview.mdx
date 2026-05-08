@@ -1,11 +1,11 @@
 ---
 title: Storage Interfaces
-description: "DocumentStore, MemoryStore, and ApplicationStore — the persistence layer for CL SDK"
+description: "DocumentStore, MemoryStore, SourceStore, and ApplicationStore - the persistence layer for CL SDK"
 ---
 
 import { Callout } from "@/components/ui/callout";
 
-CL SDK defines four storage interfaces that power the query agent, application processing, and extraction pipelines. All interfaces are provider-agnostic — you implement them against your own database.
+CL SDK defines storage interfaces that power the query agent, application processing, source grounding, and extraction pipelines. All interfaces are provider-agnostic -- you implement them against your own database.
 
 ## DocumentStore
 
@@ -98,19 +98,38 @@ interface PriorAnswer {
 
 The provider uses vector similarity over field labels and section context to find answers from prior applications, extracted policies, and business context.
 
+## SourceStore
+
+Source grounding persists raw evidence separately from vector chunks. `SourceStore` extends `SourceRetriever`, so the same implementation can store spans and serve quoted-evidence retrieval.
+
+```typescript
+interface SourceStore extends SourceRetriever {
+  addSourceSpans(spans: SourceSpan[]): Promise<void>;
+  addSourceChunks(chunks: SourceChunk[]): Promise<void>;
+  getSourceSpan(id: string): Promise<SourceSpan | null>;
+  getSourceSpansByDocument(documentId: string): Promise<SourceSpan[]>;
+  getSourceChunksByDocument(documentId: string): Promise<SourceChunk[]>;
+  deleteDocumentSource(documentId: string): Promise<void>;
+}
+```
+
+The SDK includes `MemorySourceStore` for tests and local development. Production hosts usually back this interface with a document database plus lexical/vector indexes.
+
 ## How the interfaces connect
 
 The four interfaces form a data flow through the SDK's pipelines:
 
-1. **Extraction** produces an `InsuranceDocument` and `DocumentChunk[]` — save the document to `DocumentStore` and add chunks to `MemoryStore`
-2. **Query agent** reads from both stores — `DocumentStore` for structured document lookups, `MemoryStore` for semantic chunk retrieval and conversation history
+1. **Extraction** produces an `InsuranceDocument`, `DocumentChunk[]`, and optional `SourceSpan[]`/`SourceChunk[]` -- save the document to `DocumentStore`, add chunks to `MemoryStore`, and persist source evidence to `SourceStore`
+2. **Query agent** reads from document, memory, and optional source stores -- `DocumentStore` for structured lookup, `MemoryStore` for semantic chunks/history, and `SourceRetriever` for source-span evidence
 3. **Application pipeline** uses `ApplicationStore` for persistent state across the multi-step processing flow, and `BackfillProvider` to pre-fill fields from prior answers
-4. **Conversation turns** stored in `MemoryStore` enable cross-conversation memory — the query agent can reference earlier interactions
+4. **PCE and case workflows** use `SourceRetriever` and quoted evidence validation to build reviewable packets
+5. **Conversation turns** stored in `MemoryStore` enable cross-conversation memory -- the query agent can reference earlier interactions
 
 ```
 Extraction Pipeline
     ├─► InsuranceDocument ──► DocumentStore
-    └─► DocumentChunk[]   ──► MemoryStore
+    ├─► DocumentChunk[]   ──► MemoryStore
+    └─► SourceSpan[]      ──► SourceStore
                                   │
 Query Agent ◄─────────────────────┤
     │                             │
@@ -119,6 +138,9 @@ Query Agent ◄─────────────────────�
 Application Pipeline
     ├─► ApplicationState ──► ApplicationStore
     └─► BackfillProvider (reads prior answers)
+
+PCE / Case Workflows
+    └─► SourceRetriever (quoted evidence)
 ```
 
 ## SQLite reference implementation

@@ -1,0 +1,65 @@
+---
+title: Migrating to v1
+description: Upgrade notes for the 1.0.0 release
+---
+
+CL SDK v1 is the first stable release line. The main upgrade is not a framework change: the existing provider callback model stays intact, but source-grounded workflows are now first-class across extraction, query, application processing, PCE, and case primitives.
+
+## Package versions
+
+Use the v1 SDK and docs package together:
+
+```bash
+npm install @claritylabs/cl-sdk@^1.0.0 @claritylabs/cl-sdk-docs@^1.0.0
+```
+
+## What changed
+
+- `createExtractor().extract()` now accepts an optional third argument for source grounding options, including `sourceSpans`.
+- `ExtractionResult` includes `sourceSpans` and can persist spans through an optional `sourceStore`.
+- `providerOptions.sourceSpans` and `providerOptions.sourceChunks` may be passed to provider callbacks when source spans are available.
+- Application processing accepts `sourceSpans` so field extraction, lookup, explanations, and auto-fill can share evidence.
+- PCE workflows are exported from the root package: `createPceAgent`, `buildPceSubmissionPacket`, `validatePceItems`, `selectPceExecutionMode`, and quality reporting helpers.
+- Case workflow primitives are exported from the root package for shared evidence, validation, proposal scoring, and packet artifacts.
+- Model budgets can be resolved with model capability metadata through `resolveModelBudget()`.
+
+## Provider callback checklist
+
+Existing callbacks that already handle `providerOptions.pdfBase64`, `providerOptions.images`, and `providerOptions.attachments` continue to work. For best v1 behavior, also preserve these fields when you forward provider options:
+
+```typescript
+type ProviderOptions = {
+  pdfBase64?: string;
+  images?: Array<{ imageBase64: string; mimeType: string }>;
+  attachments?: unknown[];
+  sourceSpans?: SourceSpan[];
+  sourceChunks?: SourceChunk[];
+};
+```
+
+`sourceSpans` and `sourceChunks` are text evidence, not files. Most hosts include them as prompt context or as provider metadata that the callback turns into a text part.
+
+## Storage migration
+
+Document and memory stores do not need to be replaced. Add a source store when you want durable source evidence:
+
+```typescript
+import { MemorySourceStore, createExtractor } from "@claritylabs/cl-sdk";
+
+const sourceStore = new MemorySourceStore();
+const extractor = createExtractor({ generateText, generateObject, sourceStore });
+```
+
+Production hosts usually implement `SourceStore` beside their existing vector store so source spans can be retrieved by document ID, page, section, form number, or lexical/semantic search.
+
+## Automation posture
+
+v1 separates evidence collection from automation decisions. PCE and case helpers can mark a case as draft-only, assisted, or automation-eligible, but hosts should still keep human review before carrier submission unless their own compliance gates approve unattended execution.
+
+## Recommended upgrade path
+
+1. Upgrade `@claritylabs/cl-sdk` and `@claritylabs/cl-sdk-docs` to `^1.0.0`.
+2. Add source span creation for PDFs, emails, attachments, or structured fields you already ingest.
+3. Pass spans into extraction and application calls.
+4. Persist spans through a `SourceStore` implementation.
+5. Wire PCE or case workflows only after quoted evidence and validation issues are visible in your UI.

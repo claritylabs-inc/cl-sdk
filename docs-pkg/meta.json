@@ -7,7 +7,8 @@
       "pages": [
         { "slug": "quickstart", "title": "Quickstart" },
         { "slug": "architecture", "title": "Architecture" },
-        { "slug": "models", "title": "Model Providers" }
+        { "slug": "models", "title": "Model Providers" },
+        { "slug": "migration-v1", "title": "Migrating to v1" }
       ]
     },
     {
@@ -26,6 +27,32 @@
       "pages": [
         { "slug": "pipeline", "title": "Pipeline" },
         { "slug": "citations", "title": "Citations" }
+      ]
+    },
+    {
+      "title": "Source Grounding",
+      "slug": "source-grounding",
+      "pages": [
+        { "slug": "overview", "title": "Overview" },
+        { "slug": "source-spans", "title": "Source Spans" },
+        { "slug": "retrieval", "title": "Retrieval" },
+        { "slug": "quality", "title": "Quality Gates" }
+      ]
+    },
+    {
+      "title": "Policy Change Endorsements",
+      "slug": "pce",
+      "pages": [
+        { "slug": "overview", "title": "Overview" },
+        { "slug": "workflow", "title": "Workflow" },
+        { "slug": "submission-packet", "title": "Submission Packet" }
+      ]
+    },
+    {
+      "title": "Case Workflows",
+      "slug": "case",
+      "pages": [
+        { "slug": "overview", "title": "Overview" }
       ]
     },
     {
@@ -71,6 +98,9 @@
         { "slug": "extraction", "title": "Extraction" },
         { "slug": "query", "title": "Query" },
         { "slug": "application", "title": "Application" },
+        { "slug": "source-grounding", "title": "Source Grounding" },
+        { "slug": "pce", "title": "Policy Change Endorsements" },
+        { "slug": "case", "title": "Case Workflows" },
         { "slug": "agent", "title": "Agent" },
         { "slug": "pdf", "title": "PDF" }
       ]

@@ -11,5 +11,8 @@ export const ExclusionSchema = z.object({
   appliesTo: z.array(z.string()).optional(),
   content: z.string(),
   pageNumber: z.number().optional(),
+  recordId: z.string().optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+  sourceTextHash: z.string().optional(),
 });
 export type Exclusion = z.infer<typeof ExclusionSchema>;

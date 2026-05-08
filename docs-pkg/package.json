@@ -1,6 +1,6 @@
 {
   "name": "@claritylabs/cl-sdk-docs",
-  "version": "0.17.2",
+  "version": "1.0.0",
   "description": "Documentation content for CL SDK deterministic insurance intelligence primitives",
   "main": "meta.json",
   "exports": {

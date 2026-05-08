@@ -1,4 +1,6 @@
 import type { GenerateObject, TokenUsage } from "../core/types";
+import type { ModelBudgetConstraint, ModelCapabilities, ModelTaskKind } from "../core/model-budget";
+import { resolveModelBudget } from "../core/model-budget";
 import { withRetry } from "../core/retry";
 import { buildVerifyPrompt } from "../prompts/query/verify";
 import {
@@ -7,10 +9,13 @@ import {
   type SubAnswer,
   type EvidenceItem,
 } from "../schemas/query";
+import { deterministicQueryGroundingIssues } from "./quality";
 
 export interface VerifierConfig {
   generateObject: GenerateObject;
   providerOptions?: Record<string, unknown>;
+  modelCapabilities?: ModelCapabilities;
+  modelBudgetConstraints?: Partial<Record<ModelTaskKind, ModelBudgetConstraint>>;
 }
 
 /**
@@ -40,7 +45,9 @@ export async function verify(
   const evidenceJson = JSON.stringify(
     allEvidence.map((e) => ({
       source: e.source,
-      id: e.chunkId ?? e.documentId ?? e.turnId,
+      id: e.sourceSpanId ?? e.chunkId ?? e.documentId ?? e.turnId ?? e.attachmentId,
+      chunkId: e.chunkId,
+      sourceSpanId: e.sourceSpanId,
       text: e.text.slice(0, 500), // Truncate for context efficiency
       relevance: e.relevance,
     })),
@@ -49,15 +56,40 @@ export async function verify(
   );
 
   const prompt = buildVerifyPrompt(originalQuestion, subAnswersJson, evidenceJson);
+  const budget = resolveModelBudget({
+    taskKind: "query_verify",
+    hintTokens: 2048,
+    modelCapabilities: config.modelCapabilities,
+    constraint: config.modelBudgetConstraints?.query_verify,
+  });
 
   const { object, usage } = await withRetry(() =>
     generateObject({
       prompt,
       schema: VerifyResultSchema,
-      maxTokens: 2048,
+      maxTokens: budget.maxTokens,
       providerOptions,
     }),
   );
 
-  return { result: object as VerifyResult, usage };
+  const result = object as VerifyResult;
+  const deterministicIssues = deterministicQueryGroundingIssues(subAnswers, allEvidence);
+  if (deterministicIssues.length > 0) {
+    return {
+      result: {
+        ...result,
+        approved: false,
+        issues: Array.from(new Set([...result.issues, ...deterministicIssues])),
+        retrySubQuestions: Array.from(new Set([
+          ...(result.retrySubQuestions ?? []),
+          ...subAnswers
+            .filter((answer) => deterministicIssues.some((issue) => issue.includes(`"${answer.subQuestion}"`)))
+            .map((answer) => answer.subQuestion),
+        ])),
+      },
+      usage,
+    };
+  }
+
+  return { result, usage };
 }

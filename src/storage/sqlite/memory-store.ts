@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import type { MemoryStore } from "../interfaces";
 import type { DocumentChunk, ConversationTurn, ChunkFilter } from "../chunk-types";
 import type { EmbedText } from "../../core/types";
+import { pLimit } from "../../core/concurrency";
 
 function cosineSimilarity(a: number[], b: number[]): number {
   let dot = 0, magA = 0, magB = 0;
@@ -14,6 +15,8 @@ function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 export function createSqliteMemoryStore(db: Database.Database, embed: EmbedText): MemoryStore {
+  const limit = pLimit(4);
+
   return {
     async addChunks(chunks: DocumentChunk[]): Promise<void> {
       const stmt = db.prepare("INSERT OR REPLACE INTO chunks (id, document_id, type, text, metadata, embedding) VALUES (?, ?, ?, ?, ?, ?)");
@@ -24,15 +27,17 @@ export function createSqliteMemoryStore(db: Database.Database, embed: EmbedText)
       });
       insertMany(chunks);
 
-      for (const chunk of chunks) {
-        try {
-          const embedding = await embed(chunk.text);
-          const buf = Buffer.from(new Float64Array(embedding).buffer);
-          db.prepare("UPDATE chunks SET embedding = ? WHERE id = ?").run(buf, chunk.id);
-        } catch {
-          // Embedding failure is non-fatal
-        }
-      }
+      await Promise.all(chunks.map((chunk) =>
+        limit(async () => {
+          try {
+            const embedding = await embed(chunk.text);
+            const buf = Buffer.from(new Float64Array(embedding).buffer);
+            db.prepare("UPDATE chunks SET embedding = ? WHERE id = ?").run(buf, chunk.id);
+          } catch {
+            // Embedding failure is non-fatal
+          }
+        }),
+      ));
     },
 
     async search(query: string, options?: { limit?: number; filter?: ChunkFilter }): Promise<DocumentChunk[]> {

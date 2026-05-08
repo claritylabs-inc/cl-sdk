@@ -74,6 +74,7 @@ For extraction calls, CL SDK uses `providerOptions` to carry document content in
 - worker extractor calls include a page-scoped PDF in `providerOptions.pdfBase64`
 - if you configure `convertPdfToImages`, worker extractor calls include `providerOptions.images` instead
 - multimodal query calls may include `providerOptions.attachments`, `providerOptions.pdfBase64`, and `providerOptions.images`
+- source-grounded workflows may include `providerOptions.sourceSpans` and `providerOptions.sourceChunks`
 
 Your callback must attach those values to the actual model request. Prompt text alone does not provide the document.
 
@@ -84,7 +85,7 @@ See the [Provider Callbacks](/docs/getting-started/models) guide for examples wi
 Pass your callbacks to `createExtractor` and extract structured data from any insurance PDF:
 
 ```typescript
-import { createExtractor } from "@claritylabs/cl-sdk";
+import { buildPageSourceSpans, createExtractor } from "@claritylabs/cl-sdk";
 import { readFileSync } from "fs";
 
 // Load a PDF as base64
@@ -93,13 +94,21 @@ const pdfBase64 = readFileSync("./policy.pdf").toString("base64");
 // Create the extractor with your provider callbacks
 const extractor = createExtractor({ generateText, generateObject });
 
+// Optional: provide source text spans for page-backed evidence
+const pageOneText = "..."; // text from your PDF text/OCR pipeline
+const sourceSpans = buildPageSourceSpans([
+  { documentId: "doc-123", sourceKind: "policy_pdf", pageNumber: 1, text: pageOneText },
+]);
+
 // Run the agentic extraction pipeline
-const { document, chunks, tokenUsage, usageReporting } = await extractor.extract(pdfBase64, "doc-123");
+const { document, chunks, sourceChunks, tokenUsage, usageReporting } =
+  await extractor.extract(pdfBase64, "doc-123", { sourceSpans });
 
 console.log(document.carrier);       // "Hartford"
 console.log(document.policyNumber);  // "GL-2024-001234"
 console.log(document.coverages);     // [{ name: "General Liability", limit: "$1,000,000", ... }]
 console.log(chunks.length);          // 24 chunks ready for vector storage
+console.log(sourceChunks.length);    // Source evidence windows for source retrieval
 console.log(tokenUsage);             // { inputTokens: 45000, outputTokens: 12000 }
 console.log(usageReporting);         // { modelCalls: 14, callsWithUsage: 14, callsMissingUsage: 0 }
 ```
@@ -116,6 +125,7 @@ const agent = createQueryAgent({
   generateObject,
   documentStore,
   memoryStore,
+  sourceRetriever,
 });
 
 const result = await agent.query({
@@ -167,6 +177,7 @@ const pipeline = createApplicationPipeline({
 const { state } = await pipeline.processApplication({
   pdfBase64,
   applicationId: "app-1",
+  sourceSpans,
 });
 
 console.log(state.fields);    // extracted and auto-filled fields
@@ -174,6 +185,27 @@ console.log(state.batches);   // topic-based question batches for user collectio
 ```
 
 Application processing plans optional backfill, context auto-fill, document lookup, batching, reply parsing, lookup, explanations, and next-batch email generation from the current state so unnecessary provider and storage calls are skipped.
+
+## Build a PCE packet
+
+Create a source-grounded policy change endorsement case and generate a review packet:
+
+```typescript
+import { createPceAgent } from "@claritylabs/cl-sdk";
+
+const pce = createPceAgent({
+  generateObject,
+  sourceRetriever,
+  executionMode: "auto",
+});
+
+const { state } = await pce.processChangeRequest({
+  requestText: "Add the new van to the commercial auto policy effective June 1.",
+});
+
+const packet = pce.generateSubmissionPacket({ state });
+console.log(packet.validationIssues);
+```
 
 ## Add logging
 
@@ -207,4 +239,6 @@ Output:
 <Cards>
   <Card title="Architecture" description="Learn how the agentic extraction pipeline works." href="/docs/getting-started/architecture" />
   <Card title="Provider Callbacks" description="Connect any LLM provider via plain callback functions." href="/docs/getting-started/models" />
+  <Card title="Source Grounding" description="Use source spans and quoted evidence across workflows." href="/docs/source-grounding/overview" />
+  <Card title="PCE Workflows" description="Generate policy change endorsement packets with evidence." href="/docs/pce/overview" />
 </Cards>

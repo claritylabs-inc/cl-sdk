@@ -1,0 +1,61 @@
+---
+title: Source Retrieval
+description: Searching source spans and ordering evidence deterministically
+---
+
+Source retrieval is intentionally small. Hosts can use the built-in lexical memory store, wrap an existing vector index, or combine source spans with their document chunk store.
+
+## Interface
+
+```typescript
+interface SourceRetriever {
+  searchSourceSpans(query: SourceRetrievalQuery): Promise<SourceRetrievalResult[]>;
+}
+
+interface SourceRetrievalQuery {
+  question: string;
+  documentIds?: string[];
+  chunkIds?: string[];
+  limit?: number;
+  mode?: "graph_only" | "source_rag" | "long_context" | "hybrid";
+  filters?: Record<string, string>;
+}
+```
+
+`mode` is advisory. A host can interpret it as:
+
+- `graph_only`: use structured relationships and exact metadata.
+- `source_rag`: use chunk or span retrieval.
+- `long_context`: provide larger source windows when the provider supports them.
+- `hybrid`: combine structured filters with lexical/vector retrieval.
+
+## Memory store
+
+```typescript
+import { MemorySourceStore } from "@claritylabs/cl-sdk";
+
+const store = new MemorySourceStore();
+await store.addSourceSpans(spans);
+await store.addSourceChunks(chunks);
+
+const evidence = await store.searchSourceSpans({
+  question: "What is the general liability per occurrence limit?",
+  documentIds: ["policy-123"],
+  filters: { sectionId: "declarations" },
+  limit: 5,
+});
+```
+
+The memory store uses lexical matching and deterministic tie-breaking. It is useful for tests, local development, and as a reference implementation.
+
+## Deterministic ordering
+
+Use `orderSourceEvidence()` when combining evidence from multiple stores:
+
+```typescript
+import { orderSourceEvidence } from "@claritylabs/cl-sdk";
+
+const ordered = orderSourceEvidence([...vectorResults, ...structuredResults]);
+```
+
+Evidence is ordered by descending relevance, then by a stable source identifier. That prevents equal-score retrieval from changing packet contents between runs.

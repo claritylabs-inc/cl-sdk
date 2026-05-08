@@ -13,6 +13,7 @@ export async function autoFillFromContext(
   orgContext: { key: string; value: string; category: string }[],
   generateObject: GenerateObject,
   providerOptions?: Record<string, unknown>,
+  maxTokens = 4096,
 ): Promise<{ result: AutoFillResult; usage?: TokenUsage }> {
   const fieldSummaries = fields.map((f) => ({
     id: f.id,
@@ -27,7 +28,7 @@ export async function autoFillFromContext(
     generateObject({
       prompt,
       schema: AutoFillResultSchema,
-      maxTokens: 4096,
+      maxTokens,
       providerOptions,
     }),
   );

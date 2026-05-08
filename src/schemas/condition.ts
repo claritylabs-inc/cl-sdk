@@ -12,5 +12,8 @@ export const PolicyConditionSchema = z.object({
   content: z.string(),
   keyValues: z.array(ConditionKeyValueSchema).optional(),
   pageNumber: z.number().optional(),
+  recordId: z.string().optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+  sourceTextHash: z.string().optional(),
 });
 export type PolicyCondition = z.infer<typeof PolicyConditionSchema>;

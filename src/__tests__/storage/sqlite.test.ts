@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createSqliteStore } from "../../storage/sqlite/index";
 import type { PolicyDocument } from "../../schemas/document";
+import { buildPageSourceSpans, chunkSourceSpans } from "../../source";
 
 const mockEmbed = async (text: string): Promise<number[]> => {
   const hash = Array.from(text).reduce((acc, c) => acc + c.charCodeAt(0), 0);
@@ -65,5 +66,100 @@ describe("SQLite store", () => {
     const history = await store.memory.getHistory("conv-1");
     expect(history.length).toBe(1);
     expect(history[0].content).toContain("liability limits");
+  });
+
+  it("persists and retrieves source spans and source chunks", async () => {
+    const spans = buildPageSourceSpans([
+      { documentId: "pol-1", sourceKind: "policy_pdf", pageNumber: 1, text: "Building limit is $1,000,000.", formNumber: "CP 00 10" },
+      { documentId: "pol-1", sourceKind: "policy_pdf", pageNumber: 2, text: "Water exclusion applies." },
+    ]);
+    const chunks = chunkSourceSpans(spans);
+
+    await store.source.addSourceSpans(spans);
+    await store.source.addSourceChunks(chunks);
+
+    await expect(store.source.getSourceSpan(spans[0].id)).resolves.toEqual(spans[0]);
+    await expect(store.source.getSourceSpansByDocument("pol-1")).resolves.toHaveLength(2);
+    await expect(store.source.getSourceChunksByDocument("pol-1")).resolves.toHaveLength(1);
+  });
+
+  it("searches source spans with deterministic source-span evidence", async () => {
+    const spans = buildPageSourceSpans([
+      { documentId: "pol-1", sourceKind: "policy_pdf", pageNumber: 1, text: "Building limit is $1,000,000.", formNumber: "CP 00 10" },
+      { documentId: "pol-1", sourceKind: "policy_pdf", pageNumber: 2, text: "Water exclusion applies." },
+    ]);
+    await store.source.addSourceSpans(spans);
+
+    const results = await store.source.searchSourceSpans({
+      question: "building limit",
+      documentIds: ["pol-1"],
+      filters: { formNumber: "CP 00 10" },
+      limit: 1,
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].span.id).toBe(spans[0].id);
+  });
+
+  it("bounds chunk embedding concurrency instead of embedding serially", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const concurrentStore = createSqliteStore({
+      path: ":memory:",
+      embed: async () => {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        active--;
+        return Array.from({ length: 8 }, (_, index) => index + 1);
+      },
+    });
+
+    try {
+      await concurrentStore.documents.save(testPolicy);
+      await concurrentStore.memory.addChunks(Array.from({ length: 6 }, (_, index) => ({
+        id: `chunk-${index}`,
+        documentId: "pol-1",
+        type: "coverage" as const,
+        text: `Coverage ${index}`,
+        metadata: {},
+      })));
+    } finally {
+      concurrentStore.close();
+    }
+
+    expect(maxActive).toBeGreaterThan(1);
+    expect(maxActive).toBeLessThanOrEqual(4);
+  });
+
+  it("bounds source span embedding concurrency instead of embedding serially", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const concurrentStore = createSqliteStore({
+      path: ":memory:",
+      embed: async () => {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        active--;
+        return Array.from({ length: 8 }, (_, index) => index + 1);
+      },
+    });
+
+    try {
+      await concurrentStore.source.addSourceSpans(buildPageSourceSpans(
+        Array.from({ length: 6 }, (_, index) => ({
+          documentId: "pol-1",
+          sourceKind: "policy_pdf" as const,
+          pageNumber: index + 1,
+          text: `Policy text ${index}`,
+        })),
+      ));
+    } finally {
+      concurrentStore.close();
+    }
+
+    expect(maxActive).toBeGreaterThan(1);
+    expect(maxActive).toBeLessThanOrEqual(4);
   });
 });

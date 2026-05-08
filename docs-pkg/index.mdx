@@ -9,12 +9,17 @@ import { Cards, Card } from "fumadocs-ui/components/card";
 
 CL SDK is the insurance intelligence layer behind those agents: a pure TypeScript library for extracting, reasoning about, and acting on insurance documents with deterministic scaffolding around model calls. It is provider-agnostic by design: bring any LLM via plain callback functions. No framework dependency.
 
+Version 1.0 makes source-grounded workflows first class. Extraction records page-aware source spans, query and application agents can reason over those spans, and policy change endorsement workflows produce validated submission packets with quoted evidence.
+
 ## Capabilities
 
 <Cards>
   <Card title="Document Extraction" description="Deterministic extraction pipeline with focused model calls that turns insurance PDFs into structured data — coverages, limits, definitions, covered reasons, exclusions, endorsements — with page-level provenance and review loops." />
-  <Card title="Query Agent" description="Citation-backed question answering over stored documents plus inbound photos, PDFs, and text. Decomposes questions, retrieves evidence, reasons with intent-specific prompts, and verifies grounding." />
-  <Card title="Application Processing" description="Bounded application workflows handle intake — field extraction, auto-fill from prior answers, topic-based question batching, and PDF mapping." />
+  <Card title="Source Grounding" description="Reusable source spans, page references, quoted evidence, and retrievers for extraction, query, application, and endorsement workflows." />
+  <Card title="Query Agent" description="Citation-backed question answering over stored documents plus inbound photos, PDFs, and text. Decomposes questions, retrieves source evidence, reasons with intent-specific prompts, and verifies grounding." />
+  <Card title="Application Processing" description="Bounded application workflows handle intake — field extraction, auto-fill from prior answers, topic-based question batching, PDF mapping, and source-backed field provenance." />
+  <Card title="Policy Change Endorsements" description="PCE workflows intake requested changes, collect evidence, validate readiness, and generate carrier-ready submission packets." />
+  <Card title="Case Workflows" description="Shared case primitives track proposals, quoted evidence, dedupe decisions, and human-review state across agent flows." />
   <Card title="Agent System" description="Composable prompt modules for building insurance-aware agents across email, chat, SMS, Slack, and Discord with human-reviewable behavior." />
   <Card title="Storage & Memory" description="DocumentStore and MemoryStore interfaces for persisting extracted documents, vector chunks, and conversation history. Includes SQLite reference implementation." />
 </Cards>
@@ -29,10 +34,11 @@ npm install @claritylabs/cl-sdk pdf-lib zod
 import { createExtractor } from "@claritylabs/cl-sdk";
 
 const extractor = createExtractor({ generateText, generateObject });
-const { document, chunks } = await extractor.extract(pdfBase64);
+const { document, chunks, sourceSpans } = await extractor.extract(pdfBase64);
 
 console.log(document.carrier);    // "Hartford"
 console.log(document.coverages);  // [{ name: "General Liability", limit: "$1,000,000", ... }]
+console.log(sourceSpans.length);  // page-backed source references, when provided
 console.log(chunks.length);       // 24 chunks ready for vector storage
 ```
 
@@ -42,6 +48,8 @@ console.log(chunks.length);       // 24 chunks ready for vector storage
   <Card title="Quickstart" description="Install CL SDK and run your first extraction in minutes." href="/docs/getting-started/quickstart" />
   <Card title="Architecture" description="Understand the agentic extraction pipeline and how components fit together." href="/docs/getting-started/architecture" />
   <Card title="Provider Callbacks" description="Connect any LLM provider via plain callback functions." href="/docs/getting-started/models" />
+  <Card title="Source Grounding" description="Use source spans and quoted evidence across extraction, query, application, and PCE workflows." href="/docs/source-grounding/overview" />
+  <Card title="PCE Workflows" description="Build policy change endorsement intake, validation, and submission packet generation." href="/docs/pce/overview" />
   <Card title="Storage" description="Persist documents, chunks, and conversation history." href="/docs/storage" />
-  <Card title="API Reference" description="Full reference for every exported function and type." href="/docs/api-reference/extraction" />
+  <Card title="API Reference" description="Full reference for every exported function and type." href="/docs/api/extraction" />
 </Cards>

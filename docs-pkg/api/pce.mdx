@@ -1,0 +1,60 @@
+---
+title: PCE API
+description: Reference for policy change endorsement workflows
+---
+
+## Agent
+
+```typescript
+import { createPceAgent } from "@claritylabs/cl-sdk";
+
+const pce = createPceAgent({
+  generateObject,
+  sourceRetriever,
+  retrievalLimit: 8,
+  executionMode: "auto",
+});
+```
+
+### `processChangeRequest(input)`
+
+Parses a change request, collects evidence, validates items, asks missing-info questions, and returns `PceCaseState`.
+
+```typescript
+const { state, tokenUsage } = await pce.processChangeRequest({
+  requestText,
+  caseId,
+  evidenceSources,
+});
+```
+
+### `processReply(input)`
+
+Parses a user reply to missing-information questions and updates the case state.
+
+```typescript
+const result = await pce.processReply({ state, replyText });
+```
+
+### `generateSubmissionPacket(input)`
+
+Builds a `PceSubmissionPacket` from a state object or stored case ID.
+
+## Standalone helpers
+
+```typescript
+import {
+  buildPceSubmissionPacket,
+  collectPceEvidenceSources,
+  selectPceExecutionMode,
+  stablePolicyChangeItemId,
+  validatePceItems,
+  buildPceQualityReport,
+} from "@claritylabs/cl-sdk";
+```
+
+- `collectPceEvidenceSources(input, config)`: merge explicit evidence and retriever results.
+- `validatePceItems(items, evidenceSources)`: return validation issues for normalized items.
+- `selectPceExecutionMode(params)`: choose deterministic, market-eval, or hybrid mode.
+- `buildPceSubmissionPacket(state, createdAt)`: create review artifacts.
+- `buildPceQualityReport(state)`: summarize packet readiness.

@@ -1,0 +1,64 @@
+---
+title: PCE Submission Packet
+description: Generate carrier-ready artifacts with citations, validation, and missing information
+---
+
+The submission packet is the handoff object for a PCE case. It contains review artifacts, missing-info questions, validation issues, and citations back to source evidence.
+
+## Generate a packet
+
+```typescript
+import { buildPceSubmissionPacket } from "@claritylabs/cl-sdk";
+
+const packet = buildPceSubmissionPacket(state, Date.now());
+```
+
+Or generate from an agent instance:
+
+```typescript
+const packet = pce.generateSubmissionPacket({ state });
+```
+
+## Packet contents
+
+```typescript
+interface PceSubmissionPacket {
+  id: string;
+  caseId: string;
+  pceCase: PceCaseState;
+  artifacts: CasePacketArtifact[];
+  validationIssues: CaseValidationIssue[];
+  missingInfoQuestions: PceMissingInfoQuestion[];
+  createdAt: number;
+}
+```
+
+Artifacts can include:
+
+- underwriter summary
+- carrier email draft
+- missing information request
+- JSON packet
+- validation report
+
+## Quality report
+
+Use the quality report to decide whether a packet can move out of draft:
+
+```typescript
+import { buildPceQualityReport } from "@claritylabs/cl-sdk";
+
+const report = buildPceQualityReport(state);
+
+if (report.qualityGateStatus === "failed") {
+  // Keep in draft and resolve blocking issues.
+}
+```
+
+## Review checklist
+
+- Every change item has the expected action, field path, and proposed value.
+- Required details such as effective date, vehicle information, location, or named insured details are present.
+- Citations point to source text that contains the quoted evidence.
+- Blocking validation issues are resolved or intentionally overridden by a reviewer.
+- The generated carrier email matches the carrier's requested intake format.

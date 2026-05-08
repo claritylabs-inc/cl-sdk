@@ -30,6 +30,20 @@ function isVagueSource(source: string | undefined): boolean {
     || normalized === "user provided";
 }
 
+function isSourceGroundedPolicyValue(field: ApplicationField): boolean {
+  if (!field.value) return false;
+  const source = field.source?.toLowerCase() ?? "";
+  if (field.sourceSpanIds?.length) return false;
+  if (field.userSourceSpanIds?.length) return false;
+
+  const label = `${field.section} ${field.label}`.toLowerCase();
+  const highValueLabel = /\b(policy|effective|expiration|date|limit|deductible|premium|coverage|exclusion|condition|endorsement|location|vehicle|named insured|revenue|payroll|loss|claim|prior)\b/.test(label);
+  const highValueType = field.fieldType === "currency" || field.fieldType === "date" || field.fieldType === "numeric" || field.fieldType === "declaration";
+  const fromPolicyLikeSource = /\b(policy|quote|document|lookup|carrier|endorsement)\b/.test(source);
+
+  return fromPolicyLikeSource && (highValueLabel || highValueType);
+}
+
 export function buildApplicationQualityReport(state: ApplicationState): ApplicationQualityReport {
   const issues: ApplicationQualityIssue[] = [];
   const seenIds = new Set<string>();
@@ -77,6 +91,15 @@ export function buildApplicationQualityReport(state: ApplicationState): Applicat
         code: "filled_field_low_confidence",
         severity: "warning",
         message: `Filled field "${field.label}" has low or missing confidence.`,
+        fieldId: field.id,
+      });
+    }
+
+    if (isSourceGroundedPolicyValue(field)) {
+      issues.push({
+        code: "policy_value_missing_source_span",
+        severity: "blocking",
+        message: `Filled policy-derived field "${field.label}" is missing source span evidence.`,
         fieldId: field.id,
       });
     }

@@ -1,4 +1,6 @@
 import type { TokenUsage } from "../core/types";
+import type { ModelTaskKind } from "../core/model-budget";
+import { resolveModelBudget } from "../core/model-budget";
 import { pLimit } from "../core/concurrency";
 import { safeGenerateObject } from "../core/safe-generate";
 import type { ApplicationState, ApplicationField } from "../schemas/application";
@@ -21,6 +23,7 @@ import { generateBatchEmail } from "./agents/email-generator";
 import { buildApplicationQualityReport, reviewBatchEmail } from "./quality";
 import { shouldFailQualityGate } from "../core/quality";
 import { planApplicationWorkflow, planReplyActions } from "./workflow";
+import { buildTextSourceSpans, sourceSpanTextHash } from "../source";
 
 export function createApplicationPipeline(config: ApplicationPipelineConfig) {
   const {
@@ -37,6 +40,8 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     log,
     providerOptions,
     qualityGate = "warn",
+    modelCapabilities,
+    modelBudgetConstraints,
   } = config;
 
   const limit = pLimit(concurrency);
@@ -50,6 +55,15 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     }
   }
 
+  function resolveBudget(taskKind: ModelTaskKind, hintTokens: number) {
+    return resolveModelBudget({
+      taskKind,
+      hintTokens,
+      modelCapabilities,
+      constraint: modelBudgetConstraints?.[taskKind],
+    });
+  }
+
   /**
    * Process a new application PDF through the full intake pipeline:
    * classify -> extract fields -> backfill -> auto-fill -> batch questions
@@ -59,6 +73,9 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
   ): Promise<ProcessApplicationResult> {
     totalUsage = { inputTokens: 0, outputTokens: 0 };
     const { pdfBase64, context } = input;
+    const applicationProviderOptions = input.sourceSpans?.length
+      ? { ...providerOptions, sourceSpans: input.sourceSpans }
+      : providerOptions;
     const id = input.applicationId ?? `app-${Date.now()}`;
     const now = Date.now();
 
@@ -85,9 +102,10 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     let classifyResult;
     try {
       const { result, usage: classifyUsage } = await classifyApplication(
-        pdfBase64.slice(0, 2000),
+        pdfBase64,
         generateObject,
-        providerOptions,
+        applicationProviderOptions,
+        resolveBudget("application_classify", 512).maxTokens,
       );
       trackUsage(classifyUsage);
       classifyResult = result;
@@ -116,7 +134,8 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       const { fields: extractedFields, usage: extractUsage } = await extractFields(
         pdfBase64,
         generateObject,
-        providerOptions,
+        applicationProviderOptions,
+        resolveBudget("application_extract_fields", 8192).maxTokens,
       );
       trackUsage(extractUsage);
       fields = extractedFields;
@@ -162,6 +181,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
             field.value = pa.value;
             field.source = `backfill: ${pa.source}`;
             field.confidence = "high";
+            field.validationStatus = "needs_review";
           }
         }
       } catch (e) {
@@ -192,6 +212,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
               orgContext,
               generateObject,
               providerOptions,
+              resolveBudget("application_auto_fill", 4096).maxTokens,
             );
             trackUsage(afUsage);
 
@@ -201,6 +222,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
                 field.value = match.value;
                 field.source = `auto-fill: ${match.contextKey}`;
                 field.confidence = match.confidence;
+                field.validationStatus = "valid";
               }
             }
           } catch (e) {
@@ -251,6 +273,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
           unfilledFields,
           generateObject,
           providerOptions,
+          resolveBudget("application_batch", 2048).maxTokens,
         );
         trackUsage(batchUsage);
         state.batches = batchResult.batches;
@@ -288,6 +311,14 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
   async function processReply(input: ProcessReplyInput): Promise<ProcessReplyResult> {
     totalUsage = { inputTokens: 0, outputTokens: 0 };
     const { applicationId, replyText, context } = input;
+    const replySourceSpanIds = input.replySourceSpanIds?.length
+      ? input.replySourceSpanIds
+      : buildTextSourceSpans({
+          documentId: `${applicationId}:reply:${sourceSpanTextHash(replyText).slice(0, 12)}`,
+          sourceKind: "email",
+          text: replyText,
+          metadata: { applicationId },
+        }).map((span) => span.id);
 
     // Load state
     let state: ApplicationState | null = null;
@@ -313,6 +344,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
         replyText,
         generateObject,
         providerOptions,
+        resolveBudget("application_classify", 1024).maxTokens,
       );
       trackUsage(intentUsage);
       intent = classifiedIntent;
@@ -345,6 +377,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
           replyText,
           generateObject,
           providerOptions,
+          resolveBudget("application_parse_answers", 4096).maxTokens,
         );
         trackUsage(parseUsage);
 
@@ -354,6 +387,8 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
             field.value = answer.value;
             field.source = "user";
             field.confidence = "confirmed";
+            field.userSourceSpanIds = replySourceSpanIds;
+            field.validationStatus = "valid";
             fieldsFilled++;
           }
         }
@@ -392,6 +427,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
             availableData,
             generateObject,
             providerOptions,
+            resolveBudget("application_lookup", 4096).maxTokens,
           );
           trackUsage(lookupUsage);
 
@@ -401,6 +437,10 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
               field.value = fill.value;
               field.source = `lookup: ${fill.source}`;
               field.confidence = "high";
+              field.validationStatus = fill.sourceSpanIds?.length ? "valid" : "needs_review";
+              if (fill.sourceSpanIds?.length) {
+                field.sourceSpanIds = fill.sourceSpanIds;
+              }
               fieldsFilled++;
             }
           }
@@ -415,7 +455,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       try {
         const { text, usage } = await generateText({
           prompt: `The user is filling out an insurance application and asked: "${intent.questionText}"\n\nProvide a brief, helpful explanation (2-3 sentences). End with "Just reply with the answer when you're ready and I'll fill it in."`,
-          maxTokens: 512,
+          maxTokens: resolveBudget("application_email", 512).maxTokens,
           providerOptions,
         });
         trackUsage(usage);
@@ -471,6 +511,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
               },
               generateText,
               providerOptions,
+              resolveBudget("application_email", 2048).maxTokens,
             );
             trackUsage(emailUsage);
             const emailReview = reviewBatchEmail(emailText, nextBatchFields);
@@ -542,6 +583,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       },
       generateText,
       providerOptions,
+      resolveBudget("application_email", 2048).maxTokens,
     );
     trackUsage(usage);
 
@@ -573,7 +615,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
 
     const { text, usage } = await generateText({
       prompt: `Format these filled insurance application fields as a clean confirmation summary for the user to review. Group by section, show each field as "Label: Value". End with a note asking them to confirm or request changes.\n\nApplication: ${state.title ?? "Insurance Application"}\n\nFields:\n${fieldSummary}`,
-      maxTokens: 4096,
+      maxTokens: resolveBudget("application_email", 4096).maxTokens,
       providerOptions,
     });
     trackUsage(usage);

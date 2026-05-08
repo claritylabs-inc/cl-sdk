@@ -24,5 +24,8 @@ export const EndorsementSchema = z.object({
   content: z.string(),
   pageStart: z.number(),
   pageEnd: z.number().optional(),
+  recordId: z.string().optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+  sourceTextHash: z.string().optional(),
 });
 export type Endorsement = z.infer<typeof EndorsementSchema>;

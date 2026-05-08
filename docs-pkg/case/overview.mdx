@@ -1,0 +1,51 @@
+---
+title: Case Workflows
+description: Shared primitives for evidence-backed agent cases and human review
+---
+
+Case workflows are shared primitives for agent flows that need durable state, quoted evidence, validation, missing information, and submission artifacts. PCE uses these primitives, but they are exported directly for custom workflows such as claims intake, COI requests, renewal prep, underwriting follow-up, and broker service tasks.
+
+## Core types
+
+- `CaseEvidenceSource`: source text available for validation and citation.
+- `CaseCitation`: citation with source ID, quote, page, and optional field path.
+- `CaseValidationIssue`: info, warning, or blocking issue.
+- `MissingInfoQuestion`: question tied to an item or field path.
+- `CasePacketArtifact`: generated artifact such as an email draft, summary, JSON packet, or validation report.
+- `CaseState`: durable workflow state with items, evidence, issues, questions, timestamps, and metadata.
+
+## Evidence validation
+
+```typescript
+import { validateQuotedEvidence } from "@claritylabs/cl-sdk";
+
+const issues = validateQuotedEvidence({
+  itemId: "change-1",
+  fieldPath: "vehicle.vin",
+  quote: "VIN 1FTBW2CM5RKA12345",
+  citation: { sourceId: "email-1", quote: "VIN 1FTBW2CM5RKA12345" },
+  sources,
+});
+```
+
+## Proposal scoring
+
+Case proposals can be scored by grounding, completeness, consistency, determinism, risk, and cost. Hosts can use this for side-by-side proposal review or for selecting whether a flow should stay deterministic, ask a market-evaluation agent, or use a hybrid path.
+
+```typescript
+import { evaluateCaseProposals } from "@claritylabs/cl-sdk";
+
+const ranked = evaluateCaseProposals(proposals);
+```
+
+## Stable IDs
+
+Use `stableCaseId()` for deterministic IDs derived from source inputs:
+
+```typescript
+import { stableCaseId } from "@claritylabs/cl-sdk";
+
+const id = stableCaseId("case", [requestText, documentId, userId]);
+```
+
+Stable IDs make retries and resumed workflows easier to dedupe.

@@ -5,24 +5,39 @@ description: Release history for @claritylabs/cl-sdk
 
 All notable changes to `@claritylabs/cl-sdk` are documented here.
 
-## Unreleased — Extraction Completeness
+## v1.0.0 -- Source-Grounded Insurance Workflows
+
+Released 2026-05-08.
+
+This is the first stable CL SDK release line. The release promotes the SDK from an extraction-focused 0.x package into a source-grounded insurance workflow toolkit covering extraction, query, application processing, policy change endorsements, and reusable case state.
 
 ### Added
 
-- **First-class definitions extraction** — new `definitions` extractor and `document.definitions[]` field for defined terms, full definition text, page/form provenance, section references, and source snippets.
-- **First-class covered reasons extraction** — new `covered_reasons` extractor and `document.coveredReasons[]` field for covered causes of loss, covered losses, inclusions, qualifying reasons, attached conditions/exceptions, and provenance.
-- **Dedicated retrieval chunks** — new `definition` and `covered_reason` chunk types. Covered-reason conditions are emitted as separate `covered_reason` chunks for precise retrieval.
-- **Quality checks** — deterministic warnings for mapped definitions/covered-reason pages with empty structured output, missing definition/covered-reason content, missing page provenance, and referential covered-reason text.
-- **Bounded workflow planners** — query, application processing, referential coverage resolution, and generic workflow helpers can now skip unnecessary subagents/tool chains while preserving targeted retry paths.
-- **Focused extractor fallbacks** — fallback-capable extractors can route through section extraction when focused output fails or comes back empty.
+- **Source grounding** -- new `SourceSpan`, `SourceChunk`, `SourceSpanRef`, `SourceStore`, `SourceRetriever`, `MemorySourceStore`, source builders, source chunking, deterministic evidence ordering, and extraction source-grounding helpers.
+- **Extraction source support** -- `extract(pdfBase64, documentId, { sourceSpans })` accepts caller-provided source spans, forwards page-filtered spans into focused extractors, derives `sourceChunks`, and can persist both spans and chunks through `sourceStore`.
+- **Extraction quality and observability** -- extraction results now include `performanceReport`; source-aware quality gates detect weak grounding, missing source references, unresolved referential values, and placeholder-style extraction output.
+- **Model budget resolution** -- `resolveModelBudget()` and model capability metadata let extraction, query, application, and PCE tasks choose safer per-task token budgets instead of relying on fixed prompt limits.
+- **Query source retrieval** -- query agents can receive a `sourceRetriever` and retrieval mode hints so answers can combine document chunks, structured document lookup, conversation history, attachments, and source-span evidence.
+- **Application source grounding** -- application processing accepts `sourceSpans`, forwards them through provider calls, and supports `replySourceSpanIds` for preserving provenance on user-supplied answers.
+- **Policy change endorsements** -- new PCE workflow exports: `createPceAgent`, `collectPceEvidenceSources`, `validatePceItems`, `selectPceExecutionMode`, `buildPceSubmissionPacket`, `buildPceQualityReport`, `stablePolicyChangeItemId`, and PCE prompt builders.
+- **Case workflow primitives** -- new reusable case schemas, evidence/citation validation, missing-info merge helpers, stable case IDs, proposal scoring, proposal evaluation, and packet artifact types.
+- **Hybrid quality gates** -- extraction, query, application, and PCE workflows expose deterministic review reports so host products can separate draft, assisted, and automation-eligible flows.
+- **Durable docs package update** -- docs now include v1 migration, source grounding, PCE, case workflow, API, storage, and quality documentation.
 
 ### Changed
 
-- **Extraction pipeline now has 13 focused extractors** with page-map routing and review follow-up support for `definitions` and `covered_reasons`.
-- **Supplementary extraction is now conditional** based on page assignments, form inventory, extraction signals, or review follow-up tasks.
-- **Formatter coverage expanded and cost-gated** to definition text plus covered-reason content and conditions while skipping plain prose that does not need cleanup.
-- **Query retrieval and application optional agents are now gated** by classifier/planner decisions to reduce cost and improve edge-case routing.
-- **Financial promotion expanded** to more premium and total-cost aliases and declaration-derived `taxesAndFees[]`, including common GST/HST/PST/QST-style fields.
+- **Package versions move from 0.x to 1.0.0** for both `@claritylabs/cl-sdk` and `@claritylabs/cl-sdk-docs`.
+- **Provider options are richer**. Hosts should preserve `providerOptions.sourceSpans` and `providerOptions.sourceChunks` when source evidence is available, in addition to existing PDF, image, and attachment fields.
+- **Extraction results are broader**. Consumers should expect `sourceSpans`, `sourceChunks`, and `performanceReport` in addition to `document`, `chunks`, `tokenUsage`, `usageReporting`, and `reviewReport`.
+- **Query and application configuration grew** with optional source retrievers, quality gates, model capabilities, and model budget constraints.
+- **Docs navigation changed** to make source grounding, PCE, case workflows, and v1 migration first-class sections.
+
+### Migration Notes
+
+- Existing extraction, query, and application calls continue to work without source spans.
+- For best v1 behavior, create source spans during ingest, pass them into extraction/application calls, and implement `SourceStore` or `SourceRetriever` beside your existing document and memory stores.
+- Treat PCE submission packets as draft or assisted artifacts until a host-side human review and compliance flow approves carrier submission.
+- Update documentation consumers to `@claritylabs/cl-sdk-docs@^1.0.0`.
 
 ## v0.11.0 — Declarations Promotion & Summary Generation
 

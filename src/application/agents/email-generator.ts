@@ -20,6 +20,7 @@ export async function generateBatchEmail(
   },
   generateText: GenerateText,
   providerOptions?: Record<string, unknown>,
+  maxTokens = 2048,
 ): Promise<{ text: string; usage?: TokenUsage }> {
   const fieldSummaries = batchFields.map((f) => ({
     id: f.id,
@@ -43,7 +44,7 @@ export async function generateBatchEmail(
   const { text, usage } = await withRetry(() =>
     generateText({
       prompt,
-      maxTokens: 2048,
+      maxTokens,
       providerOptions,
     }),
   );

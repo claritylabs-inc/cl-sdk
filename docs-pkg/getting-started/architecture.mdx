@@ -3,7 +3,7 @@ title: Architecture
 description: How CL SDK's pipelines and composable systems work
 ---
 
-CL SDK is organized into five systems: **document extraction**, **query agent**, **application processing**, **agent prompts**, and **storage & memory**. Each is independent — import only what you need.
+CL SDK is organized into eight systems: **document extraction**, **source grounding**, **query agent**, **application processing**, **policy change endorsements**, **case workflows**, **agent prompts**, and **storage & memory**. Each is independent -- import only what you need.
 
 ## Document extraction pipeline
 
@@ -83,6 +83,17 @@ A post-extraction formatting pass cleans up markdown in content-bearing fields o
 
 Breaks the formatted document into `DocumentChunk` objects for vector storage and retrieval.
 
+## Source grounding
+
+Source grounding is the shared evidence layer in v1. A `SourceSpan` captures a page, section, text range, and stable hash for a piece of source material. Extraction can receive spans through `extract(pdfBase64, documentId, { sourceSpans })`; those spans are filtered by page range and sent to focused extractors as `providerOptions.sourceSpans` and `providerOptions.sourceChunks`.
+
+The same primitives are reused by query, application, PCE, and case workflows:
+
+- **Source spans** preserve page and section provenance for extracted facts.
+- **Source chunks** turn spans into retrievable text windows without losing the original span IDs.
+- **Source stores and retrievers** let hosts persist spans and search them alongside vector chunks.
+- **Quoted evidence validation** checks that agent decisions cite real source text before a workflow is considered ready for automation.
+
 ## Query agent pipeline
 
 The query agent answers user questions against stored documents and inbound attachments with citation-backed provenance. It follows the same deterministic scaffold plus agentic decision-point pattern as extraction:
@@ -136,6 +147,28 @@ flowchart LR
 
 Persistent `ApplicationStore` tracks state across the multi-turn collection. `BackfillProvider` enables vector-based answer reuse from prior applications.
 
+Application processing can also receive `sourceSpans` on `processApplication`. Those spans are forwarded into classification, field extraction, auto-fill, lookup, and explanation calls so filled fields can carry evidence instead of ungrounded model notes.
+
+## Policy change endorsement pipeline
+
+The PCE workflow turns a requested policy change into reviewable, carrier-ready work:
+
+```mermaid
+flowchart LR
+  R[Requested Change] --> I[Intake + Parse]
+  I --> E[Collect Evidence]
+  E --> V[Validate Items]
+  V --> M[Select Execution Mode]
+  M --> P[Build Submission Packet]
+  P --> H[Human Review / Carrier Submission]
+```
+
+The agent extracts change items, links each item to quoted policy or conversation evidence, runs quality gates, and generates a submission packet. Execution mode selection separates draft-only, assisted, and automation-eligible paths from the same typed result.
+
+## Case workflows
+
+Case primitives provide shared state for workflows that need proposals, approvals, evidence, and dedupe decisions. PCE uses them for change proposals, but the same exports are available for claims intake, COI workflows, renewal prep, and other agent tasks that need durable human-review state.
+
 ## Agent prompt system
 
 A composable system for building insurance-aware conversational agents:
@@ -156,7 +189,7 @@ Each module is independently importable for custom composition. The system suppo
 
 ## Design principles
 
-- **Provider-agnostic** — uses plain callback functions (`GenerateText`, `GenerateObject`). Wrap any LLM provider — no framework dependency.
+- **Provider-agnostic** -- uses plain callback functions (`GenerateText`, `GenerateObject`). Wrap any LLM provider -- no framework dependency.
 - **Pure TypeScript** — no framework dependencies. Works in Node.js, Deno, edge runtimes.
 - **Fail gracefully** — page-aware planning, bounded workflow gates, merged follow-up extraction, review loops that check quality as well as completeness, and adaptive retry with exponential backoff.
 - **Schema-only tools** — tool definitions provide schemas without implementations, so consumers control execution.

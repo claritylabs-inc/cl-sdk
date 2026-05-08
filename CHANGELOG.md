@@ -1,3 +1,31 @@
+# [1.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v0.17.1...v1.0.0) (2026-05-08)
+
+
+### Major Release
+
+CL SDK 1.0.0 is the first stable release line. It expands the package from extraction-centric primitives into source-grounded insurance workflows for extraction, query, application processing, policy change endorsements, and reusable case state.
+
+
+### Features
+
+* add source grounding primitives: `SourceSpan`, `SourceChunk`, `SourceStore`, `SourceRetriever`, source builders, chunking, deterministic evidence ordering, and `MemorySourceStore`
+* support extraction source spans through `extract(pdfBase64, documentId, { sourceSpans })`, page-filtered extractor context, derived `sourceChunks`, and optional `sourceStore` persistence
+* add source-aware extraction grounding and quality checks for weak evidence, unresolved referential values, missing provenance, and placeholder-style outputs
+* add performance reporting and model budget resolution through model capability metadata and per-task budget constraints
+* add source-span retrieval support to the query pipeline alongside document lookup, vector chunks, conversation history, and multimodal attachments
+* add application source grounding for PDF field evidence and reply source span IDs
+* add policy change endorsement workflows with request normalization, evidence collection, validation, execution mode selection, missing-info replies, submission packets, and quality reports
+* add shared case workflow primitives for quoted evidence validation, missing-info merging, stable IDs, proposal scoring, and packet artifacts
+* update the docs package with v1 migration, source grounding, PCE, case workflow, API, storage, and quality documentation
+
+
+### BREAKING CHANGES
+
+* package versions move from 0.x to 1.0.0 for `@claritylabs/cl-sdk` and `@claritylabs/cl-sdk-docs`
+* hosts should preserve richer provider options when present: `sourceSpans` and `sourceChunks` may now be passed in addition to existing `pdfBase64`, `images`, and `attachments`
+* extraction consumers should account for broader `ExtractionResult` output: `sourceSpans`, `sourceChunks`, and `performanceReport`
+
+
 ## [0.17.1](https://github.com/claritylabs-inc/cl-sdk/compare/v0.17.0...v0.17.1) (2026-04-26)
 
 

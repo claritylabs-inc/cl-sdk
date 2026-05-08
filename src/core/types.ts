@@ -1,4 +1,5 @@
 import type { ZodSchema } from "zod";
+import type { ModelTaskKind } from "./model-budget";
 
 /**
  * PDF input format that supports multiple delivery methods.
@@ -70,6 +71,20 @@ export type ConvertPdfToImagesFn = (
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
+}
+
+export interface ModelCallReport {
+  taskKind: ModelTaskKind;
+  label?: string;
+  maxTokens?: number;
+  usage?: TokenUsage;
+  usageReported: boolean;
+  durationMs?: number;
+}
+
+export interface PerformanceReport {
+  modelCalls: ModelCallReport[];
+  totalModelCallDurationMs: number;
 }
 
 /** Logging function for pipeline status messages. */

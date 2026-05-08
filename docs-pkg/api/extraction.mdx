@@ -15,7 +15,7 @@ Create an extraction pipeline instance. Returns an object with a single `extract
 |-----------|------|-------------|
 | `config` | `ExtractorConfig` | Pipeline configuration (required) |
 
-**Returns:** `{ extract(pdfBase64: string, documentId?: string): Promise<ExtractionResult> }`
+**Returns:** `{ extract(pdfBase64: string, documentId?: string, options?: ExtractOptions): Promise<ExtractionResult> }`
 
 ```typescript
 import { createExtractor } from "@claritylabs/cl-sdk";
@@ -27,15 +27,16 @@ const extractor = createExtractor({
   onTokenUsage: (usage) => console.log(`Tokens: ${usage.inputTokens} in, ${usage.outputTokens} out`),
 });
 
-const { document, chunks, tokenUsage, usageReporting } = await extractor.extract(pdfBase64);
+const { document, chunks, sourceSpans, sourceChunks, tokenUsage, usageReporting } =
+  await extractor.extract(pdfBase64, "policy-123", { sourceSpans: callerSourceSpans });
 ```
 
 The pipeline runs twelve phases automatically:
 
 1. **Classify** -- detect document type (policy/quote) and identify policy types, using the full PDF from `providerOptions.pdfBase64`
-2. **Form inventory and page map** -- identify form signals and map each page to focused extractors using page-scoped PDFs
+2. **Form inventory and page map** -- identify form signals and map each page to focused extractors using page-scoped PDFs and caller-provided source spans
 3. **Plan** -- build deterministic extraction tasks from the page map and template hints
-4. **Extract + merge** -- dispatch focused extractors in parallel (concurrency-limited), with each worker receiving a page-scoped PDF from `extractPageRange()` via `providerOptions.pdfBase64` or `providerOptions.images`
+4. **Extract + merge** -- dispatch focused extractors in parallel (concurrency-limited), with each worker receiving a page-scoped PDF from `extractPageRange()` via `providerOptions.pdfBase64` or `providerOptions.images`, plus page-filtered `providerOptions.sourceSpans` when available
 5. **Conditional supplementary extraction** -- run `supplementary` only when page assignments, form inventory, extracted text, or review follow-up tasks indicate hidden retrieval facts are likely present
 6. **Referential coverage resolution** -- resolve values like "shown in declarations" or "per schedule" with cheap local matches first, then bounded targeted lookups when useful
 7. **Review** -- check completeness and quality against template requirements and the live extractor catalog, dispatch additional extractors for gaps (up to `maxReviewRounds`)
@@ -153,8 +154,31 @@ interface ExtractorConfig {
    *  For extraction, this is also where the coordinator/worker pipeline passes PDF or image content to your callback.
    */
   providerOptions?: Record<string, unknown>;
+  /** Optional source evidence persistence */
+  sourceStore?: SourceStore;
+  /** Optional quality gate behavior */
+  qualityGate?: "off" | "warn" | "strict";
+  /** Optional model metadata for resolving per-task budgets */
+  modelCapabilities?: ModelCapabilities;
+  /** Optional per-task budget constraints */
+  modelBudgetConstraints?: Partial<Record<ModelTaskKind, ModelBudgetConstraint>>;
+  /** Optional checkpoint persistence callback */
+  onCheckpointSave?: (checkpoint: PipelineCheckpoint<ExtractionState>) => Promise<void>;
 }
 ```
+
+### `ExtractOptions`
+
+```typescript
+interface ExtractOptions {
+  /** Resume extraction from a previously saved checkpoint. */
+  resumeFrom?: PipelineCheckpoint<ExtractionState>;
+  /** Caller-provided raw source spans for this document. */
+  sourceSpans?: SourceSpan[];
+}
+```
+
+When `sourceSpans` are provided, the coordinator stores them in the result, chunks them into `sourceChunks`, persists both through `sourceStore` when configured, and forwards page-filtered source context into focused extractor calls.
 
 ### `ExtractionResult`
 
@@ -164,6 +188,10 @@ interface ExtractionResult {
   document: InsuranceDocument;
   /** Pre-computed chunks ready for vector storage */
   chunks: DocumentChunk[];
+  /** Caller-provided source spans that were used for grounding */
+  sourceSpans: SourceSpan[];
+  /** Source chunks derived from sourceSpans */
+  sourceChunks: SourceChunk[];
   /** Aggregate token usage across all model calls */
   tokenUsage: TokenUsage;
   /** Whether provider callbacks actually returned usage for each model call */
@@ -172,6 +200,8 @@ interface ExtractionResult {
     callsWithUsage: number;
     callsMissingUsage: number;
   };
+  /** Timing and model-call performance summary */
+  performanceReport: PerformanceReport;
   /** Structured extraction review details, when review ran */
   reviewReport?: ExtractionReviewReport;
   /** Last saved checkpoint when checkpoint persistence is configured */

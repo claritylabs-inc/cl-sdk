@@ -1,7 +1,7 @@
-// src/index.ts — v6 barrel exports
+// src/index.ts - public barrel exports
 
 // ── Core types ──
-export type { GenerateText, GenerateObject, EmbedText, ConvertPdfToImagesFn, TokenUsage, LogFn, PdfInput } from "./core/types";
+export type { GenerateText, GenerateObject, EmbedText, ConvertPdfToImagesFn, TokenUsage, ModelCallReport, PerformanceReport, LogFn, PdfInput } from "./core/types";
 
 // ── Core utilities ──
 export { withRetry } from "./core/retry";
@@ -13,6 +13,8 @@ export type { SafeGenerateOptions, SafeGenerateParams } from "./core/safe-genera
 export { toStrictSchema } from "./core/strict-schema";
 export { createPipelineContext } from "./core/pipeline";
 export type { PipelineCheckpoint, PipelineContext, PipelineContextOptions } from "./core/pipeline";
+export { resolveModelBudget } from "./core/model-budget";
+export type { ModelBudgetConstraint, ModelBudgetResolution, ModelCapabilities, ModelTaskKind, ResolveModelBudgetParams } from "./core/model-budget";
 
 // ── Schemas (Zod) + derived types ──
 export * from "./schemas/enums";
@@ -28,8 +30,12 @@ export * from "./schemas/underwriting";
 export * from "./schemas/declarations/index";
 export * from "./schemas/document";
 export * from "./schemas/platform";
+export * from "./schemas/pce";
 export type { ContextKeyMapping } from "./schemas/context-keys";
 export { CONTEXT_KEY_MAP } from "./schemas/context-keys";
+
+// ── Case workflow primitives ──
+export * from "./case";
 
 // ── Extraction pipeline ──
 export { createExtractor } from "./extraction/coordinator";
@@ -54,6 +60,9 @@ export type { AcroFormFieldInfo, FieldMapping, TextOverlay } from "./extraction/
 // ── Storage interfaces ──
 export type { DocumentStore, MemoryStore } from "./storage/interfaces";
 export type { DocumentChunk, ConversationTurn, ChunkFilter, DocumentFilters } from "./storage/chunk-types";
+
+// ── Source spans ──
+export * from "./source";
 
 // ── Agent prompts ──
 export {
@@ -94,6 +103,30 @@ export { buildInterpretAttachmentPrompt } from "./prompts/query/interpret-attach
 export { buildReasonPrompt } from "./prompts/query/reason";
 export { buildVerifyPrompt } from "./prompts/query/verify";
 export { buildRespondPrompt } from "./prompts/query/respond";
+
+// ── Policy change endorsement (PCE) MVP ──
+export {
+  buildPceSubmissionPacket,
+  collectPceEvidenceSources,
+  createPceAgent,
+  selectPceExecutionMode,
+  stablePolicyChangeItemId,
+  validatePceItems,
+} from "./pce";
+export {
+  buildPceQualityReport,
+} from "./pce/quality";
+export type {
+  PceAgentConfig,
+  PceExecutionModePreference,
+  ProcessPceChangeRequestInput,
+  ProcessPceChangeRequestResult,
+  ProcessPceReplyInput,
+  ProcessPceReplyResult,
+  GeneratePceSubmissionPacketInput,
+} from "./pce";
+export type { PceQualityGateStatus, PceQualityReport } from "./pce/quality";
+export * from "./prompts/pce";
 
 // ── Intent classification ──
 export { buildClassifyMessagePrompt } from "./prompts/intent";

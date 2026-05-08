@@ -208,6 +208,7 @@ export async function formatDocumentContent(
   generateText: GenerateText,
   options?: {
     providerOptions?: Record<string, unknown>;
+    maxTokens?: number;
     onProgress?: (message: string) => void;
     log?: LogFn;
   },
@@ -235,7 +236,7 @@ export async function formatDocumentContent(
       const result = await withRetry(() =>
         generateText({
           prompt,
-          maxTokens: 16384,
+          maxTokens: options?.maxTokens ?? 16384,
           providerOptions: options?.providerOptions,
         })
       );

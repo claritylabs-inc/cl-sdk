@@ -1,4 +1,6 @@
 import type { GenerateObject, TokenUsage } from "../core/types";
+import type { ModelTaskKind } from "../core/model-budget";
+import { resolveModelBudget } from "../core/model-budget";
 import { pLimit } from "../core/concurrency";
 import { safeGenerateObject } from "../core/safe-generate";
 import { createPipelineContext, type PipelineCheckpoint } from "../core/pipeline";
@@ -20,7 +22,7 @@ import type { QueryConfig, QueryInput, QueryOutput } from "./types";
 import { buildQueryReviewReport, type QueryReviewReport, type QueryVerifyRoundRecord } from "./quality";
 import { shouldFailQualityGate } from "../core/quality";
 import { interpretAttachments } from "./multimodal";
-import { buildInitialQueryWorkflowPlan, getWorkflowAction, type QueryWorkflowPlan } from "./workflow";
+import { buildInitialQueryWorkflowPlan, getWorkflowAction, resolveQueryRetrievalMode, type QueryWorkflowPlan } from "./workflow";
 
 /** Internal state checkpointed between query phases. */
 export interface QueryState {
@@ -38,14 +40,18 @@ export function createQueryAgent(config: QueryConfig) {
     generateObject,
     documentStore,
     memoryStore,
+    sourceRetriever,
     concurrency = 3,
     maxVerifyRounds = 1,
     retrievalLimit = 10,
+    retrievalMode: configRetrievalMode,
     onTokenUsage,
     onProgress,
     log,
     providerOptions,
     qualityGate = "warn",
+    modelCapabilities,
+    modelBudgetConstraints,
   } = config;
 
   const limit = pLimit(concurrency);
@@ -57,6 +63,15 @@ export function createQueryAgent(config: QueryConfig) {
       totalUsage.outputTokens += usage.outputTokens;
       onTokenUsage?.(usage);
     }
+  }
+
+  function resolveBudget(taskKind: ModelTaskKind, hintTokens: number) {
+    return resolveModelBudget({
+      taskKind,
+      hintTokens,
+      modelCapabilities,
+      constraint: modelBudgetConstraints?.[taskKind],
+    });
   }
 
   async function query(input: QueryInput): Promise<QueryOutput> {
@@ -74,6 +89,8 @@ export function createQueryAgent(config: QueryConfig) {
       question,
       generateObject,
       providerOptions,
+      modelCapabilities,
+      modelBudgetConstraints,
       log,
       onUsage: trackUsage,
     });
@@ -85,14 +102,28 @@ export function createQueryAgent(config: QueryConfig) {
     await pipelineCtx.save("classify", { classification, attachmentEvidence });
 
     // -- Phase 2: Retrieve (parallel) --
+    const effectiveRetrievalMode = resolveQueryRetrievalMode({
+      inputMode: input.retrievalMode,
+      configMode: configRetrievalMode,
+      classificationMode: classification.retrievalMode,
+      supportsSourceRetrieval: !!sourceRetriever,
+    });
+
     const retrieverConfig: RetrieverConfig = {
       documentStore,
       memoryStore,
+      sourceRetriever,
       retrievalLimit,
+      retrievalMode: effectiveRetrievalMode,
       log,
     };
 
-    const workflowPlan = buildInitialQueryWorkflowPlan({ classification, attachmentEvidence });
+    const workflowPlan = buildInitialQueryWorkflowPlan({
+      classification,
+      attachmentEvidence,
+      retrievalMode: effectiveRetrievalMode,
+      supportsSourceRetrieval: !!sourceRetriever,
+    });
     const retrieveAction = getWorkflowAction(workflowPlan, "retrieve");
     const reasonAction = getWorkflowAction(workflowPlan, "reason");
     await pipelineCtx.save("workflow", { classification, attachmentEvidence, workflowPlan });
@@ -113,7 +144,7 @@ export function createQueryAgent(config: QueryConfig) {
 
     // -- Phase 3: Reason (parallel, with isolation) --
     onProgress?.("Reasoning over evidence...");
-    const reasonerConfig: ReasonerConfig = { generateObject, providerOptions };
+    const reasonerConfig: ReasonerConfig = { generateObject, providerOptions, modelCapabilities, modelBudgetConstraints };
 
     // Use Promise.allSettled so one failing sub-question doesn't kill the rest
     const subQuestionsToReason = reasonAction?.subQuestions ?? classification.subQuestions;
@@ -155,7 +186,7 @@ export function createQueryAgent(config: QueryConfig) {
 
     // -- Phase 4: Verify (with retry loop) --
     onProgress?.("Verifying answer grounding...");
-    const verifierConfig: VerifierConfig = { generateObject, providerOptions };
+    const verifierConfig: VerifierConfig = { generateObject, providerOptions, modelCapabilities, modelBudgetConstraints };
 
     const verifyRounds: QueryVerifyRoundRecord[] = [];
     for (let round = 0; round < maxVerifyRounds; round++) {
@@ -312,12 +343,13 @@ export function createQueryAgent(config: QueryConfig) {
 
     const prompt = buildQueryClassifyPrompt(question, conversationContext, attachmentContext);
 
+    const budget = resolveBudget("query_classify", 2048);
     const { object, usage } = await safeGenerateObject(
       generateObject as GenerateObject<QueryClassifyResult>,
       {
         prompt,
         schema: QueryClassifyResultSchema,
-        maxTokens: 2048,
+        maxTokens: budget.maxTokens,
         providerOptions,
       },
       {
@@ -332,6 +364,7 @@ export function createQueryAgent(config: QueryConfig) {
           requiresDocumentLookup: true,
           requiresChunkSearch: true,
           requiresConversationHistory: !!conversationId,
+          retrievalMode: sourceRetriever ? "hybrid" : "graph_only",
         },
         log,
         onError: (err, attempt) =>
@@ -378,12 +411,13 @@ export function createQueryAgent(config: QueryConfig) {
 
     const prompt = buildRespondPrompt(originalQuestion, subAnswersJson, platform);
 
+    const budget = resolveBudget("query_respond", 4096);
     const { object, usage } = await safeGenerateObject(
       generateObject as GenerateObject<QueryResult>,
       {
         prompt,
         schema: QueryResultSchema,
-        maxTokens: 4096,
+        maxTokens: budget.maxTokens,
         providerOptions,
       },
       {

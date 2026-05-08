@@ -1,0 +1,47 @@
+---
+title: Source Quality Gates
+description: How CL SDK checks source-backed extraction and workflow results
+---
+
+Source grounding improves automation only when the evidence is checked. v1 adds deterministic quality gates around extraction, PCE, and shared case workflows.
+
+## Extraction gates
+
+When source spans are available, extraction checks for weak grounding in high-value records:
+
+- records with page-mapped source spans but no extracted values
+- records that cite page or form provenance inconsistently
+- generic placeholder language such as "see attached form" without resolved values
+- referential coverage values that still point to schedules or declarations after review
+- source hash mismatches when source span IDs are attached to extracted records
+
+These checks do not replace review. They give the coordinator a deterministic signal for follow-up tasks and give host UIs a clear warning surface.
+
+## Quoted evidence gates
+
+Case and PCE helpers validate that a quote exists in the cited source:
+
+```typescript
+import { validateQuotedEvidence } from "@claritylabs/cl-sdk";
+
+const issues = validateQuotedEvidence({
+  fieldPath: "limits.generalLiability.perOccurrence",
+  quote: "$1,000,000 each occurrence",
+  citation,
+  sources,
+  severity: "blocking",
+});
+```
+
+If the quote is missing, the citation is missing, or the quote is not contained in the cited source text, the helper returns a validation issue.
+
+## PCE quality reports
+
+`buildPceQualityReport()` summarizes readiness:
+
+- missing required change details
+- missing or invalid source evidence
+- blocked automation because of missing information
+- warnings that should be reviewed before carrier submission
+
+Hosts should show these reports beside the submission packet and keep the packet in draft or assisted mode until blocking issues are resolved.

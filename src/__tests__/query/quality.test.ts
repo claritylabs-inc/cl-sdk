@@ -55,4 +55,42 @@ describe("buildQueryReviewReport", () => {
     expect(report.qualityGateStatus).toBe("passed");
     expect(report.issues).toHaveLength(0);
   });
+
+  it("fails contractual or numeric claims cited only to non-source evidence", () => {
+    const report = buildQueryReviewReport({
+      subAnswers: [
+        {
+          subQuestion: "What is the policy limit?",
+          answer: "The policy limit is $1,000,000.",
+          citations: [
+            {
+              index: 1,
+              chunkId: "doc-summary",
+              documentId: "doc-1",
+              quote: "Limit: $1,000,000",
+              relevance: 0.9,
+            },
+          ],
+          confidence: 0.8,
+          needsMoreContext: false,
+        },
+      ],
+      evidence: [
+        {
+          source: "document",
+          chunkId: "doc-summary",
+          documentId: "doc-1",
+          text: "Limit: $1,000,000",
+          relevance: 0.9,
+        },
+      ],
+      verifyRounds: [{ round: 1, approved: true, issues: [] }],
+    });
+
+    expect(report.qualityGateStatus).toBe("failed");
+    expect(report.issues).toContainEqual(expect.objectContaining({
+      code: "citation_claim_lacks_chunk_or_source_span",
+      severity: "blocking",
+    }));
+  });
 });

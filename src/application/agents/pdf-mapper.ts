@@ -36,6 +36,7 @@ export async function mapToFlatPdf(
   filledFields: ApplicationField[],
   generateObject: GenerateObject,
   providerOptions?: Record<string, unknown>,
+  maxTokens = 8192,
 ): Promise<{ placements: FlatPdfPlacement[]; usage?: TokenUsage }> {
   const fieldSummaries = filledFields
     .filter((f) => f.value)
@@ -52,7 +53,7 @@ export async function mapToFlatPdf(
     generateObject({
       prompt,
       schema: FlatMappingResultSchema,
-      maxTokens: 8192,
+      maxTokens,
       providerOptions,
     }),
   );
@@ -69,6 +70,7 @@ export async function mapToAcroForm(
   acroFormFields: { name: string; type: string; options?: string[] }[],
   generateObject: GenerateObject,
   providerOptions?: Record<string, unknown>,
+  maxTokens = 4096,
 ): Promise<{ mappings: AcroFormMapping[]; usage?: TokenUsage }> {
   const fieldSummaries = filledFields
     .filter((f) => f.value)
@@ -84,7 +86,7 @@ export async function mapToAcroForm(
     generateObject({
       prompt,
       schema: AcroFormMappingResultSchema,
-      maxTokens: 4096,
+      maxTokens,
       providerOptions,
     }),
   );

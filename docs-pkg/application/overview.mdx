@@ -26,6 +26,7 @@ const pipeline = createApplicationPipeline({
 const { state } = await pipeline.processApplication({
   pdfBase64: "...",
   applicationId: "app-123",
+  sourceSpans, // optional page/field evidence from the application PDF
 });
 
 // Generate email for current batch of questions
@@ -35,6 +36,7 @@ const { text: emailBody } = await pipeline.generateCurrentBatchEmail("app-123");
 const { fieldsFilled, responseText } = await pipeline.processReply({
   applicationId: "app-123",
   replyText: "1. Yes\n2. $1,000,000\n3. Check our website",
+  replySourceSpanIds: ["email-789:span:0"],
 });
 ```
 
@@ -70,6 +72,8 @@ The planner looks at extracted fields, available stores, org context, and curren
 - **Batching** — only when unfilled fields remain after optional fill work
 
 Selected fill strategies run in parallel to maximize pre-filled fields before asking the user anything.
+
+When `sourceSpans` are passed to `processApplication`, the pipeline forwards them to classification, field extraction, auto-fill, lookup, and explanation calls. This lets fields retain page or field-level evidence and gives downstream review surfaces a source-backed audit trail.
 
 ### Phase 4: Batch questions if needed
 
@@ -121,6 +125,8 @@ interface ApplicationStore {
 ```
 
 `ApplicationState` tracks: fields (with values and sources), batches, current batch index, and status (`classifying` → `extracting` → `auto_filling` → `batching` → `collecting` → `confirming` → `mapping` → `complete`).
+
+Fields can also carry source span IDs for values derived from PDF text, prior answers, user replies, or lookup evidence. Hosts should display those references beside auto-filled answers before final PDF mapping.
 
 ## Vector-based answer backfill
 

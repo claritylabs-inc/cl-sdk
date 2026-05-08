@@ -1,7 +1,11 @@
-import type { GenerateText, GenerateObject, TokenUsage, ConvertPdfToImagesFn, LogFn, PdfInput } from "../core/types";
+import type { GenerateText, GenerateObject, TokenUsage, ConvertPdfToImagesFn, LogFn, PdfInput, PerformanceReport, ModelCallReport } from "../core/types";
 import type { QualityGateMode } from "../core/quality";
+import type { ModelBudgetConstraint, ModelCapabilities, ModelTaskKind } from "../core/model-budget";
+import { resolveModelBudget } from "../core/model-budget";
 import type { InsuranceDocument } from "../schemas/document";
 import type { DocumentChunk } from "../storage/chunk-types";
+import type { SourceChunk, SourceSpan, SourceStore } from "../source";
+import { chunkSourceSpans } from "../source";
 import { pLimit } from "../core/concurrency";
 import { safeGenerateObject } from "../core/safe-generate";
 import { createPipelineContext, type PipelineCheckpoint } from "../core/pipeline";
@@ -36,6 +40,7 @@ import {
   readRecordArray,
 } from "./memory";
 import { looksCoveredReasonSection } from "./heuristics";
+import { groundExtractionMemoryWithSourceSpans } from "./source-grounding";
 
 /** Internal state checkpointed between extraction phases. */
 export interface ExtractionState {
@@ -60,7 +65,10 @@ export interface ExtractorConfig {
   onProgress?: (message: string) => void;
   log?: LogFn;
   providerOptions?: Record<string, unknown>;
+  sourceStore?: SourceStore;
   qualityGate?: QualityGateMode;
+  modelCapabilities?: ModelCapabilities;
+  modelBudgetConstraints?: Partial<Record<ModelTaskKind, ModelBudgetConstraint>>;
   /** Optional checkpoint persistence callback. */
   onCheckpointSave?: (checkpoint: PipelineCheckpoint<ExtractionState>) => Promise<void>;
 }
@@ -68,12 +76,15 @@ export interface ExtractorConfig {
 export interface ExtractionResult {
   document: InsuranceDocument;
   chunks: DocumentChunk[];
+  sourceSpans: SourceSpan[];
+  sourceChunks: SourceChunk[];
   tokenUsage: TokenUsage;
   usageReporting: {
     modelCalls: number;
     callsWithUsage: number;
     callsMissingUsage: number;
   };
+  performanceReport: PerformanceReport;
   reviewReport: ExtractionReviewReport;
   /** Last checkpoint — can be passed as `resumeFrom` to retry from a failure point. */
   checkpoint?: PipelineCheckpoint<ExtractionState>;
@@ -82,6 +93,8 @@ export interface ExtractionResult {
 export interface ExtractOptions {
   /** Resume extraction from a previously saved checkpoint. */
   resumeFrom?: PipelineCheckpoint<ExtractionState>;
+  /** Caller-provided raw source spans for this document, reused for evidence grounding and optional persistence. */
+  sourceSpans?: SourceSpan[];
 }
 
 export function createExtractor(config: ExtractorConfig) {
@@ -95,7 +108,10 @@ export function createExtractor(config: ExtractorConfig) {
     onProgress,
     log,
     providerOptions,
+    sourceStore,
     qualityGate = "warn",
+    modelCapabilities,
+    modelBudgetConstraints,
     onCheckpointSave,
   } = config;
 
@@ -105,8 +121,22 @@ export function createExtractor(config: ExtractorConfig) {
   let modelCalls = 0;
   let callsWithUsage = 0;
   let callsMissingUsage = 0;
+  let performanceReport: PerformanceReport = {
+    modelCalls: [],
+    totalModelCallDurationMs: 0,
+  };
+  let activeProviderOptions = providerOptions;
 
-  function trackUsage(usage?: TokenUsage) {
+  function resolveBudget(taskKind: ModelTaskKind, hintTokens: number) {
+    return resolveModelBudget({
+      taskKind,
+      hintTokens,
+      modelCapabilities,
+      constraint: modelBudgetConstraints?.[taskKind],
+    });
+  }
+
+  function trackUsage(usage?: TokenUsage, report?: Omit<ModelCallReport, "usage" | "usageReported">) {
     modelCalls += 1;
     if (usage) {
       callsWithUsage += 1;
@@ -115,6 +145,16 @@ export function createExtractor(config: ExtractorConfig) {
       onTokenUsage?.(usage);
     } else {
       callsMissingUsage += 1;
+    }
+    if (report) {
+      performanceReport.modelCalls.push({
+        ...report,
+        usage,
+        usageReported: !!usage,
+      });
+      if (report.durationMs) {
+        performanceReport.totalModelCallDurationMs += report.durationMs;
+      }
     }
   }
 
@@ -225,9 +265,11 @@ export function createExtractor(config: ExtractorConfig) {
     task: ExtractionPlan["tasks"][number],
     pdfInput: PdfInput,
     memory: Map<string, unknown>,
+    pageRangeCache?: Map<string, string>,
   ) {
     if (task.extractorName === "supplementary") {
       const alreadyExtractedSummary = buildAlreadyExtractedSummary(memory);
+      const budget = resolveBudget("extraction_focused", 4096);
       const result = await runExtractor({
         name: "supplementary",
         prompt: buildSupplementaryPrompt(alreadyExtractedSummary),
@@ -237,10 +279,15 @@ export function createExtractor(config: ExtractorConfig) {
         endPage: task.endPage,
         generateObject,
         convertPdfToImages,
-        maxTokens: 4096,
-        providerOptions,
+        maxTokens: budget.maxTokens,
+        providerOptions: activeProviderOptions,
+        pageRangeCache,
       });
-      trackUsage(result.usage);
+      trackUsage(result.usage, {
+        taskKind: "extraction_focused",
+        label: "supplementary",
+        maxTokens: budget.maxTokens,
+      });
       return result;
     }
 
@@ -249,8 +296,10 @@ export function createExtractor(config: ExtractorConfig) {
       pdfInput,
       generateObject,
       convertPdfToImages,
-      providerOptions,
+      providerOptions: activeProviderOptions,
+      pageRangeCache,
       trackUsage,
+      resolveBudget,
       log,
     });
   }
@@ -282,6 +331,22 @@ export function createExtractor(config: ExtractorConfig) {
     modelCalls = 0;
     callsWithUsage = 0;
     callsMissingUsage = 0;
+    performanceReport = {
+      modelCalls: [],
+      totalModelCallDurationMs: 0,
+    };
+    const sourceSpans = options?.sourceSpans ?? [];
+    const sourceChunks = sourceSpans.length ? chunkSourceSpans(sourceSpans) : [];
+    activeProviderOptions = sourceSpans.length
+      ? { ...providerOptions, sourceSpans, sourceChunks }
+      : providerOptions;
+
+    if (sourceStore && sourceSpans.length > 0) {
+      await sourceStore.addSourceSpans(sourceSpans);
+      if (sourceChunks.length > 0) {
+        await sourceStore.addSourceChunks(sourceChunks);
+      }
+    }
 
     // Set up checkpoint context
     const pipelineCtx = createPipelineContext<ExtractionState>({
@@ -303,6 +368,7 @@ export function createExtractor(config: ExtractorConfig) {
     // FileId references cannot be used for page range extraction, so we
     // need to convert them to base64 once and reuse for extractors
     let pdfBase64Cache: string | undefined;
+    const pageRangePdfCache = new Map<string, string>();
 
     // Helper to get base64 for page extraction operations
     async function getPdfBase64ForExtraction(): Promise<string> {
@@ -310,6 +376,15 @@ export function createExtractor(config: ExtractorConfig) {
         pdfBase64Cache = await pdfInputToBase64(pdfInput);
       }
       return pdfBase64Cache;
+    }
+
+    async function getPageRangePdf(startPage: number, endPage: number): Promise<string> {
+      const cacheKey = `${startPage}-${endPage}`;
+      const cached = pageRangePdfCache.get(cacheKey);
+      if (cached) return cached;
+      const pagesPdf = await extractPageRange(await getPdfBase64ForExtraction(), startPage, endPage);
+      pageRangePdfCache.set(cacheKey, pagesPdf);
+      return pagesPdf;
     }
 
     // Step 1: Classify
@@ -320,14 +395,15 @@ export function createExtractor(config: ExtractorConfig) {
     } else {
       onProgress?.("Classifying document...");
       const pageCount = await getPdfPageCount(pdfInput);
+      const budget = resolveBudget("extraction_classify", 512);
 
       const classifyResponse = await safeGenerateObject(
         generateObject as GenerateObject<ClassifyResult>,
         {
           prompt: buildClassifyPrompt(),
           schema: ClassifyResultSchema,
-          maxTokens: 512,
-          providerOptions: await buildPdfProviderOptions(pdfInput, providerOptions),
+          maxTokens: budget.maxTokens,
+          providerOptions: await buildPdfProviderOptions(pdfInput, activeProviderOptions),
         },
         {
           fallback: { documentType: "policy" as const, policyTypes: ["other" as const], confidence: 0 },
@@ -337,7 +413,11 @@ export function createExtractor(config: ExtractorConfig) {
             log?.(`Classify attempt ${attempt + 1} failed: ${err instanceof Error ? err.message : String(err)}`),
         },
       );
-      trackUsage(classifyResponse.usage);
+      trackUsage(classifyResponse.usage, {
+        taskKind: "extraction_classify",
+        label: "classify",
+        maxTokens: budget.maxTokens,
+      });
       classifyResult = classifyResponse.object;
 
       if (classifyResult.confidence === 0) {
@@ -354,7 +434,8 @@ export function createExtractor(config: ExtractorConfig) {
       });
     }
 
-    const { documentType, policyTypes } = classifyResult;
+    const documentType = classifyResult.documentType;
+    const policyTypes = classifyResult.policyTypes ?? [];
     const primaryType = policyTypes[0] ?? "other";
     const template = getTemplate(primaryType);
     const pageCount = resumed?.pageCount ?? await getPdfPageCount(pdfInput);
@@ -368,14 +449,15 @@ export function createExtractor(config: ExtractorConfig) {
       onProgress?.("Resuming from checkpoint (form inventory complete)...");
     } else {
       onProgress?.(`Building form inventory for ${primaryType} ${documentType}...`);
+      const budget = resolveBudget("extraction_form_inventory", 2048);
 
       const formInventoryResponse = await safeGenerateObject(
         generateObject as GenerateObject<FormInventoryResult>,
         {
           prompt: buildFormInventoryPrompt(templateHints),
           schema: FormInventorySchema,
-          maxTokens: 2048,
-          providerOptions: await buildPdfProviderOptions(pdfInput, providerOptions),
+          maxTokens: budget.maxTokens,
+          providerOptions: await buildPdfProviderOptions(pdfInput, activeProviderOptions),
         },
         {
           fallback: { forms: [] },
@@ -384,7 +466,11 @@ export function createExtractor(config: ExtractorConfig) {
             log?.(`Form inventory attempt ${attempt + 1} failed: ${err instanceof Error ? err.message : String(err)}`),
         },
       );
-      trackUsage(formInventoryResponse.usage);
+      trackUsage(formInventoryResponse.usage, {
+        taskKind: "extraction_form_inventory",
+        label: "form_inventory",
+        maxTokens: budget.maxTokens,
+      });
       formInventory = formInventoryResponse.object;
       memory.set("form_inventory", formInventory);
 
@@ -406,48 +492,63 @@ export function createExtractor(config: ExtractorConfig) {
       onProgress?.(`Mapping document pages for ${primaryType} ${documentType}...`);
       const chunkSize = 8;
       const collectedAssignments: PageAssignment[] = [];
-      const formInventoryHint = formInventory?.forms.length
+      const formInventoryHint = formInventory?.forms?.length
         ? formatFormInventoryForPageMap(formInventory.forms)
         : undefined;
 
-      // Get base64 for page extraction (caches after first conversion for fileId/URL inputs)
-      const extractionBase64 = await getPdfBase64ForExtraction();
+      const pageMapChunks = Array.from(
+        { length: Math.ceil(pageCount / chunkSize) },
+        (_, index) => {
+          const startPage = index * chunkSize + 1;
+          return { startPage, endPage: Math.min(pageCount, startPage + chunkSize - 1) };
+        },
+      );
 
-      for (let startPage = 1; startPage <= pageCount; startPage += chunkSize) {
-        const endPage = Math.min(pageCount, startPage + chunkSize - 1);
-        const pagesPdf = await extractPageRange(extractionBase64, startPage, endPage);
-        const mapResponse = await safeGenerateObject(
-          generateObject as GenerateObject<{ pages: PageAssignment[] }>,
-          {
-            prompt: buildPageMapPrompt(templateHints, startPage, endPage, formInventoryHint),
-            schema: PageMapChunkSchema,
-            maxTokens: 2048,
-            providerOptions: { ...providerOptions, pdfBase64: pagesPdf },
-          },
-          {
-            fallback: {
-              pages: Array.from({ length: endPage - startPage + 1 }, (_, index): PageAssignment => ({
-                localPageNumber: index + 1,
-                extractorNames: index === 0 && startPage === 1
-                  ? ["carrier_info", "named_insured", "declarations", "coverage_limits"]
-                  : ["sections"],
-                confidence: 0,
-                notes: "Fallback page assignment",
-              })),
-            },
-            log,
-            onError: (err, attempt) =>
-              log?.(`Page map attempt ${attempt + 1} failed for pages ${startPage}-${endPage}: ${err}`),
-          },
-        );
-        trackUsage(mapResponse.usage);
+      const pageMapResults = await Promise.all(
+        pageMapChunks.map(({ startPage, endPage }) =>
+          limit(async () => {
+            const pagesPdf = await getPageRangePdf(startPage, endPage);
+            const budget = resolveBudget("extraction_page_map", 2048);
+            const mapResponse = await safeGenerateObject(
+              generateObject as GenerateObject<{ pages: PageAssignment[] }>,
+              {
+                prompt: buildPageMapPrompt(templateHints, startPage, endPage, formInventoryHint),
+                schema: PageMapChunkSchema,
+                maxTokens: budget.maxTokens,
+                providerOptions: { ...activeProviderOptions, pdfBase64: pagesPdf },
+              },
+              {
+                fallback: {
+                  pages: Array.from({ length: endPage - startPage + 1 }, (_, index): PageAssignment => ({
+                    localPageNumber: index + 1,
+                    extractorNames: index === 0 && startPage === 1
+                      ? ["carrier_info", "named_insured", "declarations", "coverage_limits"]
+                      : ["sections"],
+                    confidence: 0,
+                    notes: "Fallback page assignment",
+                  })),
+                },
+                log,
+                onError: (err, attempt) =>
+                  log?.(`Page map attempt ${attempt + 1} failed for pages ${startPage}-${endPage}: ${err}`),
+              },
+            );
+            trackUsage(mapResponse.usage, {
+              taskKind: "extraction_page_map",
+              label: `page_map:${startPage}-${endPage}`,
+              maxTokens: budget.maxTokens,
+            });
 
-        for (const assignment of mapResponse.object.pages) {
-          collectedAssignments.push({
-            ...assignment,
-            localPageNumber: startPage + assignment.localPageNumber - 1,
-          });
-        }
+            return mapResponse.object.pages.map((assignment) => ({
+              ...assignment,
+              localPageNumber: startPage + assignment.localPageNumber - 1,
+            }));
+          }),
+        ),
+      );
+
+      for (const assignments of pageMapResults) {
+        collectedAssignments.push(...assignments);
       }
 
       pageAssignments = collectedAssignments.length > 0
@@ -497,12 +598,13 @@ export function createExtractor(config: ExtractorConfig) {
     if (!pipelineCtx.isPhaseComplete("extract")) {
       const tasks = plan.tasks;
       onProgress?.(`Dispatching ${tasks.length} extractors...`);
+      const extractionPdfInput = await getPdfBase64ForExtraction();
 
       const extractorResults = await Promise.all(
         tasks.map((task) =>
           limit(async () => {
             onProgress?.(`Extracting ${task.extractorName} (pages ${task.startPage}-${task.endPage})...`);
-            return runFocusedExtractorTask(task, pdfInput, memory);
+            return runFocusedExtractorTask(task, extractionPdfInput, memory, pageRangePdfCache);
           })
         )
       );
@@ -518,6 +620,7 @@ export function createExtractor(config: ExtractorConfig) {
         onProgress?.("Extracting supplementary retrieval facts...");
         try {
           const alreadyExtractedSummary = buildAlreadyExtractedSummary(memory);
+          const budget = resolveBudget("extraction_focused", 4096);
           const supplementaryResult = await runExtractor({
             name: "supplementary",
             prompt: buildSupplementaryPrompt(alreadyExtractedSummary),
@@ -527,10 +630,15 @@ export function createExtractor(config: ExtractorConfig) {
             endPage: pageCount,
             generateObject,
             convertPdfToImages,
-            maxTokens: 4096,
-            providerOptions,
+            maxTokens: budget.maxTokens,
+            providerOptions: activeProviderOptions,
+            pageRangeCache: pageRangePdfCache,
           });
-          trackUsage(supplementaryResult.usage);
+          trackUsage(supplementaryResult.usage, {
+            taskKind: "extraction_focused",
+            label: "supplementary",
+            maxTokens: budget.maxTokens,
+          });
           mergeMemoryResult(supplementaryResult.name, supplementaryResult.data, memory);
         } catch (error) {
           await log?.(`Supplementary extractor failed: ${error}`);
@@ -559,11 +667,16 @@ export function createExtractor(config: ExtractorConfig) {
           generateObject,
           convertPdfToImages,
           concurrency,
-          providerOptions,
+          providerOptions: activeProviderOptions,
+          modelCapabilities,
+          modelBudgetConstraints,
           log,
           onProgress,
         });
-        trackUsage(resolution.usage);
+        trackUsage(resolution.usage, {
+          taskKind: "extraction_referential_lookup",
+          label: "referential_resolution",
+        });
         if (resolution.attempts > 0) {
           await log?.(`Referential resolution: ${resolution.resolved}/${resolution.attempts} resolved, ${resolution.unresolved} unresolved`);
         }
@@ -591,14 +704,15 @@ export function createExtractor(config: ExtractorConfig) {
         const extractedKeys = [...memory.keys()].filter((k) => k !== "classify");
         const extractionSummary = summarizeExtraction(memory);
         const pageMapSummary = formatPageMapSummary(pageAssignments);
+        const budget = resolveBudget("extraction_review", 1536);
 
         const reviewResponse = await safeGenerateObject(
           generateObject as GenerateObject<ReviewResult>,
           {
             prompt: buildReviewPrompt(template.required, extractedKeys, extractionSummary, pageMapSummary, extractorCatalog),
             schema: ReviewResultSchema,
-            maxTokens: 1536,
-            providerOptions: await buildPdfProviderOptions(pdfInput, providerOptions),
+            maxTokens: budget.maxTokens,
+            providerOptions: await buildPdfProviderOptions(pdfInput, activeProviderOptions),
           },
           {
             fallback: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
@@ -607,7 +721,11 @@ export function createExtractor(config: ExtractorConfig) {
               log?.(`Review round ${round + 1} attempt ${attempt + 1} failed: ${err}`),
           },
         );
-        trackUsage(reviewResponse.usage);
+        trackUsage(reviewResponse.usage, {
+          taskKind: "extraction_review",
+          label: `review:${round + 1}`,
+          maxTokens: budget.maxTokens,
+        });
         reviewRounds.push(toReviewRoundRecord(round + 1, reviewResponse.object));
 
         if (reviewResponse.object.qualityIssues?.length) {
@@ -620,10 +738,11 @@ export function createExtractor(config: ExtractorConfig) {
         }
 
         onProgress?.(`Review round ${round + 1}: dispatching ${reviewResponse.object.additionalTasks.length} follow-up extractors...`);
+        const extractionPdfInput = await getPdfBase64ForExtraction();
         const followUpResults = await Promise.all(
           reviewResponse.object.additionalTasks.map((task) =>
             limit(async () => {
-              return runFocusedExtractorTask(task, pdfInput, memory);
+              return runFocusedExtractorTask(task, extractionPdfInput, memory, pageRangePdfCache);
             })
           )
         );
@@ -635,10 +754,13 @@ export function createExtractor(config: ExtractorConfig) {
         }
       }
 
+      groundExtractionMemoryWithSourceSpans(memory, sourceSpans);
+
       reviewReport = buildExtractionReviewReport({
         memory,
         pageAssignments,
         reviewRounds,
+        sourceSpansAvailable: sourceSpans.length > 0,
       });
 
       if (reviewReport.issues.length > 0) {
@@ -663,10 +785,13 @@ export function createExtractor(config: ExtractorConfig) {
       });
     }
 
+    groundExtractionMemoryWithSourceSpans(memory, sourceSpans);
+
     reviewReport ??= buildExtractionReviewReport({
       memory,
       pageAssignments,
       reviewRounds,
+      sourceSpansAvailable: sourceSpans.length > 0,
     });
 
     // Step 7: Assemble
@@ -689,13 +814,14 @@ export function createExtractor(config: ExtractorConfig) {
     if (!document.summary) {
       onProgress?.("Generating document summary...");
       try {
+        const budget = resolveBudget("extraction_summary", 512);
         const summaryResponse = await safeGenerateObject(
           generateObject as GenerateObject<SummaryResult>,
           {
             prompt: buildSummaryPrompt(document),
             schema: SummaryResultSchema,
-            maxTokens: 512,
-            providerOptions,
+            maxTokens: budget.maxTokens,
+            providerOptions: activeProviderOptions,
           },
           {
             fallback: { summary: "" },
@@ -704,7 +830,11 @@ export function createExtractor(config: ExtractorConfig) {
               log?.(`Summary attempt ${attempt + 1} failed: ${err instanceof Error ? err.message : String(err)}`),
           },
         );
-        trackUsage(summaryResponse.usage);
+        trackUsage(summaryResponse.usage, {
+          taskKind: "extraction_summary",
+          label: "summary",
+          maxTokens: budget.maxTokens,
+        });
         if (summaryResponse.object.summary) {
           (document as Record<string, unknown>).summary = summaryResponse.object.summary;
         }
@@ -715,12 +845,18 @@ export function createExtractor(config: ExtractorConfig) {
 
     // Step 9: Format markdown content
     onProgress?.("Formatting extracted content...");
+    const formatBudget = resolveBudget("extraction_format", 16384);
     const formatResult = await formatDocumentContent(document, generateText, {
-      providerOptions,
+      providerOptions: activeProviderOptions,
+      maxTokens: formatBudget.maxTokens,
       onProgress,
       log,
     });
-    trackUsage(formatResult.usage);
+    trackUsage(formatResult.usage, {
+      taskKind: "extraction_format",
+      label: "format",
+      maxTokens: formatBudget.maxTokens,
+    });
 
     const chunks = chunkDocument(formatResult.document);
 
@@ -734,12 +870,15 @@ export function createExtractor(config: ExtractorConfig) {
     return {
       document: formatResult.document,
       chunks,
+      sourceSpans,
+      sourceChunks,
       tokenUsage: totalUsage,
       usageReporting: {
         modelCalls,
         callsWithUsage,
         callsMissingUsage,
       },
+      performanceReport,
       checkpoint: finalCheckpoint,
       reviewReport,
     };

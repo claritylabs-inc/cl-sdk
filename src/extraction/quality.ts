@@ -91,6 +91,7 @@ export function buildExtractionReviewReport(params: {
   memory: Map<string, unknown>;
   pageAssignments: PageAssignment[];
   reviewRounds: ReviewRoundRecord[];
+  sourceSpansAvailable?: boolean;
 }): ExtractionReviewReport {
   const { memory, reviewRounds } = params;
   const deterministicIssues: QualityIssue[] = [];
@@ -114,6 +115,16 @@ export function buildExtractionReviewReport(params: {
       : sections.filter(looksCoveredReasonSection);
   const mappedDefinitions = params.pageAssignments.some((assignment) => assignment.extractorNames.includes("definitions"));
   const mappedCoveredReasons = params.pageAssignments.some((assignment) => assignment.extractorNames.includes("covered_reasons"));
+
+  if (params.sourceSpansAvailable) {
+    addMissingSourceGroundingIssues(deterministicIssues, "coverage_limits", "coverages", coverages, "name");
+    addMissingSourceGroundingIssues(deterministicIssues, "endorsements", "endorsements", endorsements, "title");
+    addMissingSourceGroundingIssues(deterministicIssues, "exclusions", "exclusions", exclusions, "name");
+    addMissingSourceGroundingIssues(deterministicIssues, "conditions", "conditions", conditions, "name");
+    addMissingSourceGroundingIssues(deterministicIssues, "sections", "sections", sections, "title");
+    addMissingSourceGroundingIssues(deterministicIssues, "definitions", "definitions", definitions, "term");
+    addMissingSourceGroundingIssues(deterministicIssues, "covered_reasons", "coveredReasons", coveredReasons, "name");
+  }
 
   if (mappedDefinitions && definitions.length === 0) {
     deterministicIssues.push({
@@ -470,6 +481,37 @@ export function buildExtractionReviewReport(params: {
     formInventory,
     qualityGateStatus,
   };
+}
+
+function addMissingSourceGroundingIssues(
+  issues: QualityIssue[],
+  extractorName: string,
+  arrayName: string,
+  records: Array<Record<string, unknown>>,
+  labelKey: string,
+) {
+  for (const record of records) {
+    if (!recordHasContent(record)) continue;
+    if (Array.isArray(record.sourceSpanIds) && record.sourceSpanIds.length > 0) continue;
+    issues.push({
+      code: "record_missing_source_span",
+      severity: "blocking",
+      message: `${extractorName}.${arrayName} record "${String(record[labelKey] ?? record.name ?? record.title ?? "unknown")}" is missing source span grounding.`,
+      extractorName,
+      pageNumber: typeof record.pageNumber === "number"
+        ? record.pageNumber
+        : typeof record.pageStart === "number"
+          ? record.pageStart
+          : undefined,
+      formNumber: typeof record.formNumber === "string" ? record.formNumber : undefined,
+      itemName: typeof record[labelKey] === "string" ? record[labelKey] : undefined,
+    });
+  }
+}
+
+function recordHasContent(record: Record<string, unknown>): boolean {
+  return ["name", "title", "term", "field", "coverageName", "content", "originalContent", "value", "limit", "deductible", "premium"]
+    .some((key) => typeof record[key] === "string" && record[key].trim().length > 0);
 }
 
 export function toReviewRoundRecord(round: number, review: ReviewResult): ReviewRoundRecord {

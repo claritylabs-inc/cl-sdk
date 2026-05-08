@@ -1,5 +1,7 @@
 import { safeGenerateObject } from "../core/safe-generate";
 import type { GenerateObject, LogFn, TokenUsage } from "../core/types";
+import type { ModelBudgetConstraint, ModelCapabilities, ModelTaskKind } from "../core/model-budget";
+import { resolveModelBudget } from "../core/model-budget";
 import { buildInterpretAttachmentPrompt } from "../prompts/query/interpret-attachment";
 import {
   AttachmentInterpretationSchema,
@@ -75,10 +77,12 @@ export async function interpretAttachments(params: {
   question: string;
   generateObject: GenerateObject;
   providerOptions?: Record<string, unknown>;
+  modelCapabilities?: ModelCapabilities;
+  modelBudgetConstraints?: Partial<Record<ModelTaskKind, ModelBudgetConstraint>>;
   log?: LogFn;
   onUsage?: (usage?: TokenUsage) => void;
 }): Promise<{ evidence: EvidenceItem[]; contextSummary?: string }> {
-  const { attachments = [], question, generateObject, providerOptions, log, onUsage } = params;
+  const { attachments = [], question, generateObject, providerOptions, modelCapabilities, modelBudgetConstraints, log, onUsage } = params;
 
   if (attachments.length === 0) {
     return { evidence: [] };
@@ -113,13 +117,19 @@ export async function interpretAttachments(params: {
     }
 
     const prompt = buildInterpretAttachmentPrompt(question, attachment);
+    const budget = resolveModelBudget({
+      taskKind: "query_attachment",
+      hintTokens: 2048,
+      modelCapabilities,
+      constraint: modelBudgetConstraints?.query_attachment,
+    });
 
     const { object, usage } = await safeGenerateObject<AttachmentInterpretation>(
       generateObject as GenerateObject<AttachmentInterpretation>,
       {
         prompt,
         schema: AttachmentInterpretationSchema,
-        maxTokens: 2048,
+        maxTokens: budget.maxTokens,
         providerOptions: buildAttachmentProviderOptions(attachment, providerOptions),
       },
       {

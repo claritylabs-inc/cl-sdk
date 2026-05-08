@@ -1,0 +1,55 @@
+---
+title: Policy Change Endorsements
+description: Build source-grounded PCE intake, validation, and submission workflows
+---
+
+Policy change endorsement (PCE) workflows turn natural-language change requests into structured, reviewable carrier work. The v1 PCE module is intentionally host-controlled: CL SDK normalizes requests, collects evidence, validates readiness, and builds submission packets. Your application controls storage, permissions, review, and final carrier submission.
+
+## Capabilities
+
+- Parse requested changes into typed `PolicyChangeItem[]`.
+- Retrieve policy or conversation evidence through a `SourceRetriever`.
+- Ask missing-information questions when a change is not ready.
+- Build policy impact summaries for review.
+- Select an execution mode: deterministic tree, market evaluation, or hybrid.
+- Generate submission artifacts with citations and validation issues.
+
+## Quick start
+
+```typescript
+import { createPceAgent, MemorySourceStore } from "@claritylabs/cl-sdk";
+
+const sourceRetriever = new MemorySourceStore();
+
+const pce = createPceAgent({
+  generateObject,
+  sourceRetriever,
+  executionMode: "auto",
+});
+
+const { state } = await pce.processChangeRequest({
+  requestText: "Add 2024 Ford Transit VIN 1FT... to the commercial auto policy.",
+  caseId: "pce-123",
+});
+
+if (state.missingInfoQuestions.length > 0) {
+  // Ask the user for the missing details before generating a carrier packet.
+}
+
+const packet = pce.generateSubmissionPacket({ state });
+```
+
+## Output state
+
+`PceCaseState` contains:
+
+- `items`: normalized requested changes with field paths, values, action type, citations, and confidence.
+- `impacts`: likely policy impacts for review.
+- `evidenceSources`: source text used to ground the case.
+- `validationIssues`: blocking, warning, or info issues.
+- `missingInfoQuestions`: questions to resolve before submission.
+- `executionMode`: the selected automation posture.
+
+## Human review
+
+The SDK can identify that a case is ready, but it does not submit changes to carriers. Hosts should treat generated packets as draft or assisted work until a licensed user has reviewed the evidence, missing-info status, and validation report.

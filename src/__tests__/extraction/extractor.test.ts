@@ -110,4 +110,52 @@ describe("runExtractor", () => {
       pdfBase64: "mock-pdf-base64",
     });
   });
+
+  it("adds bounded source-span context for the extracted page range", async () => {
+    const schema = z.object({ value: z.string() });
+    const generateObject = vi.fn().mockResolvedValue({
+      object: { value: "test" },
+    });
+
+    await runExtractor({
+      name: "test",
+      prompt: "Extract",
+      schema,
+      pdfInput: "base64data",
+      startPage: 2,
+      endPage: 3,
+      generateObject,
+      providerOptions: {
+        sourceSpans: [
+          {
+            id: "doc:span:1:0:aaa",
+            documentId: "doc",
+            kind: "pdf_text",
+            sourceKind: "policy_pdf",
+            text: "Page one",
+            hash: "aaa",
+            pageStart: 1,
+            pageEnd: 1,
+          },
+          {
+            id: "doc:span:2:0:bbb",
+            documentId: "doc",
+            kind: "pdf_text",
+            sourceKind: "policy_pdf",
+            text: "Limit: $1,000,000",
+            hash: "bbb",
+            pageStart: 2,
+            pageEnd: 2,
+            sectionId: "SECTION I COVERAGE",
+          },
+        ],
+      },
+    });
+
+    const callArgs = generateObject.mock.calls[0][0];
+    expect(callArgs.prompt).toContain("SOURCE SPANS FOR THESE PAGES");
+    expect(callArgs.prompt).toContain("sourceSpan:doc:span:2:0:bbb");
+    expect(callArgs.prompt).toContain("SECTION I COVERAGE");
+    expect(callArgs.prompt).not.toContain("Page one");
+  });
 });

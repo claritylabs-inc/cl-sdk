@@ -3,6 +3,7 @@ import type { GenerateObject, TokenUsage, ConvertPdfToImagesFn, PdfInput } from 
 import { withRetry } from "../core/retry";
 import { toStrictSchema } from "../core/strict-schema";
 import { extractPageRange, pdfInputToBase64 } from "./pdf";
+import type { SourceSpan } from "../source";
 
 export interface ExtractorParams<T> {
   name: string;
@@ -16,12 +17,42 @@ export interface ExtractorParams<T> {
   convertPdfToImages?: ConvertPdfToImagesFn;
   maxTokens?: number;
   providerOptions?: Record<string, unknown>;
+  pageRangeCache?: Map<string, string>;
 }
 
 export interface ExtractorResult<T> {
   name: string;
   data: T;
   usage?: TokenUsage;
+}
+
+function sourceSpansForPageRange(
+  providerOptions: Record<string, unknown> | undefined,
+  startPage: number,
+  endPage: number,
+): SourceSpan[] {
+  const sourceSpans = providerOptions?.sourceSpans;
+  if (!Array.isArray(sourceSpans)) return [];
+  return (sourceSpans as SourceSpan[]).filter((span) => {
+    const spanStart = span.pageStart ?? span.location?.startPage ?? span.location?.page;
+    const spanEnd = span.pageEnd ?? span.location?.endPage ?? spanStart;
+    if (!spanStart || !spanEnd) return false;
+    return spanEnd >= startPage && spanStart <= endPage;
+  });
+}
+
+function buildSourceContext(spans: SourceSpan[], maxChars = 12_000): string {
+  if (spans.length === 0) return "";
+  const lines: string[] = [];
+  let length = 0;
+  for (const span of spans) {
+    const header = `[sourceSpan:${span.id}${span.pageStart ? ` page:${span.pageStart}${span.pageEnd && span.pageEnd !== span.pageStart ? `-${span.pageEnd}` : ""}` : ""}${span.sectionId ? ` section:${span.sectionId}` : ""}${span.formNumber ? ` form:${span.formNumber}` : ""}]`;
+    const text = `${header}\n${span.text}`;
+    if (length + text.length > maxChars && lines.length > 0) break;
+    lines.push(text);
+    length += text.length;
+  }
+  return `\n\nSOURCE SPANS FOR THESE PAGES:\n${lines.join("\n\n")}\n\nUse sourceSpan IDs when grounding extracted contractual values.`;
 }
 
 /**
@@ -46,6 +77,7 @@ export async function runExtractor<T>(params: ExtractorParams<T>): Promise<Extra
     convertPdfToImages,
     maxTokens = 4096,
     providerOptions,
+    pageRangeCache,
   } = params;
 
   // Build provider options with PDF content for the model
@@ -61,9 +93,19 @@ export async function runExtractor<T>(params: ExtractorParams<T>): Promise<Extra
     extractorProviderOptions.images = images;
     fullPrompt = `${prompt}\n\n[Document pages ${startPage}-${endPage} are provided as images.]`;
   } else {
-    const pagesPdf = await extractPageRange(pdfBase64, startPage, endPage);
+    const cacheKey = `${startPage}-${endPage}`;
+    let pagesPdf = pageRangeCache?.get(cacheKey);
+    if (!pagesPdf) {
+      pagesPdf = await extractPageRange(pdfBase64, startPage, endPage);
+      pageRangeCache?.set(cacheKey, pagesPdf);
+    }
     extractorProviderOptions.pdfBase64 = pagesPdf;
     fullPrompt = `${prompt}\n\n[Document pages ${startPage}-${endPage} are provided as a PDF file.]`;
+  }
+
+  const sourceContext = buildSourceContext(sourceSpansForPageRange(providerOptions, startPage, endPage));
+  if (sourceContext) {
+    fullPrompt += sourceContext;
   }
 
   const strictSchema = toStrictSchema(schema) as typeof schema;

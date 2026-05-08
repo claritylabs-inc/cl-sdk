@@ -13,10 +13,13 @@ npm install @claritylabs/cl-sdk pdf-lib zod
 ## What It Does
 
 - **Document Extraction** — Deterministic extraction pipeline with focused model calls that turns insurance PDFs into structured data with page-level provenance, quality gates, first-class definitions and covered reasons, referential coverage resolution, cost-aware formatting, and automatic declarations-to-schema promotion (limits, deductibles, locations, broker, loss payees, premium, taxes/fees, summary)
-- **Query Agent** — Citation-backed question answering over stored documents and inbound photos/PDFs/text with sub-question decomposition, bounded retrieval planning, attachment-only reasoning when retrieval is unnecessary, and grounding verification
-- **Application Processing** — Bounded workflows handle intake with deterministic planning — field extraction, prior-answer backfill, context auto-fill, document lookup gating, topic-based question batching, reply parsing, and PDF mapping
+- **Source Grounding** — Shared source spans, source chunks, source stores, quoted evidence validation, and deterministic evidence ordering across extraction, query, application, PCE, and case workflows
+- **Query Agent** — Citation-backed question answering over stored documents, source spans, and inbound photos/PDFs/text with sub-question decomposition, bounded retrieval planning, attachment-only reasoning when retrieval is unnecessary, and grounding verification
+- **Application Processing** — Bounded workflows handle intake with deterministic planning — field extraction, prior-answer backfill, context auto-fill, document lookup gating, topic-based question batching, reply parsing, source-backed field provenance, and PDF mapping
+- **Policy Change Endorsements** — PCE intake, evidence collection, missing-info handling, quality gates, execution mode selection, and reviewable submission packets
+- **Case Workflows** — Shared primitives for evidence-backed proposals, missing information, validation issues, stable IDs, and packet artifacts
 - **Agent System** — Composable prompt modules for building insurance-aware agents across email, chat, SMS, Slack, and Discord with human-reviewable behavior
-- **Storage** — DocumentStore and MemoryStore interfaces with SQLite reference implementation
+- **Storage** — DocumentStore, MemoryStore, SourceStore, and ApplicationStore interfaces with reference implementations where appropriate
 
 ## Quick Start
 
@@ -38,7 +41,26 @@ const extractor = createExtractor({
 const result = await extractor.extract(pdfBase64);
 console.log(result.document);     // Typed InsuranceDocument
 console.log(result.chunks);       // DocumentChunk[] for vector storage
+console.log(result.sourceSpans);  // SourceSpan[] when supplied by the host
 console.log(result.reviewReport); // Quality gate results
+```
+
+## Source Grounding
+
+Source spans are the v1 evidence layer. Build spans from PDF text, OCR, emails, attachments, or structured fields, then pass them into extraction and downstream workflows:
+
+```typescript
+import { buildPageSourceSpans, MemorySourceStore, createExtractor } from "@claritylabs/cl-sdk";
+
+const pageOneText = "..."; // text from your PDF text/OCR pipeline
+const sourceSpans = buildPageSourceSpans([
+  { documentId: "policy-123", sourceKind: "policy_pdf", pageNumber: 1, text: pageOneText },
+]);
+
+const sourceStore = new MemorySourceStore();
+const extractor = createExtractor({ generateText, generateObject, sourceStore });
+
+const result = await extractor.extract(pdfBase64, "policy-123", { sourceSpans });
 ```
 
 See the [full documentation](https://cl-sdk.claritylabs.inc/docs) for architecture, provider setup, API reference, and more.
@@ -59,6 +81,7 @@ const agent = createQueryAgent({
   generateObject,
   documentStore,
   memoryStore,
+  sourceRetriever,
 });
 
 const result = await agent.query({
@@ -88,6 +111,7 @@ Important: your `generateObject` callback must actually forward multimodal paylo
 - `providerOptions.attachments` for generic image/pdf/text inputs
 - `providerOptions.pdfBase64` for PDF inputs
 - `providerOptions.images` for image inputs
+- `providerOptions.sourceSpans` and `providerOptions.sourceChunks` for source evidence when your host passes them through
 
 If your callback ignores those fields, the model will only see the text prompt.
 

@@ -1,7 +1,10 @@
 import type { DocumentStore, MemoryStore } from "../storage/interfaces";
 import type { SubQuestion, EvidenceItem, RetrievalResult } from "../schemas/query";
+import type { QueryRetrievalMode } from "../schemas/query";
 import type { ChunkFilter, DocumentFilters } from "../storage/chunk-types";
 import type { LogFn } from "../core/types";
+import type { SourceRetriever } from "../source";
+import { orderSourceEvidence } from "../source";
 
 function recordToKVArray(record: Record<string, string>): Array<{ key: string; value: string }> {
   return Object.entries(record).map(([key, value]) => ({ key, value }));
@@ -10,7 +13,9 @@ function recordToKVArray(record: Record<string, string>): Array<{ key: string; v
 export interface RetrieverConfig {
   documentStore: DocumentStore;
   memoryStore: MemoryStore;
+  sourceRetriever?: SourceRetriever;
   retrievalLimit: number;
+  retrievalMode: QueryRetrievalMode;
   log?: LogFn;
 }
 
@@ -23,13 +28,45 @@ export async function retrieve(
   conversationId: string | undefined,
   config: RetrieverConfig,
 ): Promise<RetrievalResult> {
-  const { documentStore, memoryStore, retrievalLimit, log } = config;
+  const { documentStore, memoryStore, sourceRetriever, retrievalLimit, retrievalMode, log } = config;
   const evidence: EvidenceItem[] = [];
 
   const tasks: Promise<void>[] = [];
 
-  // Semantic chunk search
-  tasks.push(
+  // Source-span search. In long-context mode this retrieves larger source spans
+  // from the caller's source store instead of relying on extracted graph chunks.
+  if (retrievalMode === "source_rag" || retrievalMode === "hybrid" || retrievalMode === "long_context") {
+    tasks.push(
+      (async () => {
+        try {
+          const sourceResults = await sourceRetriever?.searchSourceSpans({
+            question: subQuestion.question,
+            limit: retrievalLimit,
+            mode: retrievalMode,
+          }) ?? [];
+
+          for (const result of sourceResults) {
+            evidence.push({
+              source: "source_span",
+              sourceSpanId: result.span.id,
+              chunkId: result.span.chunkId,
+              documentId: result.span.documentId,
+              text: result.span.text,
+              relevance: result.relevance,
+              retrievalMode,
+              sourceLocation: result.span.location,
+              metadata: result.span.metadata ? recordToKVArray(result.span.metadata) : undefined,
+            });
+          }
+        } catch (e) {
+          await log?.(`Source span search failed for "${subQuestion.question}": ${e}`);
+        }
+      })(),
+    );
+  }
+
+  if (retrievalMode === "graph_only" || retrievalMode === "hybrid" || !sourceRetriever) {
+    tasks.push(
     (async () => {
       try {
         const filter: ChunkFilter = {};
@@ -51,6 +88,7 @@ export async function retrieve(
                 documentId: chunk.documentId,
                 text: chunk.text,
                 relevance: 0.8, // Default — store doesn't expose scores directly
+                retrievalMode,
                 metadata: recordToKVArray(chunk.metadata),
               });
             }
@@ -66,6 +104,7 @@ export async function retrieve(
               documentId: chunk.documentId,
               text: chunk.text,
               relevance: 0.8,
+              retrievalMode,
               metadata: recordToKVArray(chunk.metadata),
             });
           }
@@ -74,10 +113,11 @@ export async function retrieve(
         await log?.(`Chunk search failed for "${subQuestion.question}": ${e}`);
       }
     })(),
-  );
+    );
+  }
 
   // Structured document lookup
-  if (subQuestion.documentFilters) {
+  if (subQuestion.documentFilters && (retrievalMode === "graph_only" || retrievalMode === "hybrid" || retrievalMode === "long_context")) {
     tasks.push(
       (async () => {
         try {
@@ -97,6 +137,7 @@ export async function retrieve(
               documentId: doc.id,
               text: summary,
               relevance: 0.9, // Direct lookup is high relevance
+              retrievalMode,
               metadata: [
                 { key: "type", value: doc.type },
                 { key: "carrier", value: doc.carrier ?? "" },
@@ -126,6 +167,7 @@ export async function retrieve(
               turnId: turn.id,
               text: `[${turn.role}]: ${turn.content}`,
               relevance: 0.6, // Conversation context is lower relevance than documents
+              retrievalMode,
             });
           }
         } catch (e) {
@@ -137,12 +179,12 @@ export async function retrieve(
 
   await Promise.all(tasks);
 
-  // Sort by relevance descending, limit total evidence
-  evidence.sort((a, b) => b.relevance - a.relevance);
+  // Sort by relevance descending with stable source-aware tie-breaks, then limit total evidence.
+  const orderedEvidence = orderSourceEvidence(evidence);
 
   return {
     subQuestion: subQuestion.question,
-    evidence: evidence.slice(0, retrievalLimit),
+    evidence: orderedEvidence.slice(0, retrievalLimit),
   };
 }
 

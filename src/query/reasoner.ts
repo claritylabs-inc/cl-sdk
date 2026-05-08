@@ -1,4 +1,6 @@
 import type { GenerateObject, TokenUsage } from "../core/types";
+import type { ModelBudgetConstraint, ModelCapabilities, ModelTaskKind } from "../core/model-budget";
+import { resolveModelBudget } from "../core/model-budget";
 import { withRetry } from "../core/retry";
 import { buildReasonPrompt } from "../prompts/query/reason";
 import {
@@ -11,6 +13,8 @@ import {
 export interface ReasonerConfig {
   generateObject: GenerateObject;
   providerOptions?: Record<string, unknown>;
+  modelCapabilities?: ModelCapabilities;
+  modelBudgetConstraints?: Partial<Record<ModelTaskKind, ModelBudgetConstraint>>;
 }
 
 /**
@@ -29,22 +33,32 @@ export async function reason(
   const evidenceText = evidence
     .map((e, i) => {
       const sourceLabel =
-        e.source === "chunk"
+        e.source === "source_span"
+          ? `[source-span:${e.sourceSpanId}]`
+          : e.source === "chunk"
           ? `[chunk:${e.chunkId}]`
           : e.source === "document"
             ? `[doc:${e.documentId}]`
-            : `[turn:${e.turnId}]`;
+            : e.source === "attachment"
+              ? `[attachment:${e.attachmentId}]`
+              : `[turn:${e.turnId}]`;
       return `Evidence ${i + 1} ${sourceLabel} (relevance: ${e.relevance.toFixed(2)}):\n${e.text}`;
     })
     .join("\n\n");
 
   const prompt = buildReasonPrompt(subQuestion, intent, evidenceText);
+  const budget = resolveModelBudget({
+    taskKind: "query_reason",
+    hintTokens: 4096,
+    modelCapabilities: config.modelCapabilities,
+    constraint: config.modelBudgetConstraints?.query_reason,
+  });
 
   const { object, usage } = await withRetry(() =>
     generateObject({
       prompt,
       schema: SubAnswerSchema,
-      maxTokens: 4096,
+      maxTokens: budget.maxTokens,
       providerOptions,
     }),
   );

@@ -69,4 +69,30 @@ describe("buildExtractionReviewReport", () => {
     expect(report.issues.some((issue) => issue.code === "covered_reason_missing_page_number")).toBe(true);
     expect(report.issues.some((issue) => issue.code === "covered_reason_referential_value")).toBe(true);
   });
+
+  it("distinguishes source-grounding failures when source spans are available", () => {
+    const report = buildExtractionReviewReport({
+      memory: new Map<string, unknown>([
+        ["coverage_limits", {
+          coverages: [{
+            name: "Building limit",
+            limit: "$1,000,000",
+            pageNumber: 3,
+          }],
+        }],
+      ]),
+      pageAssignments: [{ localPageNumber: 3, extractorNames: ["coverage_limits"] }],
+      reviewRounds: [{ round: 1, complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] }],
+      sourceSpansAvailable: true,
+    });
+
+    expect(report.qualityGateStatus).toBe("failed");
+    expect(report.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "record_missing_source_span",
+        extractorName: "coverage_limits",
+        itemName: "Building limit",
+      }),
+    ]));
+  });
 });

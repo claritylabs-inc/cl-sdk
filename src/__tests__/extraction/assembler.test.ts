@@ -14,11 +14,13 @@ describe("assembleDocument", () => {
     const doc = assembleDocument("doc-1", "policy", memory) as any;
 
     expect(doc.definitions).toEqual([
-      { term: "Covered Cause of Loss", definition: "See policy form" },
+      expect.objectContaining({ term: "Covered Cause of Loss", definition: "See policy form" }),
     ]);
+    expect(doc.definitions[0].recordId).toMatch(/^definition:doc_1:/);
     expect(doc.coveredReasons).toEqual([
-      { coverageName: "Property", title: "Fire", content: "Fire is covered." },
+      expect.objectContaining({ coverageName: "Property", title: "Fire", content: "Fire is covered." }),
     ]);
+    expect(doc.coveredReasons[0].recordId).toMatch(/^covered_reason:doc_1:/);
   });
 
   it("accepts snake_case covered reasons from extractor memory", () => {
@@ -32,7 +34,8 @@ describe("assembleDocument", () => {
     const doc = assembleDocument("doc-1", "policy", memory) as any;
 
     expect(doc.coveredReasons).toEqual([
-      { coverageName: "Property", title: "Wind", content: "Wind is covered." },
+      expect.objectContaining({ coverageName: "Property", title: "Wind", content: "Wind is covered." }),
     ]);
+    expect(doc.coveredReasons[0].recordId).toMatch(/^covered_reason:doc_1:/);
   });
 });

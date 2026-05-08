@@ -13,6 +13,7 @@ import {
   readRecordValue,
 } from "./memory";
 import { promoteExtractedFields } from "./promote";
+import { alignExtractionRecords } from "./alignment";
 
 /**
  * Assemble extracted results from shared memory into a validated document.
@@ -36,12 +37,54 @@ export function assembleDocument(
   const classify = readMemoryRecord(memory, "classify");
   const lossPayees = readRecordArray(insured, "lossPayees");
   const mortgageHolders = readRecordArray(insured, "mortgageHolders");
+  const coverageRecords = alignExtractionRecords(
+    documentId,
+    "coverage",
+    getCoverageLimitCoverages(memory) as Record<string, unknown>[],
+    (coverage) => [coverage.name, coverage.formNumber, coverage.pageNumber, coverage.limit, coverage.deductible],
+  );
+  const endorsementRecords = alignExtractionRecords(
+    documentId,
+    "endorsement",
+    readRecordValue(endorsements, "endorsements") as Record<string, unknown>[] | undefined,
+    (endorsement) => [endorsement.formNumber, endorsement.title, endorsement.pageStart],
+  );
+  const exclusionRecords = alignExtractionRecords(
+    documentId,
+    "exclusion",
+    readRecordValue(exclusions, "exclusions") as Record<string, unknown>[] | undefined,
+    (exclusion) => [exclusion.name, exclusion.formNumber, exclusion.pageNumber],
+  );
+  const conditionRecords = alignExtractionRecords(
+    documentId,
+    "condition",
+    readRecordValue(conditions, "conditions") as Record<string, unknown>[] | undefined,
+    (condition) => [condition.name, condition.conditionType, condition.pageNumber],
+  );
+  const sectionRecords = alignExtractionRecords(
+    documentId,
+    "section",
+    getSections(memory) as Record<string, unknown>[],
+    (section) => [section.title, section.type, section.pageStart, section.pageEnd],
+  );
+  const definitionRecords = alignExtractionRecords(
+    documentId,
+    "definition",
+    getDefinitions(memory) as Record<string, unknown>[],
+    (definition) => [definition.term, definition.formNumber, definition.pageNumber],
+  );
+  const coveredReasonRecords = alignExtractionRecords(
+    documentId,
+    "covered_reason",
+    getCoveredReasons(memory) as Record<string, unknown>[],
+    (reason) => [reason.coverageName, reason.reasonNumber, reason.title, reason.pageNumber],
+  );
 
   const base = {
     id: documentId,
     carrier: readRecordValue(carrier, "carrierName") ?? "Unknown",
     insuredName: readRecordValue(insured, "insuredName") ?? "Unknown",
-    coverages: getCoverageLimitCoverages(memory),
+    coverages: coverageRecords,
     policyTypes: readRecordValue(classify, "policyTypes"),
     ...sanitizeNulls(carrier ?? {}),
     ...sanitizeNulls(insured ?? {}),
@@ -61,13 +104,13 @@ export function assembleDocument(
     ...sanitizeNulls(premium ?? {}),
     ...sanitizeNulls(supplementary ?? {}),
     supplementaryFacts: readRecordValue(supplementary, "auxiliaryFacts"),
-    endorsements: readRecordValue(endorsements, "endorsements"),
-    exclusions: readRecordValue(exclusions, "exclusions"),
-    conditions: readRecordValue(conditions, "conditions"),
-    sections: getSections(memory),
+    endorsements: endorsementRecords.length > 0 ? endorsementRecords : undefined,
+    exclusions: exclusionRecords.length > 0 ? exclusionRecords : undefined,
+    conditions: conditionRecords.length > 0 ? conditionRecords : undefined,
+    sections: sectionRecords.length > 0 ? sectionRecords : undefined,
     formInventory: readRecordValue(formInventory, "forms"),
-    definitions: getDefinitions(memory),
-    coveredReasons: getCoveredReasons(memory),
+    definitions: definitionRecords.length > 0 ? definitionRecords : undefined,
+    coveredReasons: coveredReasonRecords.length > 0 ? coveredReasonRecords : undefined,
     declarations: declarations ? sanitizeNulls(declarations) : undefined,
     ...sanitizeNulls(lossHistory ?? {}),
   };

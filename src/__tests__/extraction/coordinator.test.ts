@@ -45,10 +45,14 @@ vi.mock("../../extraction/assembler", () => ({
 }));
 
 import { createExtractor } from "../../extraction/coordinator";
+import { extractPageRange, getPdfPageCount } from "../../extraction/pdf";
+import { buildPageSourceSpans } from "../../source";
 
 describe("createExtractor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getPdfPageCount).mockResolvedValue(6);
+    vi.mocked(extractPageRange).mockResolvedValue("mapped-pages-pdf-base64");
 
     safeGenerateObject
       .mockResolvedValueOnce({
@@ -172,6 +176,16 @@ describe("createExtractor", () => {
       issues: expect.any(Array),
       formInventory: expect.any(Array),
     }));
+    expect(result.performanceReport.modelCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          taskKind: "extraction_classify",
+          label: "classify",
+          maxTokens: 512,
+          usageReported: false,
+        }),
+      ]),
+    );
   });
 
   it("accepts all optional config fields", () => {
@@ -185,8 +199,192 @@ describe("createExtractor", () => {
       onProgress: vi.fn(),
       log: vi.fn(),
       providerOptions: { anthropic: {} },
+      modelCapabilities: { maxOutputTokens: 32768 },
+      modelBudgetConstraints: { extraction_review: { maxOutputTokens: 1024 } },
     });
     expect(typeof extractor.extract).toBe("function");
+  });
+
+  it("persists caller-provided source spans and passes them to extraction model calls", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValueOnce({
+        object: { documentType: "policy", policyTypes: ["general_liability"], confidence: 0.95 },
+      })
+      .mockResolvedValueOnce({
+        object: { forms: [] },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          pages: [
+            { localPageNumber: 1, extractorNames: ["exclusions"] },
+            { localPageNumber: 2, extractorNames: ["exclusions"] },
+            { localPageNumber: 3, extractorNames: ["exclusions"] },
+            { localPageNumber: 4, extractorNames: ["exclusions"] },
+            { localPageNumber: 5, extractorNames: ["exclusions"] },
+            { localPageNumber: 6, extractorNames: ["exclusions"] },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        object: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
+      });
+    const sourceSpans = buildPageSourceSpans([
+      {
+        documentId: "doc-1",
+        sourceKind: "policy_pdf",
+        pageNumber: 1,
+        text: "Policy number P-1. Building limit is $1,000,000.",
+      },
+    ]);
+    const sourceStore = {
+      addSourceSpans: vi.fn(async () => undefined),
+      addSourceChunks: vi.fn(async () => undefined),
+      getSourceSpan: vi.fn(),
+      getSourceSpansByDocument: vi.fn(),
+      getSourceChunksByDocument: vi.fn(),
+      deleteDocumentSource: vi.fn(),
+      searchSourceSpans: vi.fn(),
+    };
+    runExtractor.mockResolvedValue({
+      name: "exclusions",
+      data: {
+        exclusions: [{
+          name: "Building limit",
+          content: "Policy number P-1. Building limit is $1,000,000.",
+          pageNumber: 1,
+        }],
+      },
+      usage: { inputTokens: 20, outputTokens: 10 },
+    });
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+      sourceStore,
+    });
+
+    const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
+
+    expect(sourceStore.addSourceSpans).toHaveBeenCalledWith(sourceSpans);
+    expect(sourceStore.addSourceChunks).toHaveBeenCalledWith(result.sourceChunks);
+    expect(result.sourceSpans).toEqual(sourceSpans);
+    expect(result.sourceChunks).toHaveLength(1);
+    expect(safeGenerateObject).toHaveBeenNthCalledWith(
+      1,
+      expect.any(Function),
+      expect.objectContaining({
+        providerOptions: expect.objectContaining({
+          pdfBase64: "full-pdf-base64",
+          sourceSpans,
+          sourceChunks: result.sourceChunks,
+        }),
+      }),
+      expect.any(Object),
+    );
+    const memory = assembleDocument.mock.calls[assembleDocument.mock.calls.length - 1][2] as Map<string, unknown>;
+    expect(memory.get("exclusions")).toEqual({
+      exclusions: [
+        expect.objectContaining({
+          sourceSpanIds: [sourceSpans[0].id],
+          sourceTextHash: sourceSpans[0].textHash,
+        }),
+      ],
+    });
+  });
+
+  it("expands long-list extractor budgets when model capabilities allow it", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValueOnce({
+        object: { documentType: "policy", policyTypes: ["general_liability"], confidence: 0.95 },
+      })
+      .mockResolvedValueOnce({
+        object: { forms: [] },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          pages: [
+            { localPageNumber: 1, extractorNames: ["coverage_limits"] },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        object: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
+      });
+
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+      modelCapabilities: {
+        maxOutputTokens: 32768,
+        longListOutputTokens: 16384,
+      },
+    });
+
+    await extractor.extract("full-pdf-base64", "doc-1");
+
+    expect(runExtractor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "coverage_limits",
+        maxTokens: 16384,
+      }),
+    );
+  });
+
+  it("maps page chunks in parallel and reports each chunk deterministically", async () => {
+    vi.mocked(getPdfPageCount).mockResolvedValue(10);
+    vi.mocked(extractPageRange)
+      .mockResolvedValueOnce("mapped-pages-1-8")
+      .mockResolvedValueOnce("mapped-pages-9-10");
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValueOnce({
+        object: { documentType: "policy", policyTypes: ["general_liability"], confidence: 0.95 },
+      })
+      .mockResolvedValueOnce({
+        object: { forms: [] },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          pages: Array.from({ length: 8 }, (_, index) => ({
+            localPageNumber: index + 1,
+            extractorNames: ["sections"],
+          })),
+        },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          pages: [
+            { localPageNumber: 1, extractorNames: ["endorsements"] },
+            { localPageNumber: 2, extractorNames: ["endorsements"] },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        object: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
+      });
+
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+      concurrency: 2,
+    });
+
+    const result = await extractor.extract("full-pdf-base64", "doc-1");
+
+    expect(extractPageRange).toHaveBeenCalledTimes(2);
+    expect(result.performanceReport.modelCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ taskKind: "extraction_page_map", label: "page_map:1-8" }),
+        expect.objectContaining({ taskKind: "extraction_page_map", label: "page_map:9-10" }),
+      ]),
+    );
+    expect(runExtractor).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "sections", startPage: 1, endPage: 8 }),
+    );
+    expect(runExtractor).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "endorsements", startPage: 9, endPage: 10 }),
+    );
   });
 
   it("drops coverage_limits from generic form-language page assignments before planning", async () => {

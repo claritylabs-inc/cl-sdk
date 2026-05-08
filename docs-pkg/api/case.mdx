@@ -1,0 +1,40 @@
+---
+title: Case API
+description: Reference for shared evidence-backed case workflow primitives
+---
+
+The root package exports case schemas, types, and helpers from `@claritylabs/cl-sdk`.
+
+## Common helpers
+
+```typescript
+import {
+  stableCaseId,
+  validateQuotedEvidence,
+  mergeQuestionAnswers,
+  evaluateCaseProposals,
+  scoreCaseProposal,
+} from "@claritylabs/cl-sdk";
+```
+
+- `stableCaseId(prefix, parts)`: deterministic ID for resumable workflows.
+- `validateQuotedEvidence(params)`: validate that a quote exists in the cited source.
+- `mergeQuestionAnswers(questions, answers)`: merge parsed user replies into missing-info questions.
+- `scoreCaseProposal(proposal)`: compute proposal score components.
+- `evaluateCaseProposals(proposals)`: score and rank proposals.
+
+## Schemas and types
+
+The case module includes Zod schemas and TypeScript types for:
+
+- evidence sources
+- citations
+- validation issues
+- missing-info questions
+- packet artifacts
+- submission packets
+- workflow plans
+- proposals and proposal scores
+- generic case state
+
+These schemas are useful when hosts need to persist case state or expose typed review APIs.

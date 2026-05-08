@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PolicyTypeSchema } from "./enums";
+import { SourceSpanLocationSchema } from "../source/schemas";
 
 // ── Query Intent ──
 
@@ -27,6 +28,16 @@ export const QueryAttachmentSchema = z.object({
   description: z.string().optional().describe("Caller-provided description of the attachment"),
 });
 export type QueryAttachment = z.infer<typeof QueryAttachmentSchema>;
+
+// ── Retrieval Mode ──
+
+export const QueryRetrievalModeSchema = z.enum([
+  "graph_only",
+  "source_rag",
+  "long_context",
+  "hybrid",
+]);
+export type QueryRetrievalMode = z.infer<typeof QueryRetrievalModeSchema>;
 
 // ── Classify Result (Phase 1 output) ──
 
@@ -58,19 +69,25 @@ export const QueryClassifyResultSchema = z.object({
   requiresDocumentLookup: z.boolean().describe("Whether structured document lookup is needed"),
   requiresChunkSearch: z.boolean().describe("Whether semantic chunk search is needed"),
   requiresConversationHistory: z.boolean().describe("Whether conversation history is relevant"),
+  retrievalMode: QueryRetrievalModeSchema
+    .optional()
+    .describe("Preferred retrieval strategy for the query when source-span retrieval is available"),
 });
 export type QueryClassifyResult = z.infer<typeof QueryClassifyResultSchema>;
 
 // ── Evidence (Phase 2 output) ──
 
 export const EvidenceItemSchema = z.object({
-  source: z.enum(["chunk", "document", "conversation", "attachment"]),
+  source: z.enum(["chunk", "document", "conversation", "attachment", "source_span"]),
   chunkId: z.string().optional(),
+  sourceSpanId: z.string().optional(),
   documentId: z.string().optional(),
   turnId: z.string().optional(),
   attachmentId: z.string().optional(),
   text: z.string().describe("Text excerpt from the source"),
   relevance: z.number().min(0).max(1),
+  retrievalMode: QueryRetrievalModeSchema.optional(),
+  sourceLocation: SourceSpanLocationSchema.optional(),
   metadata: z.array(z.object({ key: z.string(), value: z.string() })).optional(),
 });
 export type EvidenceItem = z.infer<typeof EvidenceItemSchema>;
@@ -99,12 +116,15 @@ export type RetrievalResult = z.infer<typeof RetrievalResultSchema>;
 
 export const CitationSchema = z.object({
   index: z.number().describe("Citation number [1], [2], etc."),
-  chunkId: z.string().describe("Source chunk ID, e.g. doc-123:coverage:2"),
+  chunkId: z.string().optional().describe("Source chunk ID, e.g. doc-123:coverage:2"),
+  sourceSpanId: z.string().optional().describe("Precise source span ID when available"),
   documentId: z.string(),
   documentType: z.enum(["policy", "quote"]).optional(),
   field: z.string().optional().describe("Specific field path, e.g. coverages[0].deductible"),
   quote: z.string().describe("Exact text from source that supports the claim"),
   relevance: z.number().min(0).max(1),
+  retrievalMode: QueryRetrievalModeSchema.optional(),
+  sourceLocation: SourceSpanLocationSchema.optional(),
 });
 export type Citation = z.infer<typeof CitationSchema>;
 

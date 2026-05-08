@@ -54,6 +54,9 @@ export const SectionSchema = z.object({
   coverageType: z.string().optional(),
   content: z.string(),
   subsections: z.array(SubsectionSchema).optional(),
+  recordId: z.string().optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+  sourceTextHash: z.string().optional(),
 });
 export type Section = z.infer<typeof SectionSchema>;
 
@@ -90,6 +93,9 @@ export const DefinitionSchema = z.object({
   formTitle: z.string().optional(),
   sectionRef: z.string().optional(),
   originalContent: z.string().optional(),
+  recordId: z.string().optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+  sourceTextHash: z.string().optional(),
 });
 export type Definition = z.infer<typeof DefinitionSchema>;
 
@@ -106,6 +112,9 @@ export const CoveredReasonSchema = z.object({
   formTitle: z.string().optional(),
   sectionRef: z.string().optional(),
   originalContent: z.string().optional(),
+  recordId: z.string().optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+  sourceTextHash: z.string().optional(),
 });
 export type CoveredReason = z.infer<typeof CoveredReasonSchema>;
 

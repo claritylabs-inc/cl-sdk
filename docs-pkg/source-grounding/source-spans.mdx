@@ -1,0 +1,91 @@
+---
+title: Source Spans
+description: Building page, section, text, and field-level source evidence
+---
+
+`SourceSpan` records are plain data. You can build them from OCR, PDF text extraction, HTML, email bodies, attachments, or structured fields.
+
+## Schema
+
+```typescript
+interface SourceSpan {
+  id: string;
+  documentId: string;
+  sourceKind?: "policy_pdf" | "application_pdf" | "email" | "attachment" | "manual_note";
+  kind: "pdf_text" | "pdf_image" | "html" | "markdown" | "plain_text" | "structured_field";
+  text: string;
+  hash: string;
+  textHash?: string;
+  pageStart?: number;
+  pageEnd?: number;
+  sectionId?: string;
+  formNumber?: string;
+  location?: SourceSpanLocation;
+  metadata?: Record<string, string>;
+}
+```
+
+## Builders
+
+Use the helper that matches your source granularity:
+
+```typescript
+import {
+  buildPageSourceSpans,
+  buildSectionSourceSpans,
+  buildTextSourceSpans,
+  chunkSourceSpans,
+} from "@claritylabs/cl-sdk";
+```
+
+### Page spans
+
+Page spans are the best default when you already have page text:
+
+```typescript
+const spans = buildPageSourceSpans([
+  {
+    documentId: "policy-123",
+    pageNumber: 12,
+    sourceKind: "policy_pdf",
+    text: pageText,
+    sectionId: "definitions",
+    formNumber: "CG 00 01",
+  },
+]);
+```
+
+### Section spans
+
+Section spans split pages by insurance headings such as declarations, coverage, exclusions, conditions, endorsements, definitions, schedules, and forms:
+
+```typescript
+const spans = buildSectionSourceSpans(pages, {
+  minSectionChars: 120,
+});
+```
+
+### Long text spans
+
+Use `buildTextSourceSpans()` for emails, notes, or long pasted text:
+
+```typescript
+const spans = buildTextSourceSpans({
+  documentId: "email-456",
+  sourceKind: "email",
+  text: emailBody,
+}, {
+  maxChars: 4000,
+  overlapChars: 250,
+});
+```
+
+### Source chunks
+
+`chunkSourceSpans()` groups spans into retrieval windows:
+
+```typescript
+const chunks = chunkSourceSpans(spans, { maxChars: 6000 });
+```
+
+Each chunk stores the source span IDs it was built from. Retrieval can return a chunk for context while the final citation still points to the original span.

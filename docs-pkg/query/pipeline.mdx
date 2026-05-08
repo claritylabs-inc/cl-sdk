@@ -15,6 +15,7 @@ const agent = createQueryAgent({
   generateObject,     // your LLM structured output callback
   documentStore,      // where extracted documents live
   memoryStore,        // where document chunks + conversation history live
+  sourceRetriever,    // optional source-span retriever for quoted evidence
 });
 
 const result = await agent.query({
@@ -105,7 +106,8 @@ When lookup is needed, retrievers run in parallel (concurrency-limited, default 
 
 1. **Chunk search** — semantic search over document chunks using the memory store's embedding-based similarity
 2. **Document lookup** — structured query by carrier, policy number, insured name, or document type
-3. **Conversation history** — search prior conversation turns for context
+3. **Source retrieval** — optional source-span search for page-backed quoted evidence
+4. **Conversation history** — search prior conversation turns for context
 
 Each retriever returns ranked `EvidenceItem` objects with source references and relevance scores. Attachment evidence from phase 1 is then merged into the retrieved evidence set.
 
@@ -152,11 +154,13 @@ const agent = createQueryAgent({
   // Required: storage backends
   documentStore,
   memoryStore,
+  sourceRetriever,     // optional SourceRetriever
 
   // Optional: tuning
   concurrency: 3,        // max parallel retrievers/reasoners (default: 3)
   maxVerifyRounds: 1,    // verification loop iterations (default: 1)
   retrievalLimit: 10,    // max evidence items per sub-question (default: 10)
+  retrievalMode: "hybrid", // optional source retrieval strategy hint
 
   // Optional: observability
   onTokenUsage: (usage) => void,   // token tracking per LLM call

@@ -13,6 +13,7 @@ export async function fillFromLookup(
   availableData: string,
   generateObject: GenerateObject,
   providerOptions?: Record<string, unknown>,
+  maxTokens = 4096,
 ): Promise<{ result: LookupFillResult; usage?: TokenUsage }> {
   const requestSummaries = requests.map((r) => ({
     type: r.type,
@@ -32,7 +33,7 @@ export async function fillFromLookup(
     generateObject({
       prompt,
       schema: LookupFillResultSchema,
-      maxTokens: 4096,
+      maxTokens,
       providerOptions,
     }),
   );

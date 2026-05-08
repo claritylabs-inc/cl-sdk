@@ -24,9 +24,11 @@ const agent = createQueryAgent({
   generateObject,
   documentStore,
   memoryStore,
+  sourceRetriever,
   concurrency: 3,
   maxVerifyRounds: 1,
   retrievalLimit: 10,
+  retrievalMode: "hybrid",
 });
 ```
 
@@ -42,6 +44,7 @@ Run the full query pipeline: interpret attachments, classify, plan retrieval, re
 | `input.conversationId` | `string?` | Conversation ID for history context |
 | `input.context` | `AgentContext?` | Platform and user context |
 | `input.attachments` | `QueryAttachment[]?` | Optional inbound files or text context to interpret and combine with stored evidence |
+| `input.retrievalMode` | `QueryRetrievalMode?` | Optional per-query source retrieval strategy hint |
 
 **Returns:** `Promise<QueryOutput>`
 
@@ -103,14 +106,18 @@ interface QueryConfig {
   generateObject: GenerateObject;
   documentStore: DocumentStore;
   memoryStore: MemoryStore;
+  sourceRetriever?: SourceRetriever;
   concurrency?: number;           // default: 3
   maxVerifyRounds?: number;       // default: 1
   retrievalLimit?: number;        // default: 10
+  retrievalMode?: QueryRetrievalMode;
   onTokenUsage?: (usage: TokenUsage) => void;
   onProgress?: (message: string) => void;
   log?: LogFn;
   providerOptions?: Record<string, unknown>;
-  qualityGate?: "off" | "warn" | "error";
+  qualityGate?: "off" | "warn" | "strict";
+  modelCapabilities?: ModelCapabilities;
+  modelBudgetConstraints?: Partial<Record<ModelTaskKind, ModelBudgetConstraint>>;
 }
 ```
 
@@ -122,7 +129,18 @@ interface QueryInput {
   conversationId?: string;
   context?: AgentContext;
   attachments?: QueryAttachment[];
+  retrievalMode?: QueryRetrievalMode;
 }
+```
+
+### `QueryRetrievalMode`
+
+```typescript
+type QueryRetrievalMode =
+  | "graph_only"
+  | "source_rag"
+  | "long_context"
+  | "hybrid";
 ```
 
 ### `QueryAttachment`
@@ -211,5 +229,4 @@ The query agent can pass multimodal payloads through `providerOptions` when atta
 - `providerOptions.attachments` for the raw attachment list
 - `providerOptions.pdfBase64` for PDF attachments
 - `providerOptions.images` for image attachments
-
 Your `generateObject` callback must translate those fields into actual provider-specific file or image parts. If it does not, attachment-aware queries will silently degrade into text-only behavior.

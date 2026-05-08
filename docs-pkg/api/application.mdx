@@ -29,10 +29,11 @@ Process a new PDF: classify -> extract -> plan optional backfill/auto-fill/searc
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `input.pdfBase64` | `string` | Base64-encoded application PDF |
+| `input.sourceSpans` | `SourceSpan[]?` | Optional page/field evidence for the application PDF |
 | `input.applicationId` | `string?` | Application ID |
 | `input.context` | `AgentContext?` | Platform context |
 
-**Returns:** `Promise<{ state: ApplicationState; tokenUsage: TokenUsage }>`
+**Returns:** `Promise<{ state: ApplicationState; tokenUsage: TokenUsage; reviewReport: ApplicationQualityReport }>`
 
 ### `pipeline.processReply(input)`
 
@@ -42,11 +43,14 @@ Process a user reply: classify intent -> plan actions -> parse answers / handle 
 |-----------|------|-------------|
 | `input.applicationId` | `string` | Application ID |
 | `input.replyText` | `string` | User's reply |
+| `input.replySourceSpanIds` | `string[]?` | Stable source span IDs for the reply or attachments |
 | `input.context` | `AgentContext?` | Platform context |
 
-**Returns:** `Promise<{ state, intent, fieldsFilled, responseText?, tokenUsage }>`
+**Returns:** `Promise<{ state, intent, fieldsFilled, responseText?, tokenUsage, reviewReport }>`
 
 Application workflow gates optional work from the current state. Backfill requires an available backfill provider and unfilled fields, context auto-fill requires relevant org context, document search targets selected high-value fields, and reply handling runs only the agents needed for the classified intent.
+
+Source grounding is optional but recommended. `sourceSpans` are forwarded into provider calls during application processing, and `replySourceSpanIds` preserve provenance for user-supplied answers.
 
 ### `pipeline.generateCurrentBatchEmail(applicationId, opts?)`
 
