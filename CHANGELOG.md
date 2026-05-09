@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/claritylabs-inc/cl-sdk/compare/v1.0.1...v1.0.2) (2026-05-09)
+
+
+### Performance Improvements
+
+* speed up extraction pipeline ([532063e](https://github.com/claritylabs-inc/cl-sdk/commit/532063ee363a4538d26523ab774f9f6855f5a9b9))
+
 ## [1.0.1](https://github.com/claritylabs-inc/cl-sdk/compare/v1.0.0...v1.0.1) (2026-05-08)
 
 
