@@ -39,7 +39,7 @@ Builds deterministic extraction tasks from the page map and the selected line-of
 
 ### Extract
 
-Dispatches focused extractors in parallel (concurrency-limited, default 2). Each extractor targets a specific data domain against a page range:
+Dispatches focused extractors in parallel (concurrency-limited, default 2; override with `extractorConcurrency`). Each extractor targets a specific data domain against a page range:
 
 - **Declarations** — named insured, policy number, dates, carrier
 - **Coverage limits** — coverage names, limits, deductibles, sub-limits
@@ -57,19 +57,19 @@ Dispatches focused extractors in parallel (concurrency-limited, default 2). Each
 
 Results accumulate in an in-memory map as each extractor completes. Repeated extractor runs merge instead of overwrite.
 
-Each worker call is page-scoped. Before invoking the callback, the SDK slices the requested range with `extractPageRange()` and passes that PDF through `providerOptions.pdfBase64`, or passes `providerOptions.images` when `convertPdfToImages` is configured.
+Each worker call is page-scoped. Before invoking the callback, the SDK slices the requested range and passes that PDF through `providerOptions.pdfBase64`, or passes `providerOptions.images` when `convertPdfToImages` is configured. Page-scoped PDFs, rendered image ranges, and in-flight range work are cached for the duration of an extraction.
 
 Focused extractors can declare fallback behavior. Definitions and covered reasons fall back through section extraction when a focused run fails or returns no usable records, which prevents a single model no-output response from leaving those first-class fields empty.
 
 ### Supplementary and referential gates
 
-Supplementary extraction is conditional. It runs only when page assignments, form inventory, existing extracted text, or review follow-up tasks indicate regulatory, claims, notice, cancellation/nonrenewal, contact, or TPA facts are likely present.
+Supplementary extraction is conditional. It runs only when page assignments, form inventory, existing extracted text, or review follow-up tasks indicate regulatory, claims, notice, cancellation/nonrenewal, contact, or TPA facts are likely present. Page/form signals are run as narrow page-scoped tasks with the main extractor batch.
 
 Referential coverage values use a bounded resolver: cheap local section/form matches first, then target-specific actions for declarations, schedules, sections, page-location lookup, or skip. This improves edge-case reliability without always launching extra lookup calls.
 
 ### Review
 
-A review loop (up to `maxReviewRounds`, default 2) checks completeness and quality against the template and the extracted results. The reviewer sees the document again, the page map, the extraction summary, and the live extractor catalog. It is expected to catch generic placeholders, declaration-free schedule outputs, and other weak extraction artifacts before dispatching focused follow-up tasks from registered extractors.
+Deterministic quality checks always run. The LLM review loop (up to `maxReviewRounds`, default 2) checks completeness and quality against the template and extracted results when `reviewMode` allows it. `reviewMode: "auto"` skips the expensive LLM review only when deterministic checks are clean and source spans are available.
 
 ### Assemble
 

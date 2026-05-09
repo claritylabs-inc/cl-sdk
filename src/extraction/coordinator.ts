@@ -9,8 +9,8 @@ import { chunkSourceSpans } from "../source";
 import { pLimit } from "../core/concurrency";
 import { safeGenerateObject } from "../core/safe-generate";
 import { createPipelineContext, type PipelineCheckpoint } from "../core/pipeline";
-import { extractPageRange, getPdfPageCount, pdfInputToBase64, buildPdfProviderOptions } from "./pdf";
-import { runExtractor } from "./extractor";
+import { createPdfPageSlicer, getPdfPageCount, pdfInputToBase64, buildPdfProviderOptions } from "./pdf";
+import { runExtractor, type PageRangeImage } from "./extractor";
 import { assembleDocument } from "./assembler";
 import { formatDocumentContent } from "./formatter";
 import { chunkDocument } from "./chunking";
@@ -59,8 +59,17 @@ export interface ExtractorConfig {
   generateText: GenerateText;
   generateObject: GenerateObject;
   convertPdfToImages?: ConvertPdfToImagesFn;
+  /** Default concurrency for page mapping, extractors, referential lookup, and formatting. */
   concurrency?: number;
+  /** Optional override for page-map model calls. Defaults to `concurrency`. */
+  pageMapConcurrency?: number;
+  /** Optional override for focused extractor model calls. Defaults to `concurrency`. */
+  extractorConcurrency?: number;
+  /** Optional override for markdown formatting model calls. Defaults to `concurrency`. */
+  formatConcurrency?: number;
   maxReviewRounds?: number;
+  /** Controls the expensive LLM review pass. `auto` skips it when deterministic checks are clean and source spans are available. */
+  reviewMode?: "always" | "auto" | "skip";
   onTokenUsage?: (usage: TokenUsage) => void;
   onProgress?: (message: string) => void;
   log?: LogFn;
@@ -103,7 +112,11 @@ export function createExtractor(config: ExtractorConfig) {
     generateObject,
     convertPdfToImages,
     concurrency = 2,
+    pageMapConcurrency,
+    extractorConcurrency,
+    formatConcurrency,
     maxReviewRounds = 2,
+    reviewMode = "auto",
     onTokenUsage,
     onProgress,
     log,
@@ -115,7 +128,8 @@ export function createExtractor(config: ExtractorConfig) {
     onCheckpointSave,
   } = config;
 
-  const limit = pLimit(concurrency);
+  const pageMapLimit = pLimit(pageMapConcurrency ?? concurrency);
+  const extractorLimit = pLimit(extractorConcurrency ?? concurrency);
   const extractorCatalog = formatExtractorCatalogForPrompt();
   let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
   let modelCalls = 0;
@@ -152,7 +166,7 @@ export function createExtractor(config: ExtractorConfig) {
         usage,
         usageReported: !!usage,
       });
-      if (report.durationMs) {
+      if (report.durationMs != null) {
         performanceReport.totalModelCallDurationMs += report.durationMs;
       }
     }
@@ -226,6 +240,67 @@ export function createExtractor(config: ExtractorConfig) {
     });
   }
 
+  function getSupplementaryPageRanges(
+    pageAssignments: PageAssignment[],
+    formInventory: FormInventoryResult | undefined,
+  ): Array<{ startPage: number; endPage: number }> {
+    const pages = new Set<number>();
+
+    for (const assignment of pageAssignments) {
+      if (
+        assignment.pageRole === "supplementary"
+        || assignment.extractorNames.includes("supplementary")
+        || textIncludesSupplementarySignal(assignment.notes)
+      ) {
+        pages.add(assignment.localPageNumber);
+      }
+    }
+
+    for (const form of formInventory?.forms ?? []) {
+      if (
+        form.formType === "notice"
+        || textIncludesSupplementarySignal(form.title)
+        || textIncludesSupplementarySignal(form.formNumber)
+      ) {
+        const startPage = form.pageStart;
+        const endPage = form.pageEnd ?? form.pageStart;
+        if (typeof startPage !== "number" || typeof endPage !== "number") continue;
+        for (let page = startPage; page <= endPage; page += 1) {
+          pages.add(page);
+        }
+      }
+    }
+
+    const sortedPages = [...pages].sort((a, b) => a - b);
+    if (sortedPages.length === 0) return [];
+
+    const ranges: Array<{ startPage: number; endPage: number }> = [];
+    let startPage = sortedPages[0];
+    let previousPage = sortedPages[0];
+    for (const page of sortedPages.slice(1)) {
+      if (page === previousPage + 1) {
+        previousPage = page;
+        continue;
+      }
+      ranges.push({ startPage, endPage: previousPage });
+      startPage = page;
+      previousPage = page;
+    }
+    ranges.push({ startPage, endPage: previousPage });
+    return ranges;
+  }
+
+  function shouldRunLlmReview(
+    mode: ExtractorConfig["reviewMode"],
+    report: ExtractionReviewReport,
+    sourceSpansAvailable: boolean,
+  ): boolean {
+    if (mode === "skip" || maxReviewRounds <= 0) return false;
+    if (mode === "always") return true;
+    if (!sourceSpansAvailable) return true;
+    return report.qualityGateStatus !== "passed" || report.issues.length > 0;
+  }
+
   function buildAlreadyExtractedSummary(memory: Map<string, unknown>): string {
     const lines: string[] = [];
 
@@ -266,10 +341,13 @@ export function createExtractor(config: ExtractorConfig) {
     pdfInput: PdfInput,
     memory: Map<string, unknown>,
     pageRangeCache?: Map<string, string>,
+    getPageRangePdf?: (startPage: number, endPage: number) => Promise<string>,
+    getPageImages?: (startPage: number, endPage: number) => Promise<PageRangeImage[]>,
   ) {
     if (task.extractorName === "supplementary") {
       const alreadyExtractedSummary = buildAlreadyExtractedSummary(memory);
       const budget = resolveBudget("extraction_focused", 4096);
+      const startedAt = Date.now();
       const result = await runExtractor({
         name: "supplementary",
         prompt: buildSupplementaryPrompt(alreadyExtractedSummary),
@@ -282,11 +360,14 @@ export function createExtractor(config: ExtractorConfig) {
         maxTokens: budget.maxTokens,
         providerOptions: activeProviderOptions,
         pageRangeCache,
+        getPageRangePdf,
+        getPageImages,
       });
       trackUsage(result.usage, {
         taskKind: "extraction_focused",
         label: "supplementary",
         maxTokens: budget.maxTokens,
+        durationMs: Date.now() - startedAt,
       });
       return result;
     }
@@ -298,6 +379,8 @@ export function createExtractor(config: ExtractorConfig) {
       convertPdfToImages,
       providerOptions: activeProviderOptions,
       pageRangeCache,
+      getPageRangePdf,
+      getPageImages,
       trackUsage,
       resolveBudget,
       log,
@@ -368,7 +451,12 @@ export function createExtractor(config: ExtractorConfig) {
     // FileId references cannot be used for page range extraction, so we
     // need to convert them to base64 once and reuse for extractors
     let pdfBase64Cache: string | undefined;
-    const pageRangePdfCache = new Map<string, string>();
+    const completedPageRangePdfCache = new Map<string, string>();
+    const pageRangePdfCache = new Map<string, Promise<string>>();
+    const pageRangeImageCache = new Map<string, Promise<PageRangeImage[]>>();
+    let pdfSlicerPromise: ReturnType<typeof createPdfPageSlicer> | undefined;
+    let fullPdfProviderOptionsPromise: Promise<Record<string, unknown>> | undefined;
+    let pageCountPromise: Promise<number> | undefined;
 
     // Helper to get base64 for page extraction operations
     async function getPdfBase64ForExtraction(): Promise<string> {
@@ -378,13 +466,60 @@ export function createExtractor(config: ExtractorConfig) {
       return pdfBase64Cache;
     }
 
+    async function getCachedPageCount(): Promise<number> {
+      if (!pageCountPromise) {
+        pageCountPromise = getPdfSlicer().then((slicer) => slicer.getPageCount()).catch(() => getPdfPageCount(pdfInput));
+      }
+      return pageCountPromise;
+    }
+
+    async function getFullPdfProviderOptions(): Promise<Record<string, unknown>> {
+      if (!fullPdfProviderOptionsPromise) {
+        fullPdfProviderOptionsPromise = buildPdfProviderOptions(pdfInput, activeProviderOptions);
+      }
+      return fullPdfProviderOptionsPromise;
+    }
+
+    async function getPdfSlicer() {
+      if (!pdfSlicerPromise) {
+        pdfSlicerPromise = createPdfPageSlicer(pdfInput);
+      }
+      return pdfSlicerPromise;
+    }
+
     async function getPageRangePdf(startPage: number, endPage: number): Promise<string> {
       const cacheKey = `${startPage}-${endPage}`;
-      const cached = pageRangePdfCache.get(cacheKey);
+      const cached = completedPageRangePdfCache.get(cacheKey);
       if (cached) return cached;
-      const pagesPdf = await extractPageRange(await getPdfBase64ForExtraction(), startPage, endPage);
-      pageRangePdfCache.set(cacheKey, pagesPdf);
-      return pagesPdf;
+      const pending = pageRangePdfCache.get(cacheKey);
+      if (pending) return pending;
+      const promise = (async () => {
+        const slicer = await getPdfSlicer();
+        const pagesPdf = await slicer.extractPageRange(startPage, endPage);
+        completedPageRangePdfCache.set(cacheKey, pagesPdf);
+        return pagesPdf;
+      })().catch((error) => {
+        pageRangePdfCache.delete(cacheKey);
+        throw error;
+      });
+      pageRangePdfCache.set(cacheKey, promise);
+      return promise;
+    }
+
+    async function getPageImages(startPage: number, endPage: number): Promise<PageRangeImage[]> {
+      if (!convertPdfToImages) return [];
+      const cacheKey = `${startPage}-${endPage}`;
+      const cached = pageRangeImageCache.get(cacheKey);
+      if (cached) return cached;
+      const promise = (async () => {
+        const pdfBase64 = await getPdfBase64ForExtraction();
+        return convertPdfToImages(pdfBase64, startPage, endPage);
+      })().catch((error) => {
+        pageRangeImageCache.delete(cacheKey);
+        throw error;
+      });
+      pageRangeImageCache.set(cacheKey, promise);
+      return promise;
     }
 
     // Step 1: Classify
@@ -394,8 +529,9 @@ export function createExtractor(config: ExtractorConfig) {
       onProgress?.("Resuming from checkpoint (classify complete)...");
     } else {
       onProgress?.("Classifying document...");
-      const pageCount = await getPdfPageCount(pdfInput);
+      const pageCount = await getCachedPageCount();
       const budget = resolveBudget("extraction_classify", 512);
+      const startedAt = Date.now();
 
       const classifyResponse = await safeGenerateObject(
         generateObject as GenerateObject<ClassifyResult>,
@@ -403,7 +539,7 @@ export function createExtractor(config: ExtractorConfig) {
           prompt: buildClassifyPrompt(),
           schema: ClassifyResultSchema,
           maxTokens: budget.maxTokens,
-          providerOptions: await buildPdfProviderOptions(pdfInput, activeProviderOptions),
+          providerOptions: await getFullPdfProviderOptions(),
         },
         {
           fallback: { documentType: "policy" as const, policyTypes: ["other" as const], confidence: 0 },
@@ -417,6 +553,7 @@ export function createExtractor(config: ExtractorConfig) {
         taskKind: "extraction_classify",
         label: "classify",
         maxTokens: budget.maxTokens,
+        durationMs: Date.now() - startedAt,
       });
       classifyResult = classifyResponse.object;
 
@@ -438,7 +575,7 @@ export function createExtractor(config: ExtractorConfig) {
     const policyTypes = classifyResult.policyTypes ?? [];
     const primaryType = policyTypes[0] ?? "other";
     const template = getTemplate(primaryType);
-    const pageCount = resumed?.pageCount ?? await getPdfPageCount(pdfInput);
+    const pageCount = resumed?.pageCount ?? await getCachedPageCount();
     const templateHints = buildTemplateHints(primaryType, documentType, pageCount, template);
 
     // Step 2: Build form inventory
@@ -450,6 +587,7 @@ export function createExtractor(config: ExtractorConfig) {
     } else {
       onProgress?.(`Building form inventory for ${primaryType} ${documentType}...`);
       const budget = resolveBudget("extraction_form_inventory", 2048);
+      const startedAt = Date.now();
 
       const formInventoryResponse = await safeGenerateObject(
         generateObject as GenerateObject<FormInventoryResult>,
@@ -457,7 +595,7 @@ export function createExtractor(config: ExtractorConfig) {
           prompt: buildFormInventoryPrompt(templateHints),
           schema: FormInventorySchema,
           maxTokens: budget.maxTokens,
-          providerOptions: await buildPdfProviderOptions(pdfInput, activeProviderOptions),
+          providerOptions: await getFullPdfProviderOptions(),
         },
         {
           fallback: { forms: [] },
@@ -470,6 +608,7 @@ export function createExtractor(config: ExtractorConfig) {
         taskKind: "extraction_form_inventory",
         label: "form_inventory",
         maxTokens: budget.maxTokens,
+        durationMs: Date.now() - startedAt,
       });
       formInventory = formInventoryResponse.object;
       memory.set("form_inventory", formInventory);
@@ -506,9 +645,10 @@ export function createExtractor(config: ExtractorConfig) {
 
       const pageMapResults = await Promise.all(
         pageMapChunks.map(({ startPage, endPage }) =>
-          limit(async () => {
+          pageMapLimit(async () => {
             const pagesPdf = await getPageRangePdf(startPage, endPage);
             const budget = resolveBudget("extraction_page_map", 2048);
+            const startedAt = Date.now();
             const mapResponse = await safeGenerateObject(
               generateObject as GenerateObject<{ pages: PageAssignment[] }>,
               {
@@ -537,6 +677,7 @@ export function createExtractor(config: ExtractorConfig) {
               taskKind: "extraction_page_map",
               label: `page_map:${startPage}-${endPage}`,
               maxTokens: budget.maxTokens,
+              durationMs: Date.now() - startedAt,
             });
 
             return mapResponse.object.pages.map((assignment) => ({
@@ -596,15 +737,35 @@ export function createExtractor(config: ExtractorConfig) {
 
     // Step 5: Dispatch extractors in parallel
     if (!pipelineCtx.isPhaseComplete("extract")) {
-      const tasks = plan.tasks;
+      const supplementaryRanges = getSupplementaryPageRanges(pageAssignments, formInventory);
+      const baseTasks = plan.tasks;
+      const hasPlannedSupplementary = baseTasks.some((task) => task.extractorName === "supplementary");
+      const tasks: ExtractionPlan["tasks"] = hasPlannedSupplementary || supplementaryRanges.length === 0
+        ? baseTasks
+        : [
+            ...baseTasks,
+            ...supplementaryRanges.map((range) => ({
+              extractorName: "supplementary" as const,
+              startPage: range.startPage,
+              endPage: range.endPage,
+              description: `Page-signaled supplementary extraction for pages ${range.startPage}-${range.endPage}`,
+            })),
+          ];
       onProgress?.(`Dispatching ${tasks.length} extractors...`);
       const extractionPdfInput = await getPdfBase64ForExtraction();
 
       const extractorResults = await Promise.all(
         tasks.map((task) =>
-          limit(async () => {
+          extractorLimit(async () => {
             onProgress?.(`Extracting ${task.extractorName} (pages ${task.startPage}-${task.endPage})...`);
-            return runFocusedExtractorTask(task, extractionPdfInput, memory, pageRangePdfCache);
+            return runFocusedExtractorTask(
+              task,
+              extractionPdfInput,
+              memory,
+              completedPageRangePdfCache,
+              getPageRangePdf,
+              convertPdfToImages ? getPageImages : undefined,
+            );
           })
         )
       );
@@ -621,6 +782,7 @@ export function createExtractor(config: ExtractorConfig) {
         try {
           const alreadyExtractedSummary = buildAlreadyExtractedSummary(memory);
           const budget = resolveBudget("extraction_focused", 4096);
+          const startedAt = Date.now();
           const supplementaryResult = await runExtractor({
             name: "supplementary",
             prompt: buildSupplementaryPrompt(alreadyExtractedSummary),
@@ -632,12 +794,15 @@ export function createExtractor(config: ExtractorConfig) {
             convertPdfToImages,
             maxTokens: budget.maxTokens,
             providerOptions: activeProviderOptions,
-            pageRangeCache: pageRangePdfCache,
+            pageRangeCache: completedPageRangePdfCache,
+            getPageRangePdf,
+            getPageImages: convertPdfToImages ? getPageImages : undefined,
           });
           trackUsage(supplementaryResult.usage, {
             taskKind: "extraction_focused",
             label: "supplementary",
             maxTokens: budget.maxTokens,
+            durationMs: Date.now() - startedAt,
           });
           mergeMemoryResult(supplementaryResult.name, supplementaryResult.data, memory);
         } catch (error) {
@@ -660,6 +825,7 @@ export function createExtractor(config: ExtractorConfig) {
     if (!pipelineCtx.isPhaseComplete("resolve_referential")) {
       onProgress?.("Resolving referential coverage limits...");
       try {
+        const startedAt = Date.now();
         const resolution = await resolveReferentialCoverages({
           memory,
           pdfInput,
@@ -667,6 +833,8 @@ export function createExtractor(config: ExtractorConfig) {
           generateObject,
           convertPdfToImages,
           concurrency,
+          getPageRangePdf,
+          getPageImages: convertPdfToImages ? getPageImages : undefined,
           providerOptions: activeProviderOptions,
           modelCapabilities,
           modelBudgetConstraints,
@@ -676,6 +844,7 @@ export function createExtractor(config: ExtractorConfig) {
         trackUsage(resolution.usage, {
           taskKind: "extraction_referential_lookup",
           label: "referential_resolution",
+          durationMs: Date.now() - startedAt,
         });
         if (resolution.attempts > 0) {
           await log?.(`Referential resolution: ${resolution.resolved}/${resolution.attempts} resolved, ${resolution.unresolved} unresolved`);
@@ -700,58 +869,79 @@ export function createExtractor(config: ExtractorConfig) {
     let reviewReport: ExtractionReviewReport | undefined = resumed?.reviewReport;
     if (!pipelineCtx.isPhaseComplete("review")) {
       reviewRounds = [];
-      for (let round = 0; round < maxReviewRounds; round++) {
-        const extractedKeys = [...memory.keys()].filter((k) => k !== "classify");
-        const extractionSummary = summarizeExtraction(memory);
-        const pageMapSummary = formatPageMapSummary(pageAssignments);
-        const budget = resolveBudget("extraction_review", 1536);
+      groundExtractionMemoryWithSourceSpans(memory, sourceSpans);
+      const preReviewReport = buildExtractionReviewReport({
+        memory,
+        pageAssignments,
+        reviewRounds,
+        sourceSpansAvailable: sourceSpans.length > 0,
+      });
 
-        const reviewResponse = await safeGenerateObject(
-          generateObject as GenerateObject<ReviewResult>,
-          {
-            prompt: buildReviewPrompt(template.required, extractedKeys, extractionSummary, pageMapSummary, extractorCatalog),
-            schema: ReviewResultSchema,
+      if (shouldRunLlmReview(reviewMode, preReviewReport, sourceSpans.length > 0)) {
+        for (let round = 0; round < maxReviewRounds; round++) {
+          const extractedKeys = [...memory.keys()].filter((k) => k !== "classify");
+          const extractionSummary = summarizeExtraction(memory);
+          const pageMapSummary = formatPageMapSummary(pageAssignments);
+          const budget = resolveBudget("extraction_review", 1536);
+          const startedAt = Date.now();
+
+          const reviewResponse = await safeGenerateObject(
+            generateObject as GenerateObject<ReviewResult>,
+            {
+              prompt: buildReviewPrompt(template.required, extractedKeys, extractionSummary, pageMapSummary, extractorCatalog),
+              schema: ReviewResultSchema,
+              maxTokens: budget.maxTokens,
+              providerOptions: await getFullPdfProviderOptions(),
+            },
+            {
+              fallback: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
+              log,
+              onError: (err, attempt) =>
+                log?.(`Review round ${round + 1} attempt ${attempt + 1} failed: ${err}`),
+            },
+          );
+          trackUsage(reviewResponse.usage, {
+            taskKind: "extraction_review",
+            label: `review:${round + 1}`,
             maxTokens: budget.maxTokens,
-            providerOptions: await buildPdfProviderOptions(pdfInput, activeProviderOptions),
-          },
-          {
-            fallback: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
-            log,
-            onError: (err, attempt) =>
-              log?.(`Review round ${round + 1} attempt ${attempt + 1} failed: ${err}`),
-          },
-        );
-        trackUsage(reviewResponse.usage, {
-          taskKind: "extraction_review",
-          label: `review:${round + 1}`,
-          maxTokens: budget.maxTokens,
-        });
-        reviewRounds.push(toReviewRoundRecord(round + 1, reviewResponse.object));
+            durationMs: Date.now() - startedAt,
+          });
+          reviewRounds.push(toReviewRoundRecord(round + 1, reviewResponse.object));
 
-        if (reviewResponse.object.qualityIssues?.length) {
-          await log?.(`Review round ${round + 1} quality issues: ${reviewResponse.object.qualityIssues.join("; ")}`);
-        }
+          if (reviewResponse.object.qualityIssues?.length) {
+            await log?.(`Review round ${round + 1} quality issues: ${reviewResponse.object.qualityIssues.join("; ")}`);
+          }
 
-        if (reviewResponse.object.complete || reviewResponse.object.additionalTasks.length === 0) {
-          onProgress?.("Extraction complete.");
-          break;
-        }
+          if (reviewResponse.object.complete || reviewResponse.object.additionalTasks.length === 0) {
+            onProgress?.("Extraction complete.");
+            break;
+          }
 
-        onProgress?.(`Review round ${round + 1}: dispatching ${reviewResponse.object.additionalTasks.length} follow-up extractors...`);
-        const extractionPdfInput = await getPdfBase64ForExtraction();
-        const followUpResults = await Promise.all(
-          reviewResponse.object.additionalTasks.map((task) =>
-            limit(async () => {
-              return runFocusedExtractorTask(task, extractionPdfInput, memory, pageRangePdfCache);
-            })
-          )
-        );
+          onProgress?.(`Review round ${round + 1}: dispatching ${reviewResponse.object.additionalTasks.length} follow-up extractors...`);
+          const extractionPdfInput = await getPdfBase64ForExtraction();
+          const followUpResults = await Promise.all(
+            reviewResponse.object.additionalTasks.map((task) =>
+              extractorLimit(async () => {
+                return runFocusedExtractorTask(
+                  task,
+                  extractionPdfInput,
+                  memory,
+                  completedPageRangePdfCache,
+                  getPageRangePdf,
+                  convertPdfToImages ? getPageImages : undefined,
+                );
+              })
+            )
+          );
 
-        for (const result of followUpResults.flatMap((item) => Array.isArray(item) ? item : item ? [item] : [])) {
-          if (result) {
-            mergeMemoryResult(result.name, result.data, memory);
+          for (const result of followUpResults.flatMap((item) => Array.isArray(item) ? item : item ? [item] : [])) {
+            if (result) {
+              mergeMemoryResult(result.name, result.data, memory);
+            }
           }
         }
+      } else {
+        onProgress?.("Skipping LLM extraction review; deterministic checks passed.");
       }
 
       groundExtractionMemoryWithSourceSpans(memory, sourceSpans);
@@ -815,6 +1005,7 @@ export function createExtractor(config: ExtractorConfig) {
       onProgress?.("Generating document summary...");
       try {
         const budget = resolveBudget("extraction_summary", 512);
+        const startedAt = Date.now();
         const summaryResponse = await safeGenerateObject(
           generateObject as GenerateObject<SummaryResult>,
           {
@@ -834,6 +1025,7 @@ export function createExtractor(config: ExtractorConfig) {
           taskKind: "extraction_summary",
           label: "summary",
           maxTokens: budget.maxTokens,
+          durationMs: Date.now() - startedAt,
         });
         if (summaryResponse.object.summary) {
           (document as Record<string, unknown>).summary = summaryResponse.object.summary;
@@ -846,9 +1038,11 @@ export function createExtractor(config: ExtractorConfig) {
     // Step 9: Format markdown content
     onProgress?.("Formatting extracted content...");
     const formatBudget = resolveBudget("extraction_format", 16384);
+    const formatStartedAt = Date.now();
     const formatResult = await formatDocumentContent(document, generateText, {
       providerOptions: activeProviderOptions,
       maxTokens: formatBudget.maxTokens,
+      concurrency: formatConcurrency ?? concurrency,
       onProgress,
       log,
     });
@@ -856,6 +1050,7 @@ export function createExtractor(config: ExtractorConfig) {
       taskKind: "extraction_format",
       label: "format",
       maxTokens: formatBudget.maxTokens,
+      durationMs: Date.now() - formatStartedAt,
     });
 
     const chunks = chunkDocument(formatResult.document);

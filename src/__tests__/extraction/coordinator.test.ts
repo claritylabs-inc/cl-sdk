@@ -22,15 +22,23 @@ vi.mock("../../extraction/extractor", () => ({
   runExtractor,
 }));
 
-vi.mock("../../extraction/pdf", () => ({
-  getPdfPageCount: vi.fn().mockResolvedValue(6),
-  extractPageRange: vi.fn().mockResolvedValue("mapped-pages-pdf-base64"),
-  pdfInputToBase64: vi.fn().mockImplementation((input: string) => Promise.resolve(input)),
-  buildPdfProviderOptions: vi.fn().mockImplementation(async (input: string, existing?: Record<string, unknown>) => ({
-    ...existing,
-    pdfBase64: input,
-  })),
-}));
+vi.mock("../../extraction/pdf", () => {
+  const getPdfPageCount = vi.fn().mockResolvedValue(6);
+  const extractPageRange = vi.fn().mockResolvedValue("mapped-pages-pdf-base64");
+  return {
+    getPdfPageCount,
+    extractPageRange,
+    createPdfPageSlicer: vi.fn().mockResolvedValue({
+      getPageCount: () => getPdfPageCount.getMockImplementation()?.() ?? 6,
+      extractPageRange,
+    }),
+    pdfInputToBase64: vi.fn().mockImplementation((input: string) => Promise.resolve(input)),
+    buildPdfProviderOptions: vi.fn().mockImplementation(async (input: string, existing?: Record<string, unknown>) => ({
+      ...existing,
+      pdfBase64: input,
+    })),
+  };
+});
 
 vi.mock("../../extraction/formatter", () => ({
   formatDocumentContent,
@@ -194,7 +202,11 @@ describe("createExtractor", () => {
       generateObject: vi.fn(),
       convertPdfToImages: vi.fn(),
       concurrency: 4,
+      pageMapConcurrency: 3,
+      extractorConcurrency: 5,
+      formatConcurrency: 2,
       maxReviewRounds: 3,
+      reviewMode: "auto",
       onTokenUsage: vi.fn(),
       onProgress: vi.fn(),
       log: vi.fn(),
@@ -492,7 +504,7 @@ describe("createExtractor", () => {
     expect(runExtractor).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "supplementary",
-        startPage: 1,
+        startPage: 6,
         endPage: 6,
         pdfInput: "full-pdf-base64",
       }),

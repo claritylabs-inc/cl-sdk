@@ -1,7 +1,7 @@
 import type { GenerateObject, ConvertPdfToImagesFn, PdfInput, TokenUsage, LogFn } from "../core/types";
 import type { ModelBudgetResolution, ModelTaskKind } from "../core/model-budget";
 import { getExtractor } from "../prompts/extractors/index";
-import { runExtractor, type ExtractorResult } from "./extractor";
+import { runExtractor, type ExtractorResult, type PageRangeImage } from "./extractor";
 
 export interface FocusedExtractorTask {
   extractorName: string;
@@ -16,7 +16,9 @@ export interface FocusedExtractorDispatchParams {
   convertPdfToImages?: ConvertPdfToImagesFn;
   providerOptions?: Record<string, unknown>;
   pageRangeCache?: Map<string, string>;
-  trackUsage: (usage?: TokenUsage, report?: { taskKind: ModelTaskKind; label?: string; maxTokens?: number }) => void;
+  getPageRangePdf?: (startPage: number, endPage: number) => Promise<string>;
+  getPageImages?: (startPage: number, endPage: number) => Promise<PageRangeImage[]>;
+  trackUsage: (usage?: TokenUsage, report?: { taskKind: ModelTaskKind; label?: string; maxTokens?: number; durationMs?: number }) => void;
   resolveBudget: (taskKind: ModelTaskKind, hintTokens: number) => ModelBudgetResolution;
   log?: LogFn;
 }
@@ -35,6 +37,8 @@ export async function runFocusedExtractorWithFallback(
     convertPdfToImages,
     providerOptions,
     pageRangeCache,
+    getPageRangePdf,
+    getPageImages,
     trackUsage,
     resolveBudget,
     log,
@@ -50,6 +54,7 @@ export async function runFocusedExtractorWithFallback(
     const hintTokens = ext.maxTokens ?? 4096;
     const taskKind = hintTokens >= 8192 ? "extraction_long_list" : "extraction_focused";
     const budget = resolveBudget(taskKind, hintTokens);
+    const startedAt = Date.now();
     const result = await runExtractor({
       name: task.extractorName,
       prompt: ext.buildPrompt(),
@@ -62,11 +67,14 @@ export async function runFocusedExtractorWithFallback(
       maxTokens: budget.maxTokens,
       providerOptions,
       pageRangeCache,
+      getPageRangePdf,
+      getPageImages,
     });
     trackUsage(result.usage, {
       taskKind,
       label: task.extractorName,
       maxTokens: budget.maxTokens,
+      durationMs: Date.now() - startedAt,
     });
 
     if (!ext.fallback?.isEmpty(result.data)) {
@@ -94,6 +102,7 @@ export async function runFocusedExtractorWithFallback(
     const hintTokens = fallbackExt.maxTokens ?? 4096;
     const taskKind = hintTokens >= 8192 ? "extraction_long_list" : "extraction_focused";
     const budget = resolveBudget(taskKind, hintTokens);
+    const startedAt = Date.now();
     const fallbackResult = await runExtractor({
       name: ext.fallback.extractorName,
       prompt: fallbackExt.buildPrompt(),
@@ -106,11 +115,14 @@ export async function runFocusedExtractorWithFallback(
       maxTokens: budget.maxTokens,
       providerOptions,
       pageRangeCache,
+      getPageRangePdf,
+      getPageImages,
     });
     trackUsage(fallbackResult.usage, {
       taskKind,
       label: ext.fallback.extractorName,
       maxTokens: budget.maxTokens,
+      durationMs: Date.now() - startedAt,
     });
 
     const focusedData = ext.fallback.deriveFocusedResult(fallbackResult.data);

@@ -1,6 +1,7 @@
 import type { GenerateText, TokenUsage, LogFn } from "../core/types";
 import type { InsuranceDocument } from "../schemas/document";
 import { withRetry } from "../core/retry";
+import { pLimit } from "../core/concurrency";
 import { buildFormatPrompt } from "../prompts/coordinator/format";
 
 interface ContentEntry {
@@ -209,6 +210,7 @@ export async function formatDocumentContent(
   options?: {
     providerOptions?: Record<string, unknown>;
     maxTokens?: number;
+    concurrency?: number;
     onProgress?: (message: string) => void;
     log?: LogFn;
   },
@@ -228,41 +230,48 @@ export async function formatDocumentContent(
     batches.push(entries.slice(i, i + MAX_ENTRIES_PER_BATCH));
   }
 
-  for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
-    const batch = batches[batchIdx];
-    try {
-      const prompt = buildFormatPrompt(batch.map((e) => ({ id: e.id, text: e.text })));
+  const limit = pLimit(options?.concurrency ?? 2);
+  const batchResults = await Promise.all(batches.map((batch, batchIdx) =>
+    limit(async (): Promise<{ batch: ContentEntry[]; formatted: Map<number, string>; usage?: TokenUsage } | undefined> => {
+      try {
+        const prompt = buildFormatPrompt(batch.map((e) => ({ id: e.id, text: e.text })));
 
-      const result = await withRetry(() =>
-        generateText({
-          prompt,
-          maxTokens: options?.maxTokens ?? 16384,
-          providerOptions: options?.providerOptions,
-        })
-      );
-
-      if (result.usage) {
-        totalUsage.inputTokens += result.usage.inputTokens;
-        totalUsage.outputTokens += result.usage.outputTokens;
-      }
-
-      const formatted = parseFormatResponse(result.text);
-
-      // Warn if the model returned fewer entries than sent
-      if (formatted.size < batch.length) {
-        await options?.log?.(
-          `Format batch ${batchIdx + 1}/${batches.length}: model returned ${formatted.size}/${batch.length} entries — unformatted entries will keep original content`,
+        const result = await withRetry(() =>
+          generateText({
+            prompt,
+            maxTokens: options?.maxTokens ?? 16384,
+            providerOptions: options?.providerOptions,
+          })
         );
-      }
 
-      applyFormattedContent(doc, batch, formatted);
-    } catch (error) {
-      // Per-batch isolation: if this batch fails, keep original content
-      // for these entries rather than crashing the entire format step
-      await options?.log?.(
-        `Format batch ${batchIdx + 1}/${batches.length} failed, keeping original content: ${error instanceof Error ? error.message : String(error)}`,
-      );
+        const formatted = parseFormatResponse(result.text);
+
+        // Warn if the model returned fewer entries than sent
+        if (formatted.size < batch.length) {
+          await options?.log?.(
+            `Format batch ${batchIdx + 1}/${batches.length}: model returned ${formatted.size}/${batch.length} entries — unformatted entries will keep original content`,
+          );
+        }
+
+        return { batch, formatted, usage: result.usage };
+      } catch (error) {
+        // Per-batch isolation: if this batch fails, keep original content
+        // for these entries rather than crashing the entire format step
+        await options?.log?.(
+          `Format batch ${batchIdx + 1}/${batches.length} failed, keeping original content: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return undefined;
+      }
+    })
+  ));
+
+  for (const result of batchResults) {
+    if (!result) continue;
+    if (result.usage) {
+      totalUsage.inputTokens += result.usage.inputTokens;
+      totalUsage.outputTokens += result.usage.outputTokens;
     }
+    applyFormattedContent(doc, result.batch, result.formatted);
   }
 
   return { document: doc, usage: totalUsage };

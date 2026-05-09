@@ -36,14 +36,14 @@ The pipeline runs twelve phases automatically:
 1. **Classify** -- detect document type (policy/quote) and identify policy types, using the full PDF from `providerOptions.pdfBase64`
 2. **Form inventory and page map** -- identify form signals and map each page to focused extractors using page-scoped PDFs and caller-provided source spans
 3. **Plan** -- build deterministic extraction tasks from the page map and template hints
-4. **Extract + merge** -- dispatch focused extractors in parallel (concurrency-limited), with each worker receiving a page-scoped PDF from `extractPageRange()` via `providerOptions.pdfBase64` or `providerOptions.images`, plus page-filtered `providerOptions.sourceSpans` when available
-5. **Conditional supplementary extraction** -- run `supplementary` only when page assignments, form inventory, extracted text, or review follow-up tasks indicate hidden retrieval facts are likely present
+4. **Extract + merge** -- dispatch focused extractors in parallel (concurrency-limited), with each worker receiving a cached page-scoped PDF via `providerOptions.pdfBase64` or cached rendered page images via `providerOptions.images`, plus page-filtered `providerOptions.sourceSpans` when available
+5. **Conditional supplementary extraction** -- run `supplementary` only when page assignments, form inventory, extracted text, or review follow-up tasks indicate hidden retrieval facts are likely present; page/form signals are dispatched as narrow page-scoped tasks with the main extractor batch
 6. **Referential coverage resolution** -- resolve values like "shown in declarations" or "per schedule" with cheap local matches first, then bounded targeted lookups when useful
-7. **Review** -- check completeness and quality against template requirements and the live extractor catalog, dispatch additional extractors for gaps (up to `maxReviewRounds`)
+7. **Review** -- check completeness and quality against template requirements and the live extractor catalog, dispatch additional extractors for gaps (up to `maxReviewRounds`); `reviewMode` can skip the expensive LLM review when deterministic checks are sufficient
 8. **Assemble** -- merge all extractor results into an `InsuranceDocument`
 9. **Promote** -- fill top-level typed fields from declarations and coverages (carrier field mapping, broker, locations, loss payees, limits/deductibles synthesis, premium/total-cost fallback, taxes/fees synthesis)
 10. **Summarize** -- generate a 1-3 sentence document summary via model call
-11. **Cost-aware format** -- clean up markdown formatting in content fields only when content is likely to need it
+11. **Cost-aware format** -- clean up markdown formatting in content fields only when content is likely to need it, using bounded parallel batches
 12. **Chunk** -- break the formatted document into `DocumentChunk[]` for vector storage
 
 <Callout type="info">
@@ -142,8 +142,16 @@ interface ExtractorConfig {
   convertPdfToImages?: ConvertPdfToImagesFn;
   /** Maximum parallel extractor dispatch (default: 2) */
   concurrency?: number;
+  /** Optional override for page-map model calls. Defaults to concurrency. */
+  pageMapConcurrency?: number;
+  /** Optional override for focused extractor model calls. Defaults to concurrency. */
+  extractorConcurrency?: number;
+  /** Optional override for markdown formatting model calls. Defaults to concurrency. */
+  formatConcurrency?: number;
   /** Maximum review/re-extraction rounds (default: 2) */
   maxReviewRounds?: number;
+  /** LLM review behavior. "auto" skips review when deterministic checks are clean and source spans are available. */
+  reviewMode?: "always" | "auto" | "skip";
   /** Called after each model call with token counts */
   onTokenUsage?: (usage: TokenUsage) => void;
   /** Called with human-readable progress messages during extraction */
@@ -210,6 +218,22 @@ interface ExtractionResult {
 ```
 
 `ExtractionResult.document` may include `definitions?: Definition[]`, `coveredReasons?: CoveredReason[]`, and `supplementaryFacts?: Array<{ key: string; value: string; subject?: string; context?: string }>` when the relevant extractors find those records.
+
+### Performance controls
+
+The extraction coordinator has separate concurrency knobs because each stage has a different cost profile:
+
+| Option | Applies to | Default |
+|--------|------------|---------|
+| `concurrency` | Shared fallback for page mapping, extractors, referential lookup, and formatting | `2` |
+| `pageMapConcurrency` | Page-map chunk model calls | `concurrency` |
+| `extractorConcurrency` | Focused extractor and review follow-up model calls | `concurrency` |
+| `formatConcurrency` | Markdown formatting batches | `concurrency` |
+| `reviewMode` | Expensive LLM review pass | `"auto"` |
+
+The coordinator also caches full-document provider options, page-scoped PDF ranges, rendered image ranges, and in-flight range requests. When multiple focused extractors inspect the same pages, the SDK reuses the same sliced PDF or rendered images instead of doing duplicate local work.
+
+Use `reviewMode: "always"` when you want every extraction to run the LLM review regardless of deterministic quality checks. Use `reviewMode: "skip"` only when your host system performs its own review or when low-latency extraction is more important than coordinator follow-up coverage.
 
 ### `ExtractorDef`
 

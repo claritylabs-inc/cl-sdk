@@ -48,7 +48,7 @@ For extraction and multimodal query calls, `providerOptions` is also the documen
 - `providerOptions.sourceSpans` carries source evidence relevant to the current call
 - `providerOptions.sourceChunks` carries grouped source evidence windows derived from spans
 - classify and plan receive the full PDF
-- worker extractors receive a page-scoped PDF produced by `extractPageRange()`, unless `convertPdfToImages` is enabled
+- page-map and worker extractors receive cached page-scoped PDFs, unless `convertPdfToImages` is enabled and cached page images are sent instead
 - query attachment interpretation calls may set both `providerOptions.attachments` and the convenience fields above for the current attachment
 
 ## Provider examples

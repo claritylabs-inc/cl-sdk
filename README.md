@@ -36,6 +36,11 @@ const extractor = createExtractor({
     const result = await yourProvider.generateStructured({ prompt, system, schema, maxTokens, providerOptions });
     return { object: result.object, usage: result.usage };
   },
+  concurrency: 3,
+  pageMapConcurrency: 3,
+  extractorConcurrency: 4,
+  formatConcurrency: 2,
+  reviewMode: "auto",
 });
 
 const result = await extractor.extract(pdfBase64);
@@ -122,7 +127,9 @@ CL-SDK uses deterministic scaffolding with agentic decision points rather than f
 - Extraction page mapping and review choose focused follow-up extractors from the live extractor catalog. Definitions and covered reasons can fall back through section extraction when a focused run returns no usable records.
 - Supplementary extraction runs only when page assignments, form inventory, existing extracted text, or review follow-up tasks indicate regulatory, claims, notice, cancellation, or contact facts are likely present.
 - Referential coverage resolution tries cheap local section/form matches first, then uses bounded target-specific actions for declarations, schedules, sections, page-location lookup, or skip.
-- Formatting skips the LLM cleanup pass for plain prose and only formats long or noisy content that looks likely to contain markdown, spacing, list, heading, or table artifacts.
+- Page mapping, focused extractors, referential lookup, and formatting use separate concurrency controls. Page-scoped PDF and image ranges are cached so overlapping extractor tasks do not repeatedly slice or render the same pages.
+- Formatting skips the LLM cleanup pass for plain prose and formats long or noisy markdown/table/list content in parallel batches.
+- `reviewMode: "auto"` skips the expensive LLM review pass when deterministic checks are clean and source spans are available. Use `"always"` for maximum review coverage or `"skip"` when the host owns quality review separately.
 - Application processing plans optional backfill, context auto-fill, document search, batching, reply parsing, lookup, explanations, and next-batch email generation based on current state.
 
 These gates reduce unnecessary provider calls while preserving reliability for edge cases where additional focused extraction or retrieval is needed.

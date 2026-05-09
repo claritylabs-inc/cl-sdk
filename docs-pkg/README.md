@@ -28,7 +28,7 @@ const nav = JSON.parse(fs.readFileSync(path.join(docsRoot, "meta.json"), "utf-8"
 - `meta.json` — navigation structure (sections and pages)
 - `**/*.mdx` — documentation pages with YAML frontmatter
 
-v1 documentation includes source grounding, PCE workflows, case workflow primitives, migration notes, API references, storage guidance, and the release changelog.
+v1 documentation includes source grounding, extraction performance controls, PCE workflows, case workflow primitives, migration notes, API references, storage guidance, and the release changelog.
 
 ## Frontmatter
 

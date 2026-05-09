@@ -5,6 +5,15 @@ description: Release history for @claritylabs/cl-sdk
 
 All notable changes to `@claritylabs/cl-sdk` are documented here.
 
+## Unreleased
+
+### Changed
+
+- Extraction now caches full-document provider options, page-scoped PDF ranges, rendered image ranges, and in-flight range work during a single run.
+- Added separate `pageMapConcurrency`, `extractorConcurrency`, and `formatConcurrency` controls, plus bounded parallel formatting batches.
+- Added `reviewMode` for choosing between automatic, always-on, and skipped LLM extraction review.
+- Supplementary extraction can now run as narrow page-scoped tasks when page-map or form-inventory signals identify likely notice, regulatory, claims, or contact pages.
+
 ## v1.0.1 -- Publishable v1 Release Line
 
 Released 2026-05-08.

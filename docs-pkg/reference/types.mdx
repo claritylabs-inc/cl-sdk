@@ -40,7 +40,7 @@ In the extraction pipeline, `providerOptions` can include:
 - `sourceChunks` — grouped source evidence windows derived from spans
 - `attachments` — query/application attachment payloads when available
 
-The coordinator uses the full PDF for classify and plan. Worker extractors use a page-scoped PDF produced by `extractPageRange()`, unless `convertPdfToImages` is enabled.
+The coordinator uses the full PDF for classify, form inventory, and review. Page mapping and worker extractors use cached page-scoped PDFs, unless `convertPdfToImages` is enabled, in which case rendered image ranges are cached and passed through `providerOptions.images`.
 
 ### `EmbedText`
 
@@ -85,7 +85,11 @@ interface ExtractorConfig {
   generateObject: GenerateObject;
   convertPdfToImages?: ConvertPdfToImagesFn;
   concurrency?: number;           // Default: 2
+  pageMapConcurrency?: number;    // Defaults to concurrency
+  extractorConcurrency?: number;  // Defaults to concurrency
+  formatConcurrency?: number;     // Defaults to concurrency
   maxReviewRounds?: number;       // Default: 2
+  reviewMode?: "always" | "auto" | "skip";
   onTokenUsage?: (usage: TokenUsage) => void;
   onProgress?: (message: string) => void;
   log?: LogFn;

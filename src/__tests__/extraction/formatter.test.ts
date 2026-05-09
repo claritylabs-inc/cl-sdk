@@ -66,4 +66,36 @@ describe("formatDocumentContent", () => {
       "| COVERAGE | LIMIT | DEDUCTIBLE |\n| --- | --- | --- |\n| Employee Theft | $10,000 | $1,000 |",
     );
   });
+
+  it("formats batches in parallel up to the configured concurrency", async () => {
+    const doc = createPolicyDoc({
+      sections: Array.from({ length: 41 }, (_, index) => ({
+        title: `Schedule ${index}`,
+        pageStart: index + 1,
+        type: "schedule",
+        content: `COVERAGE | LIMIT | DEDUCTIBLE\nCoverage ${index} | $10,000 | $1,000`,
+      })),
+    });
+    let active = 0;
+    let maxActive = 0;
+    const generateText = vi.fn<GenerateText>().mockImplementation(async ({ prompt }) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active -= 1;
+
+      const ids = [...prompt.matchAll(/===ENTRY (\d+)===/g)].map((match) => Number(match[1]));
+      return {
+        text: ids.map((id) => `===ENTRY ${id}===\nformatted ${id}`).join("\n"),
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    });
+
+    const result = await formatDocumentContent(doc, generateText, { concurrency: 3 });
+
+    expect(generateText).toHaveBeenCalledTimes(3);
+    expect(maxActive).toBe(3);
+    expect(result.usage).toEqual({ inputTokens: 3, outputTokens: 3 });
+    expect(result.document.sections?.[40].content).toBe("formatted 40");
+  });
 });

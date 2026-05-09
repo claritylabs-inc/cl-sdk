@@ -4,8 +4,8 @@ import type { ModelBudgetConstraint, ModelCapabilities } from "../core/model-bud
 import { resolveModelBudget } from "../core/model-budget";
 import { pLimit } from "../core/concurrency";
 import { safeGenerateObject } from "../core/safe-generate";
-import { runExtractor } from "./extractor";
-import { extractPageRange, buildPdfProviderOptions } from "./pdf";
+import { runExtractor, type PageRangeImage } from "./extractor";
+import { buildPdfProviderOptions } from "./pdf";
 import {
   buildReferentialLookupPrompt,
   ReferentialLookupSchema,
@@ -232,6 +232,8 @@ export async function resolveReferentialCoverages(params: {
   pageCount: number;
   generateObject: GenerateObject;
   convertPdfToImages?: ConvertPdfToImagesFn;
+  getPageRangePdf?: (startPage: number, endPage: number) => Promise<string>;
+  getPageImages?: (startPage: number, endPage: number) => Promise<PageRangeImage[]>;
   concurrency?: number;
   providerOptions?: Record<string, unknown>;
   modelCapabilities?: ModelCapabilities;
@@ -245,6 +247,8 @@ export async function resolveReferentialCoverages(params: {
     pageCount,
     generateObject,
     convertPdfToImages,
+    getPageRangePdf,
+    getPageImages,
     concurrency = 2,
     providerOptions,
     modelCapabilities,
@@ -406,6 +410,8 @@ export async function resolveReferentialCoverages(params: {
             endPage: pageRange.endPage,
             generateObject: generateObject as GenerateObject<ReferentialLookupResult>,
             convertPdfToImages,
+            getPageRangePdf,
+            getPageImages,
             maxTokens: budget.maxTokens,
             providerOptions,
           });

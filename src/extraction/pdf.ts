@@ -201,6 +201,57 @@ export async function extractPageRange(
   return bytesToBase64(new Uint8Array(bytes));
 }
 
+export interface PdfPageSlicer {
+  getPageCount(): number;
+  extractPageRange(startPage: number, endPage: number): Promise<string>;
+}
+
+/**
+ * Load a PDF once and reuse it for repeated page range extraction.
+ * Coordinator code should prefer this over calling `extractPageRange()` for
+ * every worker task because pdf-lib parsing dominates local CPU time on large
+ * documents.
+ */
+export async function createPdfPageSlicer(input: PdfInput): Promise<PdfPageSlicer> {
+  if (isFileIdRef(input)) {
+    throw new Error(
+      "Cannot create a page slicer from a fileId reference. " +
+        "Pass the full PDF as base64/bytes, or provide pre-rendered page assets."
+    );
+  }
+
+  const srcBytes = await pdfInputToBytes(input);
+  const srcDoc = await PDFDocument.load(srcBytes, { ignoreEncryption: true });
+  const totalPages = srcDoc.getPageCount();
+  const originalBase64 = isBytes(input)
+    ? bytesToBase64(input)
+    : typeof input === "string"
+      ? input
+      : bytesToBase64(srcBytes);
+
+  return {
+    getPageCount() {
+      return totalPages;
+    },
+    async extractPageRange(startPage: number, endPage: number): Promise<string> {
+      const start = Math.max(startPage - 1, 0);
+      const end = Math.min(endPage, totalPages) - 1;
+
+      if (start === 0 && end >= totalPages - 1) {
+        return originalBase64;
+      }
+
+      const newDoc = await PDFDocument.create();
+      const indices = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+      const pages = await newDoc.copyPages(srcDoc, indices);
+      pages.forEach((page) => newDoc.addPage(page));
+      const bytes = await newDoc.save();
+
+      return bytesToBase64(new Uint8Array(bytes));
+    },
+  };
+}
+
 /**
  * Build provider options for passing PDF content to generateObject callbacks.
  * This chooses the most efficient representation based on the input type.
@@ -359,4 +410,3 @@ export async function overlayTextOnPdf(
 
   return await pdfDoc.save();
 }
-

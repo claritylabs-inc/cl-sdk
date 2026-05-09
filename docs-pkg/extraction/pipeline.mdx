@@ -5,7 +5,7 @@ description: Turn insurance PDFs into structured data with the agentic extractio
 
 import { Callout } from "@/components/ui/callout";
 
-CL SDK's extraction pipeline uses an agentic coordinator/worker pattern to process insurance documents. It classifies the document, maps pages to focused extractors, builds deterministic tasks, dispatches focused extractors in parallel, conditionally runs supplementary extraction for hidden retrieval facts, resolves referential coverage values, reviews for completeness and quality, assembles a fully typed `InsuranceDocument`, promotes declarations data into typed top-level fields, generates a document summary, and produces retrieval-ready chunks.
+CL SDK's extraction pipeline uses an agentic coordinator/worker pattern to process insurance documents. It classifies the document, maps pages to focused extractors, builds deterministic tasks, dispatches focused extractors in parallel, conditionally runs supplementary extraction for hidden retrieval facts, resolves referential coverage values, reviews for completeness and quality when configured, assembles a fully typed `InsuranceDocument`, promotes declarations data into typed top-level fields, generates a document summary, formats content in bounded parallel batches, and produces retrieval-ready chunks.
 
 ## Quick start
 
@@ -15,6 +15,9 @@ import { createExtractor } from "@claritylabs/cl-sdk";
 const extractor = createExtractor({
   generateText: myGenerateText,   // Your provider callback
   generateObject: myGenerateObject,
+  extractorConcurrency: 4,
+  formatConcurrency: 2,
+  reviewMode: "auto",
   onProgress: (msg) => console.log(msg),
 });
 
@@ -33,7 +36,7 @@ CL SDK is provider-agnostic. You supply plain callback functions (`GenerateText`
 
 ## Pipeline overview
 
-The pipeline runs twelve phases sequentially. Extraction, review follow-ups, and bounded optional work dispatch in parallel internally where useful.
+The pipeline runs twelve phases sequentially. Page mapping, extraction, review follow-ups, referential lookups, and formatting dispatch in parallel internally where useful.
 
 ```mermaid
 flowchart TD
@@ -42,10 +45,10 @@ flowchart TD
     C --> D[3. Plan]
     D --> E[4. Extract + Merge]
     E --> F{5. Supplementary signal?}
-    F -->|yes| G[Supplementary]
+    F -->|yes| G[Page-scoped Supplementary]
     F -->|no| H[6. Resolve Referential]
     G --> H
-    H --> I[7. Review]
+    H --> I[7. Review or Deterministic Skip]
     I -->|gaps found| E
     I -->|complete| J[8. Assemble]
     J --> K[9. Promote]
@@ -69,7 +72,7 @@ Classification uses `generateObject` with the `ClassifyResultSchema` and drives 
 
 The coordinator first maps each page to one or more focused extractors. This is the step that prevents broad, mixed ranges from sending declaration pages and generic policy forms through the same extractor without distinction.
 
-The page mapper receives chunked PDFs through `providerOptions.pdfBase64` and assigns pages one by one.
+The page mapper receives chunked PDFs through `providerOptions.pdfBase64` and assigns pages one by one. Page-map chunks run with `pageMapConcurrency` when configured, otherwise the shared `concurrency` value.
 
 ## Phase 3: Plan
 
@@ -121,11 +124,11 @@ Templates are accessed internally via `getTemplate(policyType)`.
 
 ## Phase 4: Extract And Merge
 
-The coordinator dispatches focused extractors in parallel (concurrency-limited, default 2). Each extractor targets a specific data domain against the page range assigned by the plan.
+The coordinator dispatches focused extractors in parallel (concurrency-limited, default 2). `extractorConcurrency` can be set independently when extractor calls should use a different provider lane than page mapping or formatting. Each extractor targets a specific data domain against the page range assigned by the plan.
 
 Results accumulate in an in-memory `Map` keyed by extractor name.
 
-Before each worker callback is invoked, the SDK slices the assigned page range with `extractPageRange()` and passes that page-scoped PDF through `providerOptions.pdfBase64`. If `convertPdfToImages` is configured, it passes `providerOptions.images` instead.
+Before each worker callback is invoked, the SDK slices the assigned page range and passes that page-scoped PDF through `providerOptions.pdfBase64`. If `convertPdfToImages` is configured, it passes `providerOptions.images` instead. Full-document provider options, page-scoped PDFs, rendered images, and in-flight range requests are cached for the lifetime of one extraction so overlapping extractor tasks reuse local work.
 
 If the same extractor runs multiple times, results merge instead of overwrite. This is especially important for `coverage_limits`, `definitions`, `covered_reasons`, `endorsements`, `exclusions`, `conditions`, `sections`, `declarations`, and `supplementary`.
 
@@ -153,9 +156,9 @@ Each extractor is defined with `{ buildPrompt(), schema, maxTokens }` and access
 
 ## Phase 5: Conditional supplementary facts pass
 
-After the page-mapped extractor tasks complete, the coordinator decides whether a `supplementary` pass is needed. This pass is intended for memory and retrieval rather than consumer-facing structured output.
+The coordinator decides whether a `supplementary` pass is needed. This pass is intended for memory and retrieval rather than consumer-facing structured output.
 
-The pass is skipped when there are no signals that hidden retrieval facts are present. It runs when page assignments, form inventory, existing extracted text, or review follow-up tasks indicate regulatory, claims, notice, cancellation/nonrenewal, contact, TPA, driver, household, lienholder, or schedule-row facts are likely present.
+The pass is skipped when there are no signals that hidden retrieval facts are present. It runs when page assignments, form inventory, existing extracted text, or review follow-up tasks indicate regulatory, claims, notice, cancellation/nonrenewal, contact, TPA, driver, household, lienholder, or schedule-row facts are likely present. Page/form signals are run as narrow page-scoped supplementary tasks in the main extractor batch; text signals discovered only after extraction fall back to a full-document supplementary pass.
 
 The pass still captures regulatory contacts and notice periods, but it also emits `auxiliaryFacts`: normalized key/value facts that do not fit the strict primary schema.
 
@@ -182,7 +185,7 @@ Resolution is bounded. It first tries cheap local matches against already extrac
 
 ## Phase 7: Review
 
-After initial extraction, a review loop (up to `maxReviewRounds`, default 2) checks completeness and quality against the template's `required` fields. The reviewer compares what has been extracted against what is expected, sees the document again, and receives a summary of extracted outputs and page assignments.
+After initial extraction, deterministic quality checks always run. The LLM review loop (up to `maxReviewRounds`, default 2) checks completeness and quality against the template's `required` fields when `reviewMode` allows it. The reviewer compares what has been extracted against what is expected, sees the document again, and receives a summary of extracted outputs and page assignments.
 
 If gaps or quality issues are found, the reviewer generates additional extraction tasks. These follow-up extractors are dispatched in parallel, just like the main extraction phase. The loop continues until either:
 - All required fields are present, or
@@ -191,6 +194,14 @@ If gaps or quality issues are found, the reviewer generates additional extractio
 Typical quality issues include generic placeholders like "shown in declarations", "per schedule", values that look copied from generic form wording instead of declaration-specific schedules, mapped definitions pages with no definition records, and mapped covered-cause/inclusion pages with no covered reason records.
 
 The reviewer receives the live extractor catalog, including registered fallback-capable extractors, so follow-up work can target definitions, covered reasons, supplementary facts, declarations, or section fallback extraction without relying on a hardcoded task list.
+
+`reviewMode` controls the expensive LLM review pass:
+
+| Mode | Behavior |
+|------|----------|
+| `"auto"` | Default. Runs LLM review unless deterministic checks are clean and source spans are available. |
+| `"always"` | Always runs LLM review up to `maxReviewRounds`. |
+| `"skip"` | Skips LLM review and relies on deterministic checks plus the configured `qualityGate`. |
 
 ## Phase 8: Assemble
 
@@ -229,7 +240,7 @@ If summary generation fails, the pipeline continues without it — the field rem
 
 ## Phase 11: Cost-aware format
 
-After assembly, a formatting agent pass cleans up markdown in content-bearing string fields only when the content is likely to need it. Plain prose skips the model call. Long text, markdown artifacts, lists/headings, excessive spacing, and table-like content are batched for cleanup.
+After assembly, a formatting agent pass cleans up markdown in content-bearing string fields only when the content is likely to need it. Plain prose skips the model call. Long text, markdown artifacts, lists/headings, excessive spacing, and table-like content are batched for cleanup and processed with `formatConcurrency`.
 
 Insurance document extraction commonly produces content with formatting issues that prevent proper markdown rendering:
 
@@ -241,7 +252,7 @@ Insurance document extraction commonly produces content with formatting issues t
 | Mixed table/prose content | Paragraphs followed by tables followed by more paragraphs | Handle each segment independently |
 | General cleanup | Excessive blank lines, trailing whitespace, orphaned `**` or `*` markers | Standard markdown normalization |
 
-Content fields are collected and batched (up to 20 per model call) for efficient processing. The formatting prompt includes specific before/after examples for each pattern. Token usage from formatting is tracked and included in the total, but no-op formatting calls are avoided.
+Content fields are collected and batched (up to 20 per model call) for efficient processing. Batches run in parallel up to `formatConcurrency`. The formatting prompt includes specific before/after examples for each pattern. Token usage from formatting is tracked and included in the total, but no-op formatting calls are avoided.
 
 <Callout type="info">
   The formatter only fixes formatting — it never changes the meaning or substance of extracted content. Dollar amounts, dates, policy numbers, and technical terms are preserved exactly as extracted.
@@ -282,7 +293,11 @@ interface ExtractorConfig {
   generateObject: GenerateObject;                // Required — structured output callback
   convertPdfToImages?: ConvertPdfToImagesFn;     // Optional — send pages as images instead of PDF
   concurrency?: number;                          // Default: 2
+  pageMapConcurrency?: number;                   // Defaults to concurrency
+  extractorConcurrency?: number;                 // Defaults to concurrency
+  formatConcurrency?: number;                    // Defaults to concurrency
   maxReviewRounds?: number;                      // Default: 2
+  reviewMode?: "always" | "auto" | "skip";       // Default: "auto"
   onTokenUsage?: (usage: TokenUsage) => void;    // Per-call token usage callback
   onProgress?: (message: string) => void;        // Progress message callback
   log?: LogFn;                                   // Debug logging callback
@@ -313,13 +328,17 @@ Your callback must treat `providerOptions` as part of the model input contract, 
 
 ### Tuning concurrency
 
-The default concurrency of 2 balances throughput against rate limits. Increase it for higher-tier API plans:
+The default concurrency of 2 balances throughput against rate limits. Use the shared `concurrency` value for simple setups, or split the lanes when your provider plan can handle more extractor work than formatting or page mapping:
 
 ```typescript
 const extractor = createExtractor({
   generateText: myGenerateText,
   generateObject: myGenerateObject,
-  concurrency: 4,  // Up to 4 extractors in parallel
+  concurrency: 3,
+  pageMapConcurrency: 3,
+  extractorConcurrency: 4,
+  formatConcurrency: 2,
+  reviewMode: "auto",
 });
 ```
 

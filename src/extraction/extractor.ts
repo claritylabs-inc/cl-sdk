@@ -5,6 +5,8 @@ import { toStrictSchema } from "../core/strict-schema";
 import { extractPageRange, pdfInputToBase64 } from "./pdf";
 import type { SourceSpan } from "../source";
 
+export type PageRangeImage = { imageBase64: string; mimeType: string };
+
 export interface ExtractorParams<T> {
   name: string;
   prompt: string;
@@ -18,6 +20,8 @@ export interface ExtractorParams<T> {
   maxTokens?: number;
   providerOptions?: Record<string, unknown>;
   pageRangeCache?: Map<string, string>;
+  getPageRangePdf?: (startPage: number, endPage: number) => Promise<string>;
+  getPageImages?: (startPage: number, endPage: number) => Promise<PageRangeImage[]>;
 }
 
 export interface ExtractorResult<T> {
@@ -86,19 +90,23 @@ export async function runExtractor<T>(params: ExtractorParams<T>): Promise<Extra
 
   // Convert PdfInput to base64 for image conversion or page extraction
   // FileId references cannot be used for partial page extraction
-  const pdfBase64 = await pdfInputToBase64(pdfInput);
+  const needsPdfBase64 = (convertPdfToImages && !params.getPageImages) || (!convertPdfToImages && !params.getPageRangePdf);
+  const pdfBase64 = needsPdfBase64 ? await pdfInputToBase64(pdfInput) : undefined;
 
   if (convertPdfToImages) {
-    const images = await convertPdfToImages(pdfBase64, startPage, endPage);
+    const images = params.getPageImages
+      ? await params.getPageImages(startPage, endPage)
+      : await convertPdfToImages(pdfBase64!, startPage, endPage);
     extractorProviderOptions.images = images;
     fullPrompt = `${prompt}\n\n[Document pages ${startPage}-${endPage} are provided as images.]`;
   } else {
     const cacheKey = `${startPage}-${endPage}`;
-    let pagesPdf = pageRangeCache?.get(cacheKey);
-    if (!pagesPdf) {
-      pagesPdf = await extractPageRange(pdfBase64, startPage, endPage);
-      pageRangeCache?.set(cacheKey, pagesPdf);
-    }
+    const cachedPagesPdf = pageRangeCache?.get(cacheKey);
+    const pagesPdf = cachedPagesPdf
+      ?? (params.getPageRangePdf
+        ? await params.getPageRangePdf(startPage, endPage)
+        : await extractPageRange(pdfBase64!, startPage, endPage));
+    if (!cachedPagesPdf) pageRangeCache?.set(cacheKey, pagesPdf);
     extractorProviderOptions.pdfBase64 = pagesPdf;
     fullPrompt = `${prompt}\n\n[Document pages ${startPage}-${endPage} are provided as a PDF file.]`;
   }
