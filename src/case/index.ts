@@ -7,7 +7,7 @@ export const CaseEvidenceSourceSchema = z.object({
   page: z.number().optional(),
   fieldPath: z.string().optional(),
   text: z.string().describe("Source text available for span validation and citation"),
-  metadata: z.record(z.string()).optional(),
+  metadata: z.record(z.string(), z.string()).optional(),
 });
 export type CaseEvidenceSource = z.infer<typeof CaseEvidenceSourceSchema>;
 

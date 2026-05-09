@@ -55,7 +55,7 @@ export const SourceSpanSchema = z.object({
   formNumber: z.string().optional(),
   bbox: z.array(SourceSpanBBoxSchema).optional(),
   location: SourceSpanLocationSchema.optional(),
-  metadata: z.record(z.string()).optional(),
+  metadata: z.record(z.string(), z.string()).optional(),
 });
 export type SourceSpan = z.infer<typeof SourceSpanSchema>;
 
@@ -77,6 +77,6 @@ export const SourceChunkSchema = z.object({
   textHash: z.string().min(1),
   pageStart: z.number().int().positive().optional(),
   pageEnd: z.number().int().positive().optional(),
-  metadata: z.record(z.string()).default({}),
+  metadata: z.record(z.string(), z.string()).default({}),
 });
 export type SourceChunk = z.infer<typeof SourceChunkSchema>;

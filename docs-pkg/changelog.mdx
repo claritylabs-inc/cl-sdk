@@ -5,6 +5,15 @@ description: Release history for @claritylabs/cl-sdk
 
 All notable changes to `@claritylabs/cl-sdk` are documented here.
 
+## v1.0.3 -- Zod 4 Metadata Compatibility
+
+Released 2026-05-09.
+
+### Fixed
+
+- Updated source span, source chunk, and case evidence metadata schemas to use the Zod 3/4-compatible two-argument `z.record(z.string(), z.string())` form.
+- Added a regression test covering `SourceChunkSchema.parse()` with non-empty metadata such as `sourceKind` and `sectionId`.
+
 ## Unreleased
 
 ### Changed

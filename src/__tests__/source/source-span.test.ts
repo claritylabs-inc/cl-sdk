@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSectionSourceSpans, buildSourceSpanId, orderSourceEvidence, sourceSpanTextHash, stableHash } from "../../source";
+import { buildSectionSourceSpans, buildSourceSpanId, orderSourceEvidence, sourceSpanTextHash, SourceChunkSchema, stableHash } from "../../source";
 
 describe("source span helpers", () => {
   it("builds deterministic hashes and IDs from normalized source-span inputs", () => {
@@ -84,5 +84,18 @@ This paragraph is long enough to become a source candidate for deterministic sou
 `,
     }])[0].id);
     expect(spans[0].metadata?.sourceUnit).toBe("section_candidate");
+  });
+
+  it("parses source chunks with metadata under Zod 4-compatible schemas", () => {
+    expect(() =>
+      SourceChunkSchema.parse({
+        id: "doc:source_chunk:0:abc",
+        documentId: "doc",
+        sourceSpanIds: ["span-1"],
+        text: "hello",
+        textHash: "hash",
+        metadata: { sourceKind: "policy_pdf", sectionId: "limits" },
+      })
+    ).not.toThrow();
   });
 });
