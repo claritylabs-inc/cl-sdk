@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/claritylabs-inc/cl-sdk/compare/v1.0.2...v1.0.3) (2026-05-09)
+
+
+### Bug Fixes
+
+* support zod 4 record metadata schemas ([bf80f8e](https://github.com/claritylabs-inc/cl-sdk/commit/bf80f8ea3a4482c031d475176a44398a627b8edd))
+
 ## [1.0.2](https://github.com/claritylabs-inc/cl-sdk/compare/v1.0.1...v1.0.2) (2026-05-09)
 
 
