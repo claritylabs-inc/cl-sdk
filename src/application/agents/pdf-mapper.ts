@@ -54,6 +54,7 @@ export async function mapToFlatPdf(
       prompt,
       schema: FlatMappingResultSchema,
       maxTokens,
+      taskKind: "application_pdf_mapping",
       providerOptions,
     }),
   );
@@ -87,6 +88,7 @@ export async function mapToAcroForm(
       prompt,
       schema: AcroFormMappingResultSchema,
       maxTokens,
+      taskKind: "application_pdf_mapping",
       providerOptions,
     }),
   );

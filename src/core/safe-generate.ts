@@ -1,4 +1,5 @@
 import type { GenerateObject, TokenUsage, LogFn } from "./types";
+import type { ModelBudgetResolution, ModelTaskKind } from "./model-budget";
 import { withRetry } from "./retry";
 import { toStrictSchema } from "./strict-schema";
 
@@ -17,6 +18,8 @@ export interface SafeGenerateParams {
   prompt: string;
   system?: string;
   maxTokens: number;
+  taskKind?: ModelTaskKind;
+  budgetDiagnostics?: ModelBudgetResolution;
   providerOptions?: Record<string, unknown>;
 }
 

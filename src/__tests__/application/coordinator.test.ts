@@ -49,6 +49,10 @@ describe("application coordinator", () => {
     });
 
     expect(result.state.fields).toHaveLength(1);
+    expect(generateObject.mock.calls.map(([params]) => params.taskKind)).toEqual([
+      "application_classify",
+      "application_extract_fields",
+    ]);
     expect(providerOptionsSeen).toEqual([
       expect.objectContaining({ sourceSpans }),
       expect.objectContaining({ sourceSpans }),

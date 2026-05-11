@@ -1,5 +1,5 @@
 import type { ZodSchema } from "zod";
-import type { ModelTaskKind } from "./model-budget";
+import type { ModelBudgetResolution, ModelTaskKind } from "./model-budget";
 
 /**
  * PDF input format that supports multiple delivery methods.
@@ -22,6 +22,10 @@ export type GenerateText = (params: {
   prompt: string;
   system?: string;
   maxTokens: number;
+  /** Provider-agnostic subtask label for host-side model routing, fallback, and telemetry. */
+  taskKind?: ModelTaskKind;
+  /** Resolved budget diagnostics for hosts that route/escalate based on truncation risk. */
+  budgetDiagnostics?: ModelBudgetResolution;
   providerOptions?: Record<string, unknown>;
 }) => Promise<{
   text: string;
@@ -51,6 +55,10 @@ export type GenerateObject<T = unknown> = (params: {
   system?: string;
   schema: ZodSchema<T>;
   maxTokens: number;
+  /** Provider-agnostic subtask label for host-side model routing, fallback, and telemetry. */
+  taskKind?: ModelTaskKind;
+  /** Resolved budget diagnostics for hosts that route/escalate based on truncation risk. */
+  budgetDiagnostics?: ModelBudgetResolution;
   providerOptions?: Record<string, unknown>;
 }) => Promise<{
   object: T;

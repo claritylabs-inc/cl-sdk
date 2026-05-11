@@ -18,6 +18,8 @@ type GenerateText = (params: {
   prompt: string;
   system?: string;
   maxTokens: number;
+  taskKind?: ModelTaskKind;
+  budgetDiagnostics?: ModelBudgetResolution;
   providerOptions?: Record<string, unknown>;
 }) => Promise<{ text: string; usage?: TokenUsage }>;
 
@@ -26,6 +28,8 @@ type GenerateObject<T = unknown> = (params: {
   system?: string;
   schema: ZodSchema<T>;
   maxTokens: number;
+  taskKind?: ModelTaskKind;
+  budgetDiagnostics?: ModelBudgetResolution;
   providerOptions?: Record<string, unknown>;
 }) => Promise<{ object: T; usage?: TokenUsage }>;
 
@@ -50,6 +54,8 @@ For extraction and multimodal query calls, `providerOptions` is also the documen
 - classify and plan receive the full PDF
 - page-map and worker extractors receive cached page-scoped PDFs, unless `convertPdfToImages` is enabled and cached page images are sent instead
 - query attachment interpretation calls may set both `providerOptions.attachments` and the convenience fields above for the current attachment
+
+`taskKind` is a provider-agnostic subtask label for host-side model routing, fallback, and telemetry. `budgetDiagnostics` carries the resolved token budget, task kind, truncation-risk estimate, and warnings. Hosts can route cheap-first by task and escalate only on their own risk/error policy; CL SDK does not hardcode provider or model names.
 
 ## Provider examples
 

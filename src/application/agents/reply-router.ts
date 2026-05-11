@@ -22,6 +22,7 @@ export async function classifyReplyIntent(
       prompt,
       schema: ReplyIntentSchema,
       maxTokens,
+      taskKind: "application_classify",
       providerOptions,
     }),
   );

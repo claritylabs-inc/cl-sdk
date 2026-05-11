@@ -18,6 +18,7 @@ export async function classifyApplication(
       prompt: `${APPLICATION_CLASSIFY_PROMPT}\n\nAnalyze the attached insurance document. If text source units are provided in provider options, use them as supporting context. Do not infer from base64 text.`,
       schema: ApplicationClassifyResultSchema,
       maxTokens,
+      taskKind: "application_classify",
       providerOptions: {
         ...providerOptions,
         pdfBase64: providerOptions?.pdfBase64 ?? pdfContent,

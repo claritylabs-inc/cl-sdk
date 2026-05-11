@@ -28,6 +28,7 @@ export async function parseAnswers(
       prompt,
       schema: AnswerParsingResultSchema,
       maxTokens,
+      taskKind: "application_parse_answers",
       providerOptions,
     }),
   );

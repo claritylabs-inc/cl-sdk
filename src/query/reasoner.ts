@@ -59,6 +59,8 @@ export async function reason(
       prompt,
       schema: SubAnswerSchema,
       maxTokens: budget.maxTokens,
+      taskKind: "query_reason",
+      budgetDiagnostics: budget,
       providerOptions,
     }),
   );

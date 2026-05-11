@@ -68,6 +68,8 @@ export async function verify(
       prompt,
       schema: VerifyResultSchema,
       maxTokens: budget.maxTokens,
+      taskKind: "query_verify",
+      budgetDiagnostics: budget,
       providerOptions,
     }),
   );

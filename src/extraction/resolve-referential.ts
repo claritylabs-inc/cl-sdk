@@ -193,6 +193,8 @@ If you cannot find the section, return startPage: 0 and endPage: 0.
 Return JSON only.`,
         schema: PageLocationSchema,
         maxTokens: budget.maxTokens,
+        taskKind: "extraction_referential_lookup",
+        budgetDiagnostics: budget,
         providerOptions: await buildPdfProviderOptions(pdfInput, providerOptions),
       },
       {
@@ -413,6 +415,8 @@ export async function resolveReferentialCoverages(params: {
             getPageRangePdf,
             getPageImages,
             maxTokens: budget.maxTokens,
+            taskKind: "extraction_referential_lookup",
+            budgetDiagnostics: budget,
             providerOptions,
           });
 

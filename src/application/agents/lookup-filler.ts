@@ -34,6 +34,7 @@ export async function fillFromLookup(
       prompt,
       schema: LookupFillResultSchema,
       maxTokens,
+      taskKind: "application_lookup",
       providerOptions,
     }),
   );

@@ -1,4 +1,5 @@
 import type { GenerateText, TokenUsage, LogFn } from "../core/types";
+import type { ModelBudgetResolution, ModelTaskKind } from "../core/model-budget";
 import type { InsuranceDocument } from "../schemas/document";
 import { withRetry } from "../core/retry";
 import { pLimit } from "../core/concurrency";
@@ -210,6 +211,8 @@ export async function formatDocumentContent(
   options?: {
     providerOptions?: Record<string, unknown>;
     maxTokens?: number;
+    taskKind?: ModelTaskKind;
+    budgetDiagnostics?: ModelBudgetResolution;
     concurrency?: number;
     onProgress?: (message: string) => void;
     log?: LogFn;
@@ -240,6 +243,8 @@ export async function formatDocumentContent(
           generateText({
             prompt,
             maxTokens: options?.maxTokens ?? 16384,
+            taskKind: options?.taskKind,
+            budgetDiagnostics: options?.budgetDiagnostics,
             providerOptions: options?.providerOptions,
           })
         );

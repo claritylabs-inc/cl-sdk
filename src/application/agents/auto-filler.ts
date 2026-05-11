@@ -29,6 +29,7 @@ export async function autoFillFromContext(
       prompt,
       schema: AutoFillResultSchema,
       maxTokens,
+      taskKind: "application_auto_fill",
       providerOptions,
     }),
   );

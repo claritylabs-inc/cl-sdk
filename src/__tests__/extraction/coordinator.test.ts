@@ -123,6 +123,8 @@ describe("createExtractor", () => {
       generateObject,
       expect.objectContaining({
         maxTokens: 512,
+        taskKind: "extraction_classify",
+        budgetDiagnostics: expect.objectContaining({ taskKind: "extraction_classify", maxTokens: 512 }),
         providerOptions: {
           anthropic: { thinking: true },
           pdfBase64: "full-pdf-base64",
@@ -136,6 +138,8 @@ describe("createExtractor", () => {
       generateObject,
       expect.objectContaining({
         maxTokens: 2048,
+        taskKind: "extraction_form_inventory",
+        budgetDiagnostics: expect.objectContaining({ taskKind: "extraction_form_inventory", maxTokens: 2048 }),
         providerOptions: {
           anthropic: { thinking: true },
           pdfBase64: "full-pdf-base64",
@@ -149,6 +153,8 @@ describe("createExtractor", () => {
       generateObject,
       expect.objectContaining({
         maxTokens: 2048,
+        taskKind: "extraction_page_map",
+        budgetDiagnostics: expect.objectContaining({ taskKind: "extraction_page_map", maxTokens: 2048 }),
         providerOptions: {
           anthropic: { thinking: true },
           pdfBase64: "mapped-pages-pdf-base64",
@@ -162,6 +168,8 @@ describe("createExtractor", () => {
       generateObject,
       expect.objectContaining({
         maxTokens: 1536,
+        taskKind: "extraction_review",
+        budgetDiagnostics: expect.objectContaining({ taskKind: "extraction_review", maxTokens: 1536 }),
         providerOptions: {
           anthropic: { thinking: true },
           pdfBase64: "full-pdf-base64",
@@ -173,6 +181,10 @@ describe("createExtractor", () => {
     expect(runExtractor).toHaveBeenCalledWith(
       expect.objectContaining({
         pdfInput: "full-pdf-base64",
+        taskKind: expect.stringMatching(/^extraction_(focused|long_list)$/),
+        budgetDiagnostics: expect.objectContaining({
+          taskKind: expect.stringMatching(/^extraction_(focused|long_list)$/),
+        }),
         providerOptions: { anthropic: { thinking: true } },
       }),
     );
@@ -194,6 +206,61 @@ describe("createExtractor", () => {
         }),
       ]),
     );
+  });
+
+  it("keeps failed LLM review fallbacks non-clean", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValueOnce({
+        object: { documentType: "policy", policyTypes: ["general_liability"], confidence: 0.95 },
+      })
+      .mockResolvedValueOnce({
+        object: { forms: [] },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          pages: [
+            { localPageNumber: 1, extractorNames: ["sections"] },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          complete: false,
+          missingFields: ["llm_review_unavailable"],
+          qualityIssues: ["LLM extraction review failed; deterministic review was used and the result needs review."],
+          additionalTasks: [],
+        },
+      });
+
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+    });
+
+    const result = await extractor.extract("full-pdf-base64", "doc-1");
+    const reviewOptions = safeGenerateObject.mock.calls[3]?.[2];
+
+    expect(reviewOptions).toEqual(expect.objectContaining({
+      fallback: expect.objectContaining({
+        complete: false,
+        missingFields: ["llm_review_unavailable"],
+        qualityIssues: expect.arrayContaining([
+          expect.stringContaining("LLM extraction review failed"),
+        ]),
+      }),
+    }));
+    expect(result.reviewReport.reviewRoundRecords[0]).toEqual(expect.objectContaining({
+      complete: false,
+      missingFields: ["llm_review_unavailable"],
+      qualityIssues: expect.arrayContaining([
+        expect.stringContaining("LLM extraction review failed"),
+      ]),
+    }));
+    expect(result.reviewReport.rounds[0]).toEqual(expect.objectContaining({
+      status: "warning",
+    }));
+    expect(result.reviewReport.qualityGateStatus).toBe("warning");
   });
 
   it("accepts all optional config fields", () => {

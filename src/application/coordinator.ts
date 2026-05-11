@@ -453,9 +453,12 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     // -- Step 4: Handle questions about fields --
     if (replyPlan.answerQuestion && intent.questionText) {
       try {
+        const budget = resolveBudget("application_email", 512);
         const { text, usage } = await generateText({
           prompt: `The user is filling out an insurance application and asked: "${intent.questionText}"\n\nProvide a brief, helpful explanation (2-3 sentences). End with "Just reply with the answer when you're ready and I'll fill it in."`,
-          maxTokens: resolveBudget("application_email", 512).maxTokens,
+          maxTokens: budget.maxTokens,
+          taskKind: "application_email",
+          budgetDiagnostics: budget,
           providerOptions,
         });
         trackUsage(usage);
@@ -613,9 +616,12 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       .map((f) => `${f.section} > ${f.label}: ${f.value} (source: ${f.source ?? "unknown"})`)
       .join("\n");
 
+    const budget = resolveBudget("application_email", 4096);
     const { text, usage } = await generateText({
       prompt: `Format these filled insurance application fields as a clean confirmation summary for the user to review. Group by section, show each field as "Label: Value". End with a note asking them to confirm or request changes.\n\nApplication: ${state.title ?? "Insurance Application"}\n\nFields:\n${fieldSummary}`,
-      maxTokens: resolveBudget("application_email", 4096).maxTokens,
+      maxTokens: budget.maxTokens,
+      taskKind: "application_email",
+      budgetDiagnostics: budget,
       providerOptions,
     });
     trackUsage(usage);

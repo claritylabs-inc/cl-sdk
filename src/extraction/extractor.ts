@@ -1,5 +1,6 @@
 import type { ZodSchema } from "zod";
 import type { GenerateObject, TokenUsage, ConvertPdfToImagesFn, PdfInput } from "../core/types";
+import type { ModelBudgetResolution, ModelTaskKind } from "../core/model-budget";
 import { withRetry } from "../core/retry";
 import { toStrictSchema } from "../core/strict-schema";
 import { extractPageRange, pdfInputToBase64 } from "./pdf";
@@ -18,6 +19,8 @@ export interface ExtractorParams<T> {
   generateObject: GenerateObject<T>;
   convertPdfToImages?: ConvertPdfToImagesFn;
   maxTokens?: number;
+  taskKind?: ModelTaskKind;
+  budgetDiagnostics?: ModelBudgetResolution;
   providerOptions?: Record<string, unknown>;
   pageRangeCache?: Map<string, string>;
   getPageRangePdf?: (startPage: number, endPage: number) => Promise<string>;
@@ -80,6 +83,8 @@ export async function runExtractor<T>(params: ExtractorParams<T>): Promise<Extra
     generateObject,
     convertPdfToImages,
     maxTokens = 4096,
+    taskKind,
+    budgetDiagnostics,
     providerOptions,
     pageRangeCache,
   } = params;
@@ -123,6 +128,8 @@ export async function runExtractor<T>(params: ExtractorParams<T>): Promise<Extra
       prompt: fullPrompt,
       schema: strictSchema,
       maxTokens,
+      taskKind,
+      budgetDiagnostics,
       providerOptions: extractorProviderOptions,
     })
   );

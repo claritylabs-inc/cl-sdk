@@ -27,13 +27,13 @@ npm install @claritylabs/cl-sdk pdf-lib zod
 import { createExtractor } from "@claritylabs/cl-sdk";
 
 const extractor = createExtractor({
-  generateText: async ({ prompt, system, maxTokens, providerOptions }) => {
-    const result = await yourProvider.generate({ prompt, system, maxTokens, providerOptions });
+  generateText: async ({ prompt, system, maxTokens, taskKind, budgetDiagnostics, providerOptions }) => {
+    const result = await yourProvider.generate({ prompt, system, maxTokens, taskKind, budgetDiagnostics, providerOptions });
     return { text: result.text, usage: result.usage };
   },
-  generateObject: async ({ prompt, system, schema, maxTokens, providerOptions }) => {
+  generateObject: async ({ prompt, system, schema, maxTokens, taskKind, budgetDiagnostics, providerOptions }) => {
     // Pass providerOptions.pdfBase64 and/or providerOptions.images to your model
-    const result = await yourProvider.generateStructured({ prompt, system, schema, maxTokens, providerOptions });
+    const result = await yourProvider.generateStructured({ prompt, system, schema, maxTokens, taskKind, budgetDiagnostics, providerOptions });
     return { object: result.object, usage: result.usage };
   },
   concurrency: 3,
@@ -119,6 +119,10 @@ Important: your `generateObject` callback must actually forward multimodal paylo
 - `providerOptions.sourceSpans` and `providerOptions.sourceChunks` for source evidence when your host passes them through
 
 If your callback ignores those fields, the model will only see the text prompt.
+
+## Model routing metadata
+
+Every SDK model callback may receive `taskKind` and `budgetDiagnostics`. Hosts can use these provider-agnostic fields for cheap-first routing, fallback, and telemetry without the SDK hardcoding model names. Example task kinds include `extraction_classify`, `extraction_focused`, `extraction_review`, `query_reason`, `application_extract_fields`, and `pce_impact_analysis`. `budgetDiagnostics` includes the resolved max-token budget and truncation-risk warnings for the current subtask.
 
 ## Bounded Agentic Workflows
 

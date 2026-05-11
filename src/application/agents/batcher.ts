@@ -30,6 +30,7 @@ export async function batchQuestions(
       prompt,
       schema: QuestionBatchResultSchema,
       maxTokens,
+      taskKind: "application_batch",
       providerOptions,
     }),
   );

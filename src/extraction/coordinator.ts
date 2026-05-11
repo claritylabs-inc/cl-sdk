@@ -358,6 +358,8 @@ export function createExtractor(config: ExtractorConfig) {
         generateObject,
         convertPdfToImages,
         maxTokens: budget.maxTokens,
+        taskKind: "extraction_focused",
+        budgetDiagnostics: budget,
         providerOptions: activeProviderOptions,
         pageRangeCache,
         getPageRangePdf,
@@ -539,6 +541,8 @@ export function createExtractor(config: ExtractorConfig) {
           prompt: buildClassifyPrompt(),
           schema: ClassifyResultSchema,
           maxTokens: budget.maxTokens,
+          taskKind: "extraction_classify",
+          budgetDiagnostics: budget,
           providerOptions: await getFullPdfProviderOptions(),
         },
         {
@@ -595,6 +599,8 @@ export function createExtractor(config: ExtractorConfig) {
           prompt: buildFormInventoryPrompt(templateHints),
           schema: FormInventorySchema,
           maxTokens: budget.maxTokens,
+          taskKind: "extraction_form_inventory",
+          budgetDiagnostics: budget,
           providerOptions: await getFullPdfProviderOptions(),
         },
         {
@@ -655,6 +661,8 @@ export function createExtractor(config: ExtractorConfig) {
                 prompt: buildPageMapPrompt(templateHints, startPage, endPage, formInventoryHint),
                 schema: PageMapChunkSchema,
                 maxTokens: budget.maxTokens,
+                taskKind: "extraction_page_map",
+                budgetDiagnostics: budget,
                 providerOptions: { ...activeProviderOptions, pdfBase64: pagesPdf },
               },
               {
@@ -793,6 +801,8 @@ export function createExtractor(config: ExtractorConfig) {
             generateObject,
             convertPdfToImages,
             maxTokens: budget.maxTokens,
+            taskKind: "extraction_focused",
+            budgetDiagnostics: budget,
             providerOptions: activeProviderOptions,
             pageRangeCache: completedPageRangePdfCache,
             getPageRangePdf,
@@ -891,10 +901,19 @@ export function createExtractor(config: ExtractorConfig) {
               prompt: buildReviewPrompt(template.required, extractedKeys, extractionSummary, pageMapSummary, extractorCatalog),
               schema: ReviewResultSchema,
               maxTokens: budget.maxTokens,
+              taskKind: "extraction_review",
+              budgetDiagnostics: budget,
               providerOptions: await getFullPdfProviderOptions(),
             },
             {
-              fallback: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
+              fallback: {
+                complete: false,
+                missingFields: ["llm_review_unavailable"],
+                qualityIssues: [
+                  "LLM extraction review failed; deterministic review was used and the result needs review.",
+                ],
+                additionalTasks: [],
+              },
               log,
               onError: (err, attempt) =>
                 log?.(`Review round ${round + 1} attempt ${attempt + 1} failed: ${err}`),
@@ -1012,6 +1031,8 @@ export function createExtractor(config: ExtractorConfig) {
             prompt: buildSummaryPrompt(document),
             schema: SummaryResultSchema,
             maxTokens: budget.maxTokens,
+            taskKind: "extraction_summary",
+            budgetDiagnostics: budget,
             providerOptions: activeProviderOptions,
           },
           {
@@ -1042,6 +1063,8 @@ export function createExtractor(config: ExtractorConfig) {
     const formatResult = await formatDocumentContent(document, generateText, {
       providerOptions: activeProviderOptions,
       maxTokens: formatBudget.maxTokens,
+      taskKind: "extraction_format",
+      budgetDiagnostics: formatBudget,
       concurrency: formatConcurrency ?? concurrency,
       onProgress,
       log,

@@ -350,6 +350,8 @@ export function createQueryAgent(config: QueryConfig) {
         prompt,
         schema: QueryClassifyResultSchema,
         maxTokens: budget.maxTokens,
+        taskKind: "query_classify",
+        budgetDiagnostics: budget,
         providerOptions,
       },
       {
@@ -418,6 +420,8 @@ export function createQueryAgent(config: QueryConfig) {
         prompt,
         schema: QueryResultSchema,
         maxTokens: budget.maxTokens,
+        taskKind: "query_respond",
+        budgetDiagnostics: budget,
         providerOptions,
       },
       {

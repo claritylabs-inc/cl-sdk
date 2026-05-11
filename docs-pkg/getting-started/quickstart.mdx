@@ -27,7 +27,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 const client = new Anthropic();
 
-const generateText = async ({ prompt, system, maxTokens, providerOptions }) => {
+const generateText = async ({ prompt, system, maxTokens, taskKind, budgetDiagnostics, providerOptions }) => {
   const response = await client.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: maxTokens,
@@ -40,7 +40,7 @@ const generateText = async ({ prompt, system, maxTokens, providerOptions }) => {
   };
 };
 
-const generateObject = async ({ prompt, system, schema, maxTokens, providerOptions }) => {
+const generateObject = async ({ prompt, system, schema, maxTokens, taskKind, budgetDiagnostics, providerOptions }) => {
   const response = await client.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: maxTokens,
@@ -77,6 +77,8 @@ For extraction calls, CL SDK uses `providerOptions` to carry document content in
 - source-grounded workflows may include `providerOptions.sourceSpans` and `providerOptions.sourceChunks`
 
 Your callback must attach those values to the actual model request. Prompt text alone does not provide the document.
+
+Callbacks also receive optional `taskKind` and `budgetDiagnostics` metadata. Use `taskKind` for host-side routing/fallback decisions such as cheap classification, larger long-list extraction, review, query reasoning, application extraction, or PCE impact analysis. Use `budgetDiagnostics` for telemetry and escalation policies based on resolved token budgets or truncation-risk warnings.
 
 See the [Provider Callbacks](/docs/getting-started/models) guide for examples with OpenAI, Vercel AI SDK, and other providers.
 

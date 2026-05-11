@@ -15,29 +15,33 @@ const policyEvidence: PceEvidenceSource = {
 
 describe("PCE agent", () => {
   it("normalizes change requests with stable IDs and validates quoted evidence", async () => {
-    const generateObject: GenerateObject = async ({ schema }) => ({
-      object: schema.parse({
-        summary: "Update mailing address",
-        items: [{
-          action: "update",
-          fieldPath: "insured.address",
-          label: "Mailing address",
-          beforeValue: "10 Old St, Boston, MA 02110",
-          afterValue: "25 New Ave, Boston, MA 02111",
-          sourceIds: ["src-policy-1"],
-          citations: [{
-            sourceId: "src-policy-1",
-            quote: "10 Old St, Boston, MA 02110",
-            page: 2,
+    const taskKinds: Array<string | undefined> = [];
+    const generateObject: GenerateObject = async ({ schema, taskKind }) => {
+      taskKinds.push(taskKind);
+      return {
+        object: schema.parse({
+          summary: "Update mailing address",
+          items: [{
+            action: "update",
             fieldPath: "insured.address",
+            label: "Mailing address",
+            beforeValue: "10 Old St, Boston, MA 02110",
+            afterValue: "25 New Ave, Boston, MA 02111",
+            sourceIds: ["src-policy-1"],
+            citations: [{
+              sourceId: "src-policy-1",
+              quote: "10 Old St, Boston, MA 02110",
+              page: 2,
+              fieldPath: "insured.address",
+            }],
+            confidence: "high",
+            confidenceScore: 0.92,
           }],
-          confidence: "high",
-          confidenceScore: 0.92,
-        }],
-        missingInfoQuestions: [],
-      }),
-      usage: { inputTokens: 10, outputTokens: 20 },
-    });
+          missingInfoQuestions: [],
+        }),
+        usage: { inputTokens: 10, outputTokens: 20 },
+      };
+    };
 
     const agent = createPceAgent({ generateObject, now: () => 1000 });
     const result = await agent.processChangeRequest({
@@ -57,6 +61,7 @@ describe("PCE agent", () => {
     expect(result.state.executionMode).toBe("deterministic_tree");
     expect(result.state.validationIssues).toEqual([]);
     expect(result.tokenUsage).toEqual({ inputTokens: 10, outputTokens: 20 });
+    expect(taskKinds).toEqual(["pce_impact_analysis"]);
   });
 
   it("reports blocking validation issues when a beforeValue quote is not in cited evidence", async () => {

@@ -45,6 +45,7 @@ export async function generateBatchEmail(
     generateText({
       prompt,
       maxTokens,
+      taskKind: "application_email",
       providerOptions,
     }),
   );

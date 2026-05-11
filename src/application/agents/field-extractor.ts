@@ -21,6 +21,7 @@ export async function extractFields(
       prompt,
       schema: FieldExtractionResultSchema,
       maxTokens,
+      taskKind: "application_extract_fields",
       providerOptions: {
         ...providerOptions,
         pdfBase64: providerOptions?.pdfBase64 ?? pdfContent,

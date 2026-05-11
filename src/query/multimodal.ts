@@ -130,6 +130,8 @@ export async function interpretAttachments(params: {
         prompt,
         schema: AttachmentInterpretationSchema,
         maxTokens: budget.maxTokens,
+        taskKind: "query_attachment",
+        budgetDiagnostics: budget,
         providerOptions: buildAttachmentProviderOptions(attachment, providerOptions),
       },
       {

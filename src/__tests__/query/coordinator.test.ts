@@ -6,10 +6,10 @@ import type { DocumentChunk } from "../../storage/chunk-types";
 
 describe("createQueryAgent multimodal query support", () => {
   it("interprets attachments and combines them with retrieved evidence", async () => {
-    const calls: Array<{ prompt: string; providerOptions?: Record<string, unknown> }> = [];
+    const calls: Array<{ prompt: string; taskKind?: string; providerOptions?: Record<string, unknown> }> = [];
 
-    const generateObject: GenerateObject = vi.fn(async ({ prompt, providerOptions }) => {
-      calls.push({ prompt, providerOptions });
+    const generateObject: GenerateObject = vi.fn(async ({ prompt, taskKind, providerOptions }) => {
+      calls.push({ prompt, taskKind, providerOptions });
 
       if (prompt.includes("interpreting a user-supplied attachment")) {
         expect(providerOptions).toMatchObject({
@@ -189,6 +189,13 @@ describe("createQueryAgent multimodal query support", () => {
     expect(result.reviewReport.issues).toHaveLength(0);
     expect(memoryStore.search).toHaveBeenCalledTimes(1);
     expect(calls[0]?.prompt).toContain("interpreting a user-supplied attachment");
+    expect(calls.map((call) => call.taskKind)).toEqual([
+      "query_attachment",
+      "query_classify",
+      "query_reason",
+      "query_verify",
+      "query_respond",
+    ]);
   });
 
   it("skips retrieval when classification does not require document or chunk lookup", async () => {
