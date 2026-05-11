@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.0.3...v1.1.0) (2026-05-11)
+
+
+### Features
+
+* add task-aware model callback metadata ([f159d7e](https://github.com/claritylabs-inc/cl-sdk/commit/f159d7e2aa978cabca5412470f81f97e2b65c401))
+
 ## [1.0.3](https://github.com/claritylabs-inc/cl-sdk/compare/v1.0.2...v1.0.3) (2026-05-09)
 
 
