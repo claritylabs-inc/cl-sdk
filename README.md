@@ -12,7 +12,7 @@ npm install @claritylabs/cl-sdk pdf-lib zod
 
 ## What It Does
 
-- **Document Extraction** — Deterministic extraction pipeline with focused model calls that turns insurance PDFs into structured data with page-level provenance, quality gates, first-class definitions and covered reasons, referential coverage resolution, cost-aware formatting, and automatic declarations-to-schema promotion (limits, deductibles, locations, broker, loss payees, premium, taxes/fees, summary)
+- **Document Extraction** — Deterministic extraction pipeline with focused model calls that turns insurance PDFs or host-provided Docling documents into structured data with page-level provenance, quality gates, first-class definitions and covered reasons, referential coverage resolution, cost-aware formatting, and automatic declarations-to-schema promotion (limits, deductibles, locations, broker, loss payees, premium, taxes/fees, summary)
 - **Source Grounding** — Shared source spans, source chunks, source stores, quoted evidence validation, and deterministic evidence ordering across extraction, query, application, PCE, and case workflows
 - **Query Agent** — Citation-backed question answering over stored documents, source spans, and inbound photos/PDFs/text with sub-question decomposition, bounded retrieval planning, attachment-only reasoning when retrieval is unnecessary, and grounding verification
 - **Application Processing** — Bounded workflows handle intake with deterministic planning — field extraction, prior-answer backfill, context auto-fill, document lookup gating, topic-based question batching, reply parsing, source-backed field provenance, and PDF mapping
@@ -48,6 +48,18 @@ console.log(result.document);     // Typed InsuranceDocument
 console.log(result.chunks);       // DocumentChunk[] for vector storage
 console.log(result.sourceSpans);  // SourceSpan[] when supplied by the host
 console.log(result.reviewReport); // Quality gate results
+```
+
+### Optional Docling input
+
+If your host pre-processes a PDF with [Docling](https://github.com/docling-project/docling), pass the serialized `DoclingDocument` JSON instead of a PDF. CL-SDK does not install or run Python Docling; it consumes the parsed document, builds source spans, and runs the same focused structuring pipeline over Docling page text.
+
+```typescript
+const result = await extractor.extract({
+  kind: "docling_document",
+  document: doclingDocumentJson,
+  sourceKind: "policy_pdf",
+}, "policy-123");
 ```
 
 ## Source Grounding
@@ -116,6 +128,7 @@ Important: your `generateObject` callback must actually forward multimodal paylo
 - `providerOptions.attachments` for generic image/pdf/text inputs
 - `providerOptions.pdfBase64` for PDF inputs
 - `providerOptions.images` for image inputs
+- `providerOptions.doclingText` for host-provided Docling document inputs
 - `providerOptions.sourceSpans` and `providerOptions.sourceChunks` for source evidence when your host passes them through
 
 If your callback ignores those fields, the model will only see the text prompt.

@@ -10,6 +10,15 @@ import { pLimit } from "../core/concurrency";
 import { safeGenerateObject } from "../core/safe-generate";
 import { createPipelineContext, type PipelineCheckpoint } from "../core/pipeline";
 import { createPdfPageSlicer, getPdfPageCount, pdfInputToBase64, buildPdfProviderOptions } from "./pdf";
+import {
+  buildDoclingProviderOptions,
+  getDoclingPageRangeText,
+  isDoclingExtractionInput,
+  mergeSourceSpans,
+  normalizeDoclingDocument,
+  type DoclingExtractionInput,
+  type NormalizedDoclingDocument,
+} from "./docling";
 import { runExtractor, type PageRangeImage } from "./extractor";
 import { assembleDocument } from "./assembler";
 import { formatDocumentContent } from "./formatter";
@@ -105,6 +114,8 @@ export interface ExtractOptions {
   /** Caller-provided raw source spans for this document, reused for evidence grounding and optional persistence. */
   sourceSpans?: SourceSpan[];
 }
+
+export type ExtractionInput = PdfInput | DoclingExtractionInput;
 
 export function createExtractor(config: ExtractorConfig) {
   const {
@@ -338,11 +349,12 @@ export function createExtractor(config: ExtractorConfig) {
 
   async function runFocusedExtractorTask(
     task: ExtractionPlan["tasks"][number],
-    pdfInput: PdfInput,
+    pdfInput: PdfInput | undefined,
     memory: Map<string, unknown>,
     pageRangeCache?: Map<string, string>,
     getPageRangePdf?: (startPage: number, endPage: number) => Promise<string>,
     getPageImages?: (startPage: number, endPage: number) => Promise<PageRangeImage[]>,
+    getPageRangeText?: (startPage: number, endPage: number) => Promise<string>,
   ) {
     if (task.extractorName === "supplementary") {
       const alreadyExtractedSummary = buildAlreadyExtractedSummary(memory);
@@ -364,6 +376,7 @@ export function createExtractor(config: ExtractorConfig) {
         pageRangeCache,
         getPageRangePdf,
         getPageImages,
+        getPageRangeText,
       });
       trackUsage(result.usage, {
         taskKind: "extraction_focused",
@@ -383,6 +396,7 @@ export function createExtractor(config: ExtractorConfig) {
       pageRangeCache,
       getPageRangePdf,
       getPageImages,
+      getPageRangeText,
       trackUsage,
       resolveBudget,
       log,
@@ -406,11 +420,19 @@ export function createExtractor(config: ExtractorConfig) {
   }
 
   async function extract(
-    pdfInput: PdfInput,
+    input: ExtractionInput,
     documentId?: string,
     options?: ExtractOptions,
   ): Promise<ExtractionResult> {
     const id = documentId ?? `doc-${Date.now()}`;
+    const isDoclingInput = isDoclingExtractionInput(input);
+    const pdfInput = isDoclingInput ? undefined : input;
+    const doclingDocument: NormalizedDoclingDocument | undefined = isDoclingInput
+      ? normalizeDoclingDocument(input.document, {
+          documentId: id,
+          sourceKind: input.sourceKind,
+        })
+      : undefined;
     const memory = new Map<string, unknown>();
     totalUsage = { inputTokens: 0, outputTokens: 0 };
     modelCalls = 0;
@@ -420,7 +442,10 @@ export function createExtractor(config: ExtractorConfig) {
       modelCalls: [],
       totalModelCallDurationMs: 0,
     };
-    const sourceSpans = options?.sourceSpans ?? [];
+    const sourceSpans = mergeSourceSpans([
+      ...(doclingDocument?.sourceSpans ?? []),
+      ...(options?.sourceSpans ?? []),
+    ]);
     const sourceChunks = sourceSpans.length ? chunkSourceSpans(sourceSpans) : [];
     activeProviderOptions = sourceSpans.length
       ? { ...providerOptions, sourceSpans, sourceChunks }
@@ -462,6 +487,9 @@ export function createExtractor(config: ExtractorConfig) {
 
     // Helper to get base64 for page extraction operations
     async function getPdfBase64ForExtraction(): Promise<string> {
+      if (!pdfInput) {
+        throw new Error("PDF input is not available for Docling extraction.");
+      }
       if (pdfBase64Cache === undefined) {
         pdfBase64Cache = await pdfInputToBase64(pdfInput);
       }
@@ -469,13 +497,23 @@ export function createExtractor(config: ExtractorConfig) {
     }
 
     async function getCachedPageCount(): Promise<number> {
+      if (doclingDocument) return doclingDocument.pageCount;
+      if (!pdfInput) {
+        throw new Error("PDF input is required to read page count.");
+      }
       if (!pageCountPromise) {
         pageCountPromise = getPdfSlicer().then((slicer) => slicer.getPageCount()).catch(() => getPdfPageCount(pdfInput));
       }
       return pageCountPromise;
     }
 
-    async function getFullPdfProviderOptions(): Promise<Record<string, unknown>> {
+    async function getFullDocumentProviderOptions(): Promise<Record<string, unknown>> {
+      if (doclingDocument) {
+        return buildDoclingProviderOptions(doclingDocument, activeProviderOptions);
+      }
+      if (!pdfInput) {
+        return activeProviderOptions ?? {};
+      }
       if (!fullPdfProviderOptionsPromise) {
         fullPdfProviderOptionsPromise = buildPdfProviderOptions(pdfInput, activeProviderOptions);
       }
@@ -483,6 +521,9 @@ export function createExtractor(config: ExtractorConfig) {
     }
 
     async function getPdfSlicer() {
+      if (!pdfInput) {
+        throw new Error("PDF input is not available for Docling extraction.");
+      }
       if (!pdfSlicerPromise) {
         pdfSlicerPromise = createPdfPageSlicer(pdfInput);
       }
@@ -524,6 +565,20 @@ export function createExtractor(config: ExtractorConfig) {
       return promise;
     }
 
+    async function getPageRangeText(startPage: number, endPage: number): Promise<string> {
+      return doclingDocument ? getDoclingPageRangeText(doclingDocument, startPage, endPage) : "";
+    }
+
+    function withFullDocumentTextContext(prompt: string): string {
+      if (!doclingDocument) return prompt;
+      return `${prompt}\n\nDOCLING DOCUMENT TEXT:\n${doclingDocument.fullText}`;
+    }
+
+    function withPageRangeTextContext(prompt: string, startPage: number, endPage: number, pageText: string): string {
+      if (!doclingDocument) return prompt;
+      return `${prompt}\n\nDOCLING DOCUMENT PAGES ${startPage}-${endPage}:\n${pageText || "(No Docling text was available for this page range.)"}`;
+    }
+
     // Step 1: Classify
     let classifyResult: ClassifyResult;
     if (resumed?.classifyResult && pipelineCtx.isPhaseComplete("classify")) {
@@ -538,12 +593,12 @@ export function createExtractor(config: ExtractorConfig) {
       const classifyResponse = await safeGenerateObject(
         generateObject as GenerateObject<ClassifyResult>,
         {
-          prompt: buildClassifyPrompt(),
+          prompt: withFullDocumentTextContext(buildClassifyPrompt()),
           schema: ClassifyResultSchema,
           maxTokens: budget.maxTokens,
           taskKind: "extraction_classify",
           budgetDiagnostics: budget,
-          providerOptions: await getFullPdfProviderOptions(),
+          providerOptions: await getFullDocumentProviderOptions(),
         },
         {
           fallback: { documentType: "policy" as const, policyTypes: ["other" as const], confidence: 0 },
@@ -596,12 +651,12 @@ export function createExtractor(config: ExtractorConfig) {
       const formInventoryResponse = await safeGenerateObject(
         generateObject as GenerateObject<FormInventoryResult>,
         {
-          prompt: buildFormInventoryPrompt(templateHints),
+          prompt: withFullDocumentTextContext(buildFormInventoryPrompt(templateHints)),
           schema: FormInventorySchema,
           maxTokens: budget.maxTokens,
           taskKind: "extraction_form_inventory",
           budgetDiagnostics: budget,
-          providerOptions: await getFullPdfProviderOptions(),
+          providerOptions: await getFullDocumentProviderOptions(),
         },
         {
           fallback: { forms: [] },
@@ -652,18 +707,26 @@ export function createExtractor(config: ExtractorConfig) {
       const pageMapResults = await Promise.all(
         pageMapChunks.map(({ startPage, endPage }) =>
           pageMapLimit(async () => {
-            const pagesPdf = await getPageRangePdf(startPage, endPage);
+            const pagesPdf = doclingDocument ? undefined : await getPageRangePdf(startPage, endPage);
+            const pagesText = doclingDocument ? await getPageRangeText(startPage, endPage) : "";
             const budget = resolveBudget("extraction_page_map", 2048);
             const startedAt = Date.now();
             const mapResponse = await safeGenerateObject(
               generateObject as GenerateObject<{ pages: PageAssignment[] }>,
               {
-                prompt: buildPageMapPrompt(templateHints, startPage, endPage, formInventoryHint),
+                prompt: withPageRangeTextContext(
+                  buildPageMapPrompt(templateHints, startPage, endPage, formInventoryHint),
+                  startPage,
+                  endPage,
+                  pagesText,
+                ),
                 schema: PageMapChunkSchema,
                 maxTokens: budget.maxTokens,
                 taskKind: "extraction_page_map",
                 budgetDiagnostics: budget,
-                providerOptions: { ...activeProviderOptions, pdfBase64: pagesPdf },
+                providerOptions: doclingDocument
+                  ? { ...activeProviderOptions, doclingText: pagesText, doclingPageRange: { startPage, endPage } }
+                  : { ...activeProviderOptions, pdfBase64: pagesPdf },
               },
               {
                 fallback: {
@@ -760,7 +823,7 @@ export function createExtractor(config: ExtractorConfig) {
             })),
           ];
       onProgress?.(`Dispatching ${tasks.length} extractors...`);
-      const extractionPdfInput = await getPdfBase64ForExtraction();
+      const extractionPdfInput = doclingDocument ? undefined : await getPdfBase64ForExtraction();
 
       const extractorResults = await Promise.all(
         tasks.map((task) =>
@@ -773,6 +836,7 @@ export function createExtractor(config: ExtractorConfig) {
               completedPageRangePdfCache,
               getPageRangePdf,
               convertPdfToImages ? getPageImages : undefined,
+              doclingDocument ? getPageRangeText : undefined,
             );
           })
         )
@@ -807,6 +871,7 @@ export function createExtractor(config: ExtractorConfig) {
             pageRangeCache: completedPageRangePdfCache,
             getPageRangePdf,
             getPageImages: convertPdfToImages ? getPageImages : undefined,
+            getPageRangeText: doclingDocument ? getPageRangeText : undefined,
           });
           trackUsage(supplementaryResult.usage, {
             taskKind: "extraction_focused",
@@ -845,6 +910,7 @@ export function createExtractor(config: ExtractorConfig) {
           concurrency,
           getPageRangePdf,
           getPageImages: convertPdfToImages ? getPageImages : undefined,
+          getPageRangeText: doclingDocument ? getPageRangeText : undefined,
           providerOptions: activeProviderOptions,
           modelCapabilities,
           modelBudgetConstraints,
@@ -898,12 +964,12 @@ export function createExtractor(config: ExtractorConfig) {
           const reviewResponse = await safeGenerateObject(
             generateObject as GenerateObject<ReviewResult>,
             {
-              prompt: buildReviewPrompt(template.required, extractedKeys, extractionSummary, pageMapSummary, extractorCatalog),
+              prompt: withFullDocumentTextContext(buildReviewPrompt(template.required, extractedKeys, extractionSummary, pageMapSummary, extractorCatalog)),
               schema: ReviewResultSchema,
               maxTokens: budget.maxTokens,
               taskKind: "extraction_review",
               budgetDiagnostics: budget,
-              providerOptions: await getFullPdfProviderOptions(),
+              providerOptions: await getFullDocumentProviderOptions(),
             },
             {
               fallback: {
@@ -937,7 +1003,7 @@ export function createExtractor(config: ExtractorConfig) {
           }
 
           onProgress?.(`Review round ${round + 1}: dispatching ${reviewResponse.object.additionalTasks.length} follow-up extractors...`);
-          const extractionPdfInput = await getPdfBase64ForExtraction();
+          const extractionPdfInput = doclingDocument ? undefined : await getPdfBase64ForExtraction();
           const followUpResults = await Promise.all(
             reviewResponse.object.additionalTasks.map((task) =>
               extractorLimit(async () => {
@@ -948,6 +1014,7 @@ export function createExtractor(config: ExtractorConfig) {
                   completedPageRangePdfCache,
                   getPageRangePdf,
                   convertPdfToImages ? getPageImages : undefined,
+                  doclingDocument ? getPageRangeText : undefined,
                 );
               })
             )

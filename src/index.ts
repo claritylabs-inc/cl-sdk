@@ -39,7 +39,23 @@ export * from "./case";
 
 // ── Extraction pipeline ──
 export { createExtractor } from "./extraction/coordinator";
-export type { ExtractorConfig, ExtractionResult, ExtractionState, ExtractOptions } from "./extraction/coordinator";
+export type { ExtractorConfig, ExtractionInput, ExtractionResult, ExtractionState, ExtractOptions } from "./extraction/coordinator";
+export type {
+  DoclingDocumentLike,
+  DoclingExtractionInput,
+  DoclingItemLike,
+  DoclingNodeLike,
+  DoclingNormalizedUnit,
+  DoclingProvenanceLike,
+  NormalizedDoclingDocument,
+} from "./extraction/docling";
+export {
+  buildDoclingProviderOptions,
+  getDoclingPageRangeText,
+  isDoclingExtractionInput,
+  mergeSourceSpans,
+  normalizeDoclingDocument,
+} from "./extraction/docling";
 export { chunkDocument } from "./extraction/chunking";
 
 // ── PDF operations ──

@@ -48,6 +48,12 @@ interface SectionEntry extends ReferentialSectionEntry {
 // Helpers
 // ---------------------------------------------------------------------------
 
+function formatDoclingTextContext(providerOptions?: Record<string, unknown>): string {
+  const doclingText = providerOptions?.doclingText;
+  if (typeof doclingText !== "string" || !doclingText.trim()) return "";
+  return `\n\nDOCLING DOCUMENT TEXT:\n${doclingText}`;
+}
+
 // ---------------------------------------------------------------------------
 // parseReferenceTarget
 // ---------------------------------------------------------------------------
@@ -120,7 +126,7 @@ export async function findReferencedPages(params: {
   referenceTarget: string;
   sections: SectionEntry[];
   formInventory: FormInventoryEntry[];
-  pdfInput: PdfInput;
+  pdfInput?: PdfInput;
   pageCount: number;
   generateObject: GenerateObject;
   providerOptions?: Record<string, unknown>;
@@ -190,12 +196,12 @@ Return the page range (1-indexed) where this section is located. If the section 
 
 If you cannot find the section, return startPage: 0 and endPage: 0.
 
-Return JSON only.`,
+Return JSON only.${formatDoclingTextContext(providerOptions)}`,
         schema: PageLocationSchema,
         maxTokens: budget.maxTokens,
         taskKind: "extraction_referential_lookup",
         budgetDiagnostics: budget,
-        providerOptions: await buildPdfProviderOptions(pdfInput, providerOptions),
+        providerOptions: pdfInput ? await buildPdfProviderOptions(pdfInput, providerOptions) : providerOptions,
       },
       {
         fallback: { startPage: 0, endPage: 0 },
@@ -230,12 +236,13 @@ Return JSON only.`,
 
 export async function resolveReferentialCoverages(params: {
   memory: Map<string, unknown>;
-  pdfInput: PdfInput;
+  pdfInput?: PdfInput;
   pageCount: number;
   generateObject: GenerateObject;
   convertPdfToImages?: ConvertPdfToImagesFn;
   getPageRangePdf?: (startPage: number, endPage: number) => Promise<string>;
   getPageImages?: (startPage: number, endPage: number) => Promise<PageRangeImage[]>;
+  getPageRangeText?: (startPage: number, endPage: number) => Promise<string>;
   concurrency?: number;
   providerOptions?: Record<string, unknown>;
   modelCapabilities?: ModelCapabilities;
@@ -251,6 +258,7 @@ export async function resolveReferentialCoverages(params: {
     convertPdfToImages,
     getPageRangePdf,
     getPageImages,
+    getPageRangeText,
     concurrency = 2,
     providerOptions,
     modelCapabilities,
@@ -414,6 +422,7 @@ export async function resolveReferentialCoverages(params: {
             convertPdfToImages,
             getPageRangePdf,
             getPageImages,
+            getPageRangeText,
             maxTokens: budget.maxTokens,
             taskKind: "extraction_referential_lookup",
             budgetDiagnostics: budget,

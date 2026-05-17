@@ -85,6 +85,36 @@ describe("runExtractor", () => {
     });
   });
 
+  it("passes Docling page-range text without slicing a PDF", async () => {
+    const schema = z.object({ value: z.string() });
+    const generateObject = vi.fn().mockResolvedValue({
+      object: { value: "test" },
+      usage: { inputTokens: 10, outputTokens: 5 },
+    });
+    const getPageRangeText = vi.fn().mockResolvedValue("Page 2\nBuilding limit $1,000,000");
+
+    await runExtractor({
+      name: "test",
+      prompt: "Extract value",
+      schema,
+      startPage: 2,
+      endPage: 2,
+      generateObject,
+      providerOptions: { sourceSpans: [] },
+      getPageRangeText,
+    });
+
+    const callArgs = generateObject.mock.calls[0][0];
+    expect(getPageRangeText).toHaveBeenCalledWith(2, 2);
+    expect(callArgs.prompt).toContain("Docling-extracted text");
+    expect(callArgs.prompt).toContain("Building limit $1,000,000");
+    expect(callArgs.providerOptions).toEqual({
+      sourceSpans: [],
+      doclingText: "Page 2\nBuilding limit $1,000,000",
+      doclingPageRange: { startPage: 2, endPage: 2 },
+    });
+  });
+
   it("merges page-scoped PDF into existing providerOptions", async () => {
     const schema = z.object({ value: z.string() });
     const generateObject = vi.fn().mockResolvedValue({

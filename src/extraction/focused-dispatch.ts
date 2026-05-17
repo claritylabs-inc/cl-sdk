@@ -11,13 +11,14 @@ export interface FocusedExtractorTask {
 
 export interface FocusedExtractorDispatchParams {
   task: FocusedExtractorTask;
-  pdfInput: PdfInput;
+  pdfInput?: PdfInput;
   generateObject: GenerateObject;
   convertPdfToImages?: ConvertPdfToImagesFn;
   providerOptions?: Record<string, unknown>;
   pageRangeCache?: Map<string, string>;
   getPageRangePdf?: (startPage: number, endPage: number) => Promise<string>;
   getPageImages?: (startPage: number, endPage: number) => Promise<PageRangeImage[]>;
+  getPageRangeText?: (startPage: number, endPage: number) => Promise<string>;
   trackUsage: (usage?: TokenUsage, report?: { taskKind: ModelTaskKind; label?: string; maxTokens?: number; durationMs?: number }) => void;
   resolveBudget: (taskKind: ModelTaskKind, hintTokens: number) => ModelBudgetResolution;
   log?: LogFn;
@@ -39,6 +40,7 @@ export async function runFocusedExtractorWithFallback(
     pageRangeCache,
     getPageRangePdf,
     getPageImages,
+    getPageRangeText,
     trackUsage,
     resolveBudget,
     log,
@@ -71,6 +73,7 @@ export async function runFocusedExtractorWithFallback(
       pageRangeCache,
       getPageRangePdf,
       getPageImages,
+      getPageRangeText,
     });
     trackUsage(result.usage, {
       taskKind,
@@ -121,6 +124,7 @@ export async function runFocusedExtractorWithFallback(
       pageRangeCache,
       getPageRangePdf,
       getPageImages,
+      getPageRangeText,
     });
     trackUsage(fallbackResult.usage, {
       taskKind,

@@ -13,7 +13,7 @@ export interface ExtractorParams<T> {
   prompt: string;
   schema: ZodSchema<T>;
   /** PDF input as base64 string, URL, bytes, or fileId reference */
-  pdfInput: PdfInput;
+  pdfInput?: PdfInput;
   startPage: number;
   endPage: number;
   generateObject: GenerateObject<T>;
@@ -25,6 +25,7 @@ export interface ExtractorParams<T> {
   pageRangeCache?: Map<string, string>;
   getPageRangePdf?: (startPage: number, endPage: number) => Promise<string>;
   getPageImages?: (startPage: number, endPage: number) => Promise<PageRangeImage[]>;
+  getPageRangeText?: (startPage: number, endPage: number) => Promise<string>;
 }
 
 export interface ExtractorResult<T> {
@@ -93,18 +94,29 @@ export async function runExtractor<T>(params: ExtractorParams<T>): Promise<Extra
   const extractorProviderOptions: Record<string, unknown> = { ...providerOptions };
   let fullPrompt: string;
 
-  // Convert PdfInput to base64 for image conversion or page extraction
-  // FileId references cannot be used for partial page extraction
-  const needsPdfBase64 = (convertPdfToImages && !params.getPageImages) || (!convertPdfToImages && !params.getPageRangePdf);
-  const pdfBase64 = needsPdfBase64 ? await pdfInputToBase64(pdfInput) : undefined;
-
-  if (convertPdfToImages) {
+  if (params.getPageRangeText) {
+    const pageText = await params.getPageRangeText(startPage, endPage);
+    extractorProviderOptions.doclingText = pageText;
+    extractorProviderOptions.doclingPageRange = { startPage, endPage };
+    fullPrompt = `${prompt}\n\n[Document pages ${startPage}-${endPage} are provided below as Docling-extracted text.]\n\n${pageText || "(No Docling text was available for this page range.)"}`;
+  } else if (convertPdfToImages) {
+    if (!pdfInput) {
+      throw new Error("pdfInput is required when extracting page images.");
+    }
+    const needsPdfBase64 = !params.getPageImages;
+    const pdfBase64 = needsPdfBase64 ? await pdfInputToBase64(pdfInput) : undefined;
     const images = params.getPageImages
       ? await params.getPageImages(startPage, endPage)
       : await convertPdfToImages(pdfBase64!, startPage, endPage);
     extractorProviderOptions.images = images;
     fullPrompt = `${prompt}\n\n[Document pages ${startPage}-${endPage} are provided as images.]`;
   } else {
+    if (!pdfInput) {
+      throw new Error("pdfInput is required when extracting page PDFs.");
+    }
+    // Convert PdfInput to base64 for page extraction. FileId references cannot
+    // be used for partial page extraction.
+    const pdfBase64 = params.getPageRangePdf ? undefined : await pdfInputToBase64(pdfInput);
     const cacheKey = `${startPage}-${endPage}`;
     const cachedPagesPdf = pageRangeCache?.get(cacheKey);
     const pagesPdf = cachedPagesPdf

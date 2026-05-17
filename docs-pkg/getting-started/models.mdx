@@ -48,11 +48,12 @@ For extraction and multimodal query calls, `providerOptions` is also the documen
 
 - `providerOptions.pdfBase64` carries the PDF to include as a file/document part
 - `providerOptions.images` carries rendered page images to include as image parts
+- `providerOptions.doclingText` carries full or page-scoped text normalized from a host-provided DoclingDocument
 - `providerOptions.attachments` carries generic query attachments such as inbound photos, PDFs, and text snippets
 - `providerOptions.sourceSpans` carries source evidence relevant to the current call
 - `providerOptions.sourceChunks` carries grouped source evidence windows derived from spans
-- classify and plan receive the full PDF
-- page-map and worker extractors receive cached page-scoped PDFs, unless `convertPdfToImages` is enabled and cached page images are sent instead
+- classify and plan receive the full PDF, or Docling text when using Docling input
+- page-map and worker extractors receive cached page-scoped PDFs, unless `convertPdfToImages` is enabled and cached page images are sent instead; Docling inputs receive page-scoped text
 - query attachment interpretation calls may set both `providerOptions.attachments` and the convenience fields above for the current attachment
 
 `taskKind` is a provider-agnostic subtask label for host-side model routing, fallback, and telemetry. `budgetDiagnostics` carries the resolved token budget, task kind, truncation-risk estimate, and warnings. Hosts can route cheap-first by task and escalate only on their own risk/error policy; CL SDK does not hardcode provider or model names.

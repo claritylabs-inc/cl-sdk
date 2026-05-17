@@ -27,7 +27,7 @@ flowchart LR
 
 ### Classify
 
-Determines document type (policy or quote) and identifies the lines of business present. Uses `generateObject` with structured output for reliable classification, and passes the full document through `providerOptions.pdfBase64`.
+Determines document type (policy or quote) and identifies the lines of business present. Uses `generateObject` with structured output for reliable classification, and passes the full document through `providerOptions.pdfBase64` for PDF inputs or `providerOptions.doclingText` for host-provided Docling inputs.
 
 ### Page map
 
@@ -57,7 +57,7 @@ Dispatches focused extractors in parallel (concurrency-limited, default 2; overr
 
 Results accumulate in an in-memory map as each extractor completes. Repeated extractor runs merge instead of overwrite.
 
-Each worker call is page-scoped. Before invoking the callback, the SDK slices the requested range and passes that PDF through `providerOptions.pdfBase64`, or passes `providerOptions.images` when `convertPdfToImages` is configured. Page-scoped PDFs, rendered image ranges, and in-flight range work are cached for the duration of an extraction.
+Each worker call is page-scoped. Before invoking the callback, the SDK slices the requested range and passes that PDF through `providerOptions.pdfBase64`, passes `providerOptions.images` when `convertPdfToImages` is configured, or passes page-scoped `providerOptions.doclingText` for Docling inputs. Page-scoped PDFs, rendered image ranges, Docling text ranges, and in-flight range work are cached for the duration of an extraction.
 
 Focused extractors can declare fallback behavior. Definitions and covered reasons fall back through section extraction when a focused run fails or returns no usable records, which prevents a single model no-output response from leaving those first-class fields empty.
 
@@ -85,7 +85,7 @@ Breaks the formatted document into `DocumentChunk` objects for vector storage an
 
 ## Source grounding
 
-Source grounding is the shared evidence layer in v1. A `SourceSpan` captures a page, section, text range, and stable hash for a piece of source material. Extraction can receive spans through `extract(pdfBase64, documentId, { sourceSpans })`; those spans are filtered by page range and sent to focused extractors as `providerOptions.sourceSpans` and `providerOptions.sourceChunks`.
+Source grounding is the shared evidence layer in v1. A `SourceSpan` captures a page, section, text range, and stable hash for a piece of source material. Extraction can receive spans through `extract(pdfBase64, documentId, { sourceSpans })`, or derive them from Docling provenance when `extract({ kind: "docling_document", ... })` is used; those spans are filtered by page range and sent to focused extractors as `providerOptions.sourceSpans` and `providerOptions.sourceChunks`.
 
 The same primitives are reused by query, application, PCE, and case workflows:
 

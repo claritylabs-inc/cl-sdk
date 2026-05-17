@@ -9,13 +9,13 @@ import { Callout } from "@/components/ui/callout";
 
 ### `createExtractor(config)`
 
-Create an extraction pipeline instance. Returns an object with a single `extract` method that processes a PDF and returns structured insurance data.
+Create an extraction pipeline instance. Returns an object with a single `extract` method that processes a PDF or host-provided Docling document and returns structured insurance data.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `config` | `ExtractorConfig` | Pipeline configuration (required) |
 
-**Returns:** `{ extract(pdfBase64: string, documentId?: string, options?: ExtractOptions): Promise<ExtractionResult> }`
+**Returns:** `{ extract(input: ExtractionInput, documentId?: string, options?: ExtractOptions): Promise<ExtractionResult> }`
 
 ```typescript
 import { createExtractor } from "@claritylabs/cl-sdk";
@@ -31,12 +31,24 @@ const { document, chunks, sourceSpans, sourceChunks, tokenUsage, usageReporting 
   await extractor.extract(pdfBase64, "policy-123", { sourceSpans: callerSourceSpans });
 ```
 
+`ExtractionInput` is either the existing `PdfInput` value (`string`, `URL`, `Uint8Array`, or `{ fileId }`) or a Docling input:
+
+```typescript
+const result = await extractor.extract({
+  kind: "docling_document",
+  document: doclingDocumentJson,
+  sourceKind: "policy_pdf",
+}, "policy-123");
+```
+
+Docling conversion is host-owned. CL SDK consumes serialized `DoclingDocument` JSON, normalizes page text and provenance into source spans, and runs the focused structuring pipeline without slicing or sending the original PDF.
+
 The pipeline runs twelve phases automatically:
 
-1. **Classify** -- detect document type (policy/quote) and identify policy types, using the full PDF from `providerOptions.pdfBase64`
-2. **Form inventory and page map** -- identify form signals and map each page to focused extractors using page-scoped PDFs and caller-provided source spans
+1. **Classify** -- detect document type (policy/quote) and identify policy types, using the full PDF from `providerOptions.pdfBase64` or Docling text from `providerOptions.doclingText`
+2. **Form inventory and page map** -- identify form signals and map each page to focused extractors using page-scoped PDFs, Docling page text, and caller-provided source spans
 3. **Plan** -- build deterministic extraction tasks from the page map and template hints
-4. **Extract + merge** -- dispatch focused extractors in parallel (concurrency-limited), with each worker receiving a cached page-scoped PDF via `providerOptions.pdfBase64` or cached rendered page images via `providerOptions.images`, plus page-filtered `providerOptions.sourceSpans` when available
+4. **Extract + merge** -- dispatch focused extractors in parallel (concurrency-limited), with each worker receiving a cached page-scoped PDF via `providerOptions.pdfBase64`, cached rendered page images via `providerOptions.images`, or page-scoped Docling text via `providerOptions.doclingText`, plus page-filtered `providerOptions.sourceSpans` when available
 5. **Conditional supplementary extraction** -- run `supplementary` only when page assignments, form inventory, extracted text, or review follow-up tasks indicate hidden retrieval facts are likely present; page/form signals are dispatched as narrow page-scoped tasks with the main extractor batch
 6. **Referential coverage resolution** -- resolve values like "shown in declarations" or "per schedule" with cheap local matches first, then bounded targeted lookups when useful
 7. **Review** -- check completeness and quality against template requirements and the live extractor catalog, dispatch additional extractors for gaps (up to `maxReviewRounds`); `reviewMode` can skip the expensive LLM review when deterministic checks are sufficient. If the LLM review call itself fails, the fallback review round is recorded as non-clean with warning issues instead of silently approving the extraction.
@@ -159,7 +171,7 @@ interface ExtractorConfig {
   /** Optional async logger */
   log?: LogFn;
   /** Pass-through provider options forwarded to every model call.
-   *  For extraction, this is also where the coordinator/worker pipeline passes PDF or image content to your callback.
+   *  For extraction, this is also where the coordinator/worker pipeline passes PDF, image, or Docling text content to your callback.
    */
   providerOptions?: Record<string, unknown>;
   /** Optional source evidence persistence */
@@ -174,6 +186,20 @@ interface ExtractorConfig {
   onCheckpointSave?: (checkpoint: PipelineCheckpoint<ExtractionState>) => Promise<void>;
 }
 ```
+
+### `ExtractionInput`
+
+```typescript
+type ExtractionInput =
+  | PdfInput
+  | {
+      kind: "docling_document";
+      document: DoclingDocumentLike;
+      sourceKind?: SourceKind;
+    };
+```
+
+`DoclingDocumentLike` intentionally models the serialized Docling fields CL SDK needs (`texts`, `tables`, `key_value_items`, `groups`, `body`, `pages`, and `prov`) without requiring a Docling runtime dependency.
 
 ### `ExtractOptions`
 

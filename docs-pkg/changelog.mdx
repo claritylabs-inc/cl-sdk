@@ -18,6 +18,7 @@ Released 2026-05-09.
 
 ### Changed
 
+- Extraction now accepts host-provided Docling documents as an optional pre-processed input, derives source spans from Docling provenance, and runs focused extraction over page-scoped Docling text without adding a Docling runtime dependency.
 - Extraction now caches full-document provider options, page-scoped PDF ranges, rendered image ranges, and in-flight range work during a single run.
 - Added separate `pageMapConcurrency`, `extractorConcurrency`, and `formatConcurrency` controls, plus bounded parallel formatting batches.
 - Added `reviewMode` for choosing between automatic, always-on, and skipped LLM extraction review.

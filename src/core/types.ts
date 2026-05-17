@@ -41,6 +41,7 @@ export type GenerateText = (params: {
  * - `providerOptions.pdfBytes` — `Uint8Array` of raw PDF bytes
  * - `providerOptions.fileId` — provider-specific file reference (e.g., OpenAI file_id)
  * - `providerOptions.images` — `Array<{ imageBase64: string; mimeType: string }>` page images
+ * - `providerOptions.doclingText` — full or page-scoped text normalized from a host-provided DoclingDocument
  * - `providerOptions.attachments` — generic multimodal attachments such as
  *   `Array<{ kind: "image" | "pdf" | "text"; name?: string; mimeType?: string; base64?: string; text?: string; description?: string }>`
  *

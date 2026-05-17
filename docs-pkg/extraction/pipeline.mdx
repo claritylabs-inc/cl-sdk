@@ -66,13 +66,13 @@ The classifier examines the document and determines:
 - **Policy types** — array of line-of-business types (e.g., `["general_liability", "commercial_auto"]`)
 - **Confidence** — numeric score from 0 to 1
 
-Classification uses `generateObject` with the `ClassifyResultSchema` and drives template selection in the next phase. The coordinator passes the full PDF through `providerOptions.pdfBase64` for this step. See [Classification](/docs/extraction/classification) for details.
+Classification uses `generateObject` with the `ClassifyResultSchema` and drives template selection in the next phase. The coordinator passes the full PDF through `providerOptions.pdfBase64`, or host-provided Docling text through `providerOptions.doclingText`. See [Classification](/docs/extraction/classification) for details.
 
 ## Phase 2: Page Map
 
 The coordinator first maps each page to one or more focused extractors. This is the step that prevents broad, mixed ranges from sending declaration pages and generic policy forms through the same extractor without distinction.
 
-The page mapper receives chunked PDFs through `providerOptions.pdfBase64` and assigns pages one by one. Page-map chunks run with `pageMapConcurrency` when configured, otherwise the shared `concurrency` value.
+The page mapper receives chunked PDFs through `providerOptions.pdfBase64` or page-scoped Docling text through `providerOptions.doclingText`, then assigns pages one by one. Page-map chunks run with `pageMapConcurrency` when configured, otherwise the shared `concurrency` value.
 
 ## Phase 3: Plan
 
@@ -128,7 +128,7 @@ The coordinator dispatches focused extractors in parallel (concurrency-limited, 
 
 Results accumulate in an in-memory `Map` keyed by extractor name.
 
-Before each worker callback is invoked, the SDK slices the assigned page range and passes that page-scoped PDF through `providerOptions.pdfBase64`. If `convertPdfToImages` is configured, it passes `providerOptions.images` instead. Full-document provider options, page-scoped PDFs, rendered images, and in-flight range requests are cached for the lifetime of one extraction so overlapping extractor tasks reuse local work.
+Before each worker callback is invoked, the SDK slices the assigned page range and passes that page-scoped PDF through `providerOptions.pdfBase64`. If `convertPdfToImages` is configured, it passes `providerOptions.images` instead. For Docling inputs, the SDK skips PDF slicing and passes page-scoped `providerOptions.doclingText`. Full-document provider options, page-scoped PDFs, rendered images, Docling text ranges, and in-flight range requests are cached for the lifetime of one extraction so overlapping extractor tasks reuse local work.
 
 If the same extractor runs multiple times, results merge instead of overwrite. This is especially important for `coverage_limits`, `definitions`, `covered_reasons`, `endorsements`, `exclusions`, `conditions`, `sections`, `declarations`, and `supplementary`.
 
@@ -324,7 +324,7 @@ type GenerateObject<T = unknown> = (params: {
 }) => Promise<{ object: T; usage?: TokenUsage }>;
 ```
 
-Your callback must treat `providerOptions` as part of the model input contract, not just optional metadata. In the extraction pipeline, the document reaches the model through `providerOptions.pdfBase64` or `providerOptions.images`.
+Your callback must treat `providerOptions` as part of the model input contract, not just optional metadata. In the extraction pipeline, the document reaches the model through `providerOptions.pdfBase64`, `providerOptions.images`, or `providerOptions.doclingText`.
 
 ### Tuning concurrency
 

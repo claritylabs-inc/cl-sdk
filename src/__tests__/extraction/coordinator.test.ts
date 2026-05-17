@@ -371,6 +371,104 @@ describe("createExtractor", () => {
     });
   });
 
+  it("accepts Docling documents without PDF slicing and derives source spans", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValueOnce({
+        object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
+      })
+      .mockResolvedValueOnce({
+        object: { forms: [] },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          pages: [
+            { localPageNumber: 1, extractorNames: ["declarations", "coverage_limits"] },
+            { localPageNumber: 2, extractorNames: ["sections"] },
+          ],
+        },
+      })
+      .mockResolvedValue({
+        object: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
+      });
+
+    runExtractor.mockResolvedValue({
+      name: "coverage_limits",
+      data: {
+        coverages: [{
+          name: "Building",
+          limit: "$1,000,000",
+          pageNumber: 1,
+        }],
+      },
+      usage: { inputTokens: 20, outputTokens: 10 },
+    });
+
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+    });
+
+    const result = await extractor.extract({
+      kind: "docling_document",
+      document: {
+        body: {
+          children: [{ $ref: "#/texts/0" }, { $ref: "#/texts/1" }],
+        },
+        texts: [
+          {
+            self_ref: "#/texts/0",
+            label: "section_header",
+            text: "Commercial Property Declarations",
+            prov: [{ page_no: 1 }],
+          },
+          {
+            self_ref: "#/texts/1",
+            label: "paragraph",
+            text: "Building limit $1,000,000",
+            prov: [{ page_no: 2 }],
+          },
+        ],
+        pages: { "1": {}, "2": {} },
+      },
+    }, "doc-1");
+
+    expect(getPdfPageCount).not.toHaveBeenCalled();
+    expect(extractPageRange).not.toHaveBeenCalled();
+    expect(result.sourceSpans).toHaveLength(2);
+    expect(safeGenerateObject).toHaveBeenNthCalledWith(
+      1,
+      expect.any(Function),
+      expect.objectContaining({
+        prompt: expect.stringContaining("DOCLING DOCUMENT TEXT"),
+        providerOptions: expect.objectContaining({
+          doclingText: expect.stringContaining("Commercial Property Declarations"),
+          sourceSpans: result.sourceSpans,
+          sourceChunks: result.sourceChunks,
+        }),
+      }),
+      expect.any(Object),
+    );
+    expect(safeGenerateObject).toHaveBeenNthCalledWith(
+      3,
+      expect.any(Function),
+      expect.objectContaining({
+        prompt: expect.stringContaining("DOCLING DOCUMENT PAGES 1-2"),
+        providerOptions: expect.objectContaining({
+          doclingText: expect.stringContaining("Building limit $1,000,000"),
+          doclingPageRange: { startPage: 1, endPage: 2 },
+        }),
+      }),
+      expect.any(Object),
+    );
+    expect(runExtractor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pdfInput: undefined,
+        getPageRangeText: expect.any(Function),
+      }),
+    );
+  });
+
   it("expands long-list extractor budgets when model capabilities allow it", async () => {
     safeGenerateObject
       .mockReset()

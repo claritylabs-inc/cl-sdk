@@ -73,6 +73,7 @@ For extraction calls, CL SDK uses `providerOptions` to carry document content in
 - page mapping calls include page-scoped PDFs in `providerOptions.pdfBase64`
 - worker extractor calls include a page-scoped PDF in `providerOptions.pdfBase64`
 - if you configure `convertPdfToImages`, worker extractor calls include `providerOptions.images` instead
+- Docling document inputs include full or page-scoped extracted text in the prompt and `providerOptions.doclingText`
 - multimodal query calls may include `providerOptions.attachments`, `providerOptions.pdfBase64`, and `providerOptions.images`
 - source-grounded workflows may include `providerOptions.sourceSpans` and `providerOptions.sourceChunks`
 
@@ -113,6 +114,18 @@ console.log(chunks.length);          // 24 chunks ready for vector storage
 console.log(sourceChunks.length);    // Source evidence windows for source retrieval
 console.log(tokenUsage);             // { inputTokens: 45000, outputTokens: 12000 }
 console.log(usageReporting);         // { modelCalls: 14, callsWithUsage: 14, callsMissingUsage: 0 }
+```
+
+### Extract from a Docling document
+
+If your host already runs [Docling](https://github.com/docling-project/docling), pass the serialized `DoclingDocument` JSON instead of the PDF. CL SDK does not install or invoke Docling directly; it consumes the parsed structure, derives source spans, and runs the same focused structuring pipeline over Docling page text.
+
+```typescript
+const { document, sourceSpans } = await extractor.extract({
+  kind: "docling_document",
+  document: doclingDocumentJson,
+  sourceKind: "policy_pdf",
+}, "doc-123");
 ```
 
 ## Query documents
