@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/claritylabs-inc/cl-sdk/compare/v1.2.0...v1.2.1) (2026-05-17)
+
+
+### Bug Fixes
+
+* publish core package without provenance ([6056f65](https://github.com/claritylabs-inc/cl-sdk/commit/6056f65438cd6871b1ee8763d0f09bcddd9dc8a1))
+
 # [1.2.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.1.0...v1.2.0) (2026-05-17)
 
 
