@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.1.0...v1.2.0) (2026-05-17)
+
+
+### Features
+
+* support Docling extraction inputs ([0a3f976](https://github.com/claritylabs-inc/cl-sdk/commit/0a3f9768086ce604808582e8cf8b657de09862b5))
+
 # [1.1.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.0.3...v1.1.0) (2026-05-11)
 
 
