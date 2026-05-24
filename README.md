@@ -1,6 +1,6 @@
 # CL-SDK
 
-Deterministic insurance intelligence primitives for regulated AI agents. Pure TypeScript, provider-agnostic — bring any LLM, any embedding model, any storage backend.
+Deterministic insurance intelligence primitives for regulated AI agents.
 
 **[Documentation](https://cl-sdk.claritylabs.inc/docs)** | **[npm](https://www.npmjs.com/package/@claritylabs/cl-sdk)** | **[GitHub](https://github.com/claritylabs-inc/cl-sdk)**
 
