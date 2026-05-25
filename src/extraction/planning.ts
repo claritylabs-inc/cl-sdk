@@ -24,7 +24,7 @@ export function normalizePageAssignments(
 
   return pageAssignments.map((assignment) => {
     let extractorNames: PageAssignment["extractorNames"] = [...new Set(
-      (assignment.extractorNames.length > 0 ? assignment.extractorNames : ["sections"]).filter(Boolean),
+      assignment.extractorNames.filter(Boolean),
     )] as PageAssignment["extractorNames"];
 
     const hasDeclarations = extractorNames.includes("declarations");
@@ -59,10 +59,6 @@ export function normalizePageAssignments(
     // If inventory says this page is an endorsement form, ensure endorsements extractor is assigned
     if (inventoryTypes?.has("endorsement") && !extractorNames.includes("endorsements")) {
       extractorNames = [...extractorNames, "endorsements"] as PageAssignment["extractorNames"];
-    }
-
-    if (extractorNames.length === 0) {
-      extractorNames = ["sections"];
     }
 
     return {
@@ -116,19 +112,10 @@ export function buildPlanFromPageAssignments(
   const extractorPages = new Map<string, number[]>();
 
   for (const assignment of pageAssignments) {
-    const extractors = assignment.extractorNames.length > 0 ? assignment.extractorNames : ["sections"];
+    const focusedExtractors = assignment.extractorNames.filter((name) => name !== "sections");
+    const extractors = focusedExtractors.length > 0 ? focusedExtractors : assignment.extractorNames;
     for (const extractorName of extractors) {
       extractorPages.set(extractorName, [...(extractorPages.get(extractorName) ?? []), assignment.localPageNumber]);
-    }
-  }
-
-  const coveredPages = new Set<number>();
-  for (const pages of extractorPages.values()) {
-    for (const page of pages) coveredPages.add(page);
-  }
-  for (let page = 1; page <= pageCount; page += 1) {
-    if (!coveredPages.has(page)) {
-      extractorPages.set("sections", [...(extractorPages.get("sections") ?? []), page]);
     }
   }
 

@@ -5,7 +5,7 @@ import { resolveModelBudget } from "../core/model-budget";
 import type { InsuranceDocument } from "../schemas/document";
 import type { DocumentChunk } from "../storage/chunk-types";
 import type { SourceChunk, SourceSpan, SourceStore } from "../source";
-import { chunkSourceSpans } from "../source";
+import { chunkSourceSpans, sourceSpanTextHash } from "../source";
 import { pLimit } from "../core/concurrency";
 import { safeGenerateObject } from "../core/safe-generate";
 import { createPipelineContext, type PipelineCheckpoint } from "../core/pipeline";
@@ -301,6 +301,159 @@ export function createExtractor(config: ExtractorConfig) {
     return ranges;
   }
 
+  function pageNumberForSpan(span: SourceSpan): number | undefined {
+    return span.pageStart ?? span.location?.startPage ?? span.location?.page;
+  }
+
+  function spansForPageRange(spans: SourceSpan[], startPage: number, endPage: number): SourceSpan[] {
+    return spans.filter((span) => {
+      const start = span.pageStart ?? span.location?.startPage ?? span.location?.page;
+      const end = span.pageEnd ?? span.location?.endPage ?? start;
+      return typeof start === "number" && typeof end === "number" && start <= endPage && end >= startPage;
+    });
+  }
+
+  function inferSectionType(title: string, text: string): string {
+    const value = `${title} ${text.slice(0, 500)}`.toLowerCase();
+    if (/\bdefinition|defined terms?\b/.test(value)) return "definition";
+    if (/\bexclusion|not covered|does not apply\b/.test(value)) return "exclusion";
+    if (/\bcondition|duties|loss condition|general condition\b/.test(value)) return "condition";
+    if (/\bendorsement|amend|additional insured\b/.test(value)) return "endorsement";
+    if (/\bcovered cause|covered reason|covered peril|cause of loss|perils insured\b/.test(value)) return "covered_reason";
+    if (/\bdeclaration|schedule\b/.test(value)) return "declarations";
+    return "policy_form";
+  }
+
+  function buildSourceBackedSectionIndex(spans: SourceSpan[], startPage: number, endPage: number) {
+    const candidateSpans = spansForPageRange(spans, startPage, endPage)
+      .filter((span) => span.text.trim().length > 0)
+      .filter((span) => span.metadata?.sourceUnit === "section_candidate" || span.sectionId || span.text.length >= 160);
+
+    return {
+      sections: candidateSpans.map((span, index) => {
+        const pageStart = span.pageStart ?? span.location?.startPage ?? span.location?.page ?? startPage;
+        const pageEnd = span.pageEnd ?? span.location?.endPage ?? pageStart;
+        const title = span.sectionId
+          ?? span.formNumber
+          ?? firstHeadingLine(span.text)
+          ?? `Policy text page ${pageStart}`;
+        return {
+          title,
+          sectionNumber: span.formNumber,
+          pageStart,
+          pageEnd,
+          type: inferSectionType(title, span.text),
+          excerpt: span.text.slice(0, 240),
+          recordId: `section_index_${pageStart}_${index}`,
+          sourceSpanIds: [span.id],
+          sourceTextHash: span.textHash ?? sourceSpanTextHash(span.text),
+        };
+      }),
+    };
+  }
+
+  function firstHeadingLine(text: string): string | undefined {
+    const line = text.split(/\r?\n/).map((item) => item.trim()).find((item) => item.length > 0);
+    if (!line) return undefined;
+    return line.slice(0, 100);
+  }
+
+  function buildDeterministicFormInventory(spans: SourceSpan[], pageCount: number): FormInventoryResult | undefined {
+    if (spans.length === 0) return undefined;
+    const formPattern = /\b([A-Z]{1,4}\s?\d{2,5}(?:\s?\d{2,4})?|[A-Z]{2,8}-\d{2,8})\b/g;
+    const seen = new Map<string, FormInventoryResult["forms"][number]>();
+
+    for (const span of spans) {
+      const page = pageNumberForSpan(span);
+      if (!page) continue;
+      const title = firstHeadingLine(span.text) ?? span.sectionId;
+      const matches = new Set<string>([
+        ...(span.formNumber ? [span.formNumber] : []),
+        ...Array.from(span.text.slice(0, 1200).matchAll(formPattern), (match) => match[1].trim()),
+      ]);
+      for (const formNumber of matches) {
+        const key = `${formNumber}:${title ?? ""}`;
+        const existing = seen.get(key);
+        const formType = inferFormType(title ?? "", span.text);
+        if (existing) {
+          existing.pageStart = Math.min(existing.pageStart ?? page, page);
+          existing.pageEnd = Math.max(existing.pageEnd ?? page, page);
+          continue;
+        }
+        seen.set(key, {
+          formNumber,
+          title,
+          formType,
+          pageStart: Math.min(page, pageCount),
+          pageEnd: Math.min(page, pageCount),
+        });
+      }
+    }
+
+    const forms = [...seen.values()].sort((a, b) => (a.pageStart ?? 0) - (b.pageStart ?? 0));
+    return forms.length > 0 ? { forms } : undefined;
+  }
+
+  function inferFormType(title: string, text: string): FormInventoryResult["forms"][number]["formType"] {
+    const value = `${title} ${text.slice(0, 700)}`.toLowerCase();
+    if (/\bdeclarations?|schedule\b/.test(value)) return "declarations";
+    if (/\bendorsement|amendatory|additional insured\b/.test(value)) return "endorsement";
+    if (/\bnotice|department of insurance|complaint|privacy\b/.test(value)) return "notice";
+    if (/\bapplication|questionnaire\b/.test(value)) return "application";
+    if (/\bcoverage|policy form|conditions|exclusions|definitions|causes of loss\b/.test(value)) return "coverage";
+    return "other";
+  }
+
+  function buildDeterministicPageAssignments(spans: SourceSpan[], pageCount: number): PageAssignment[] {
+    if (spans.length === 0) return [];
+    const pageTexts = new Map<number, string>();
+    for (const span of spans) {
+      const page = pageNumberForSpan(span);
+      if (!page) continue;
+      pageTexts.set(page, [pageTexts.get(page), span.sectionId, span.text].filter(Boolean).join("\n"));
+    }
+
+    return Array.from({ length: pageCount }, (_, index): PageAssignment => {
+      const page = index + 1;
+      const text = pageTexts.get(page) ?? "";
+      const lower = text.toLowerCase();
+      const extractorNames: PageAssignment["extractorNames"] = [];
+      if (/\bdeclarations?|policy period|named insured|producer|schedule\b/.test(lower)) {
+        extractorNames.push("carrier_info", "named_insured", "declarations");
+      }
+      if (/\blimit|deductible|premium|coinsurance|scheduled amount|blanket\b/.test(lower)
+        && /\$|\b\d{2,}(?:,\d{3})*\b/.test(lower)) {
+        extractorNames.push("coverage_limits");
+      }
+      if (/\bpremium|tax|fee|surcharge\b/.test(lower) && /\$/.test(lower)) extractorNames.push("premium_breakdown");
+      if (/\bendorsement|additional insured|amendatory\b/.test(lower)) extractorNames.push("endorsements");
+      if (/\bexclusion|not covered|does not apply\b/.test(lower)) extractorNames.push("exclusions");
+      if (/\bcondition|duties in the event|loss condition|general condition\b/.test(lower)) extractorNames.push("conditions");
+      if (/\bdefinition|defined terms?\b/.test(lower)) extractorNames.push("definitions");
+      if (/\bcovered cause|covered peril|cause of loss|perils insured\b/.test(lower)) extractorNames.push("covered_reasons");
+      if (textIncludesSupplementarySignal(text)) extractorNames.push("supplementary");
+      if (extractorNames.length === 0 && text.trim().length > 180) extractorNames.push("sections");
+
+      return {
+        localPageNumber: page,
+        extractorNames: [...new Set(extractorNames)] as PageAssignment["extractorNames"],
+        pageRole: inferPageRole(lower),
+        hasScheduleValues: /\$|\b\d{2,}(?:,\d{3})*\b/.test(lower) && /\blimit|deductible|premium|schedule|class|location\b/.test(lower),
+        confidence: text.trim().length > 0 ? 0.8 : 0,
+        notes: "Deterministic source-span page assignment",
+      };
+    });
+  }
+
+  function inferPageRole(lowerText: string): PageAssignment["pageRole"] {
+    if (/\bdeclarations?|schedule\b/.test(lowerText)) return "declarations_schedule";
+    if (/\bendorsement\b/.test(lowerText)) return "endorsement_form";
+    if (/\bexclusion|condition\b/.test(lowerText)) return "condition_exclusion_form";
+    if (/\bnotice|department of insurance|complaint\b/.test(lowerText)) return "supplementary";
+    if (lowerText.trim()) return "policy_form";
+    return "other";
+  }
+
   function shouldRunLlmReview(
     mode: ExtractorConfig["reviewMode"],
     report: ExtractionReviewReport,
@@ -351,11 +504,20 @@ export function createExtractor(config: ExtractorConfig) {
     task: ExtractionPlan["tasks"][number],
     pdfInput: PdfInput | undefined,
     memory: Map<string, unknown>,
+    sourceSpansForSections: SourceSpan[],
     pageRangeCache?: Map<string, string>,
     getPageRangePdf?: (startPage: number, endPage: number) => Promise<string>,
     getPageImages?: (startPage: number, endPage: number) => Promise<PageRangeImage[]>,
     getPageRangeText?: (startPage: number, endPage: number) => Promise<string>,
   ) {
+    if (task.extractorName === "sections" && sourceSpansForSections.length > 0) {
+      return {
+        name: "sections",
+        data: buildSourceBackedSectionIndex(sourceSpansForSections, task.startPage, task.endPage),
+        usage: undefined,
+      };
+    }
+
     if (task.extractorName === "supplementary") {
       const alreadyExtractedSummary = buildAlreadyExtractedSummary(memory);
       const budget = resolveBudget("extraction_focused", 4096);
@@ -637,12 +799,24 @@ export function createExtractor(config: ExtractorConfig) {
     const pageCount = resumed?.pageCount ?? await getCachedPageCount();
     const templateHints = buildTemplateHints(primaryType, documentType, pageCount, template);
 
-    // Step 2: Build form inventory
+    // Step 2: Build deterministic form inventory before falling back to an LLM pass.
     let formInventory: FormInventoryResult | undefined;
     if (resumed?.formInventory && pipelineCtx.isPhaseComplete("form_inventory")) {
       formInventory = resumed.formInventory;
       memory.set("form_inventory", formInventory);
       onProgress?.("Resuming from checkpoint (form inventory complete)...");
+    } else if (sourceSpans.length > 0) {
+      formInventory = buildDeterministicFormInventory(sourceSpans, pageCount) ?? { forms: [] };
+      onProgress?.(`Built deterministic form inventory for ${primaryType} ${documentType}.`);
+      memory.set("form_inventory", formInventory);
+
+      await pipelineCtx.save("form_inventory", {
+        id,
+        pageCount,
+        classifyResult,
+        formInventory,
+        memory: Object.fromEntries(memory),
+      });
     } else {
       onProgress?.(`Building form inventory for ${primaryType} ${documentType}...`);
       const budget = resolveBudget("extraction_form_inventory", 2048);
@@ -688,6 +862,21 @@ export function createExtractor(config: ExtractorConfig) {
     if (resumed?.pageAssignments && pipelineCtx.isPhaseComplete("page_map")) {
       pageAssignments = resumed.pageAssignments;
       onProgress?.("Resuming from checkpoint (page map complete)...");
+    } else if (sourceSpans.length > 0) {
+      onProgress?.(`Mapping document pages from source spans for ${primaryType} ${documentType}...`);
+      pageAssignments = normalizePageAssignments(
+        buildDeterministicPageAssignments(sourceSpans, pageCount),
+        formInventory,
+      );
+
+      await pipelineCtx.save("page_map", {
+        id,
+        pageCount,
+        classifyResult,
+        formInventory,
+        pageAssignments,
+        memory: Object.fromEntries(memory),
+      });
     } else {
       onProgress?.(`Mapping document pages for ${primaryType} ${documentType}...`);
       const chunkSize = 8;
@@ -833,6 +1022,7 @@ export function createExtractor(config: ExtractorConfig) {
               task,
               extractionPdfInput,
               memory,
+              sourceSpans,
               completedPageRangePdfCache,
               getPageRangePdf,
               convertPdfToImages ? getPageImages : undefined,
@@ -1011,6 +1201,7 @@ export function createExtractor(config: ExtractorConfig) {
                   task,
                   extractionPdfInput,
                   memory,
+                  sourceSpans,
                   completedPageRangePdfCache,
                   getPageRangePdf,
                   convertPdfToImages ? getPageImages : undefined,

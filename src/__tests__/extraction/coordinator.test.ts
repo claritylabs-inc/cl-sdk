@@ -54,7 +54,7 @@ vi.mock("../../extraction/assembler", () => ({
 
 import { createExtractor } from "../../extraction/coordinator";
 import { extractPageRange, getPdfPageCount } from "../../extraction/pdf";
-import { buildPageSourceSpans } from "../../source";
+import { buildPageSourceSpans, buildSourceSpan } from "../../source";
 
 describe("createExtractor", () => {
   beforeEach(() => {
@@ -371,6 +371,57 @@ describe("createExtractor", () => {
     });
   });
 
+  it("uses source spans for deterministic section indexes without section LLM calls", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValueOnce({
+        object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
+      });
+    const sourceSpans = [
+      buildSourceSpan({
+        documentId: "doc-1",
+        sourceKind: "policy_pdf",
+        pageStart: 2,
+        pageEnd: 2,
+        sectionId: "Commercial Property Provisions",
+        text: "Commercial Property Provisions. This part describes policy administration, coverage territory, inspections, transfer of rights, and other general policy wording.",
+        metadata: { sourceUnit: "section_candidate" },
+      }),
+    ];
+    assembleDocument.mockImplementation((_id, _type, memory) => ({
+      id: "doc-1",
+      type: "policy",
+      sections: ((memory as Map<string, unknown>).get("sections") as { sections?: unknown[] } | undefined)?.sections,
+    }));
+    formatDocumentContent.mockImplementation(async (document) => ({
+      document,
+      usage: { inputTokens: 0, outputTokens: 0 },
+    }));
+
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+      reviewMode: "skip",
+    });
+
+    const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
+
+    expect(safeGenerateObject).toHaveBeenCalledTimes(2);
+    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_form_inventory")).toBe(false);
+    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_page_map")).toBe(false);
+    expect(runExtractor.mock.calls.some(([arg]) => arg.name === "sections")).toBe(false);
+    expect(result.document.sections).toEqual([
+      expect.objectContaining({
+        title: "Commercial Property Provisions",
+        pageStart: 2,
+        pageEnd: 2,
+        sourceSpanIds: [sourceSpans[0].id],
+        sourceTextHash: sourceSpans[0].textHash,
+      }),
+    ]);
+    expect(result.document.sections?.[0]).not.toHaveProperty("content");
+  });
+
   it("accepts Docling documents without PDF slicing and derives source spans", async () => {
     safeGenerateObject
       .mockReset()
@@ -407,6 +458,7 @@ describe("createExtractor", () => {
     const extractor = createExtractor({
       generateText: vi.fn(),
       generateObject: vi.fn(),
+      reviewMode: "skip",
     });
 
     const result = await extractor.extract({
@@ -445,18 +497,6 @@ describe("createExtractor", () => {
           doclingText: expect.stringContaining("Commercial Property Declarations"),
           sourceSpans: result.sourceSpans,
           sourceChunks: result.sourceChunks,
-        }),
-      }),
-      expect.any(Object),
-    );
-    expect(safeGenerateObject).toHaveBeenNthCalledWith(
-      3,
-      expect.any(Function),
-      expect.objectContaining({
-        prompt: expect.stringContaining("DOCLING DOCUMENT PAGES 1-2"),
-        providerOptions: expect.objectContaining({
-          doclingText: expect.stringContaining("Building limit $1,000,000"),
-          doclingPageRange: { startPage: 1, endPage: 2 },
         }),
       }),
       expect.any(Object),

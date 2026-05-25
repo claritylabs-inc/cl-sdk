@@ -45,7 +45,7 @@ describe("planning helpers", () => {
     expect(normalizePageAssignments(assignments, formInventory).map((assignment) => assignment.extractorNames)).toEqual([
       ["sections", "endorsements"],
       ["coverage_limits", "endorsements"],
-      ["sections"],
+      [],
     ]);
   });
 
@@ -76,29 +76,26 @@ describe("planning helpers", () => {
         description: "Page-mapped conditions extraction for pages 2-4",
       },
       {
-        extractorName: "sections",
-        startPage: 2,
-        endPage: 2,
-        description: "Page-mapped sections extraction for pages 2-2",
-      },
-      {
-        extractorName: "sections",
-        startPage: 4,
-        endPage: 4,
-        description: "Page-mapped sections extraction for pages 4-4",
-      },
-      {
         extractorName: "endorsements",
         startPage: 5,
         endPage: 6,
         description: "Page-mapped endorsements extraction for pages 5-6",
       },
-      {
-        extractorName: "sections",
-        startPage: 6,
-        endPage: 6,
-        description: "Page-mapped sections extraction for pages 6-6",
-      },
+    ]);
+  });
+
+  it("does not schedule section index tasks for pages covered by focused extractors", () => {
+    const assignments: PageAssignment[] = [
+      { localPageNumber: 1, extractorNames: ["declarations", "sections"] },
+      { localPageNumber: 2, extractorNames: ["conditions", "sections"] },
+      { localPageNumber: 3, extractorNames: ["sections"] },
+      { localPageNumber: 4, extractorNames: [] },
+    ];
+
+    expect(buildPlanFromPageAssignments(assignments, 4).tasks).toEqual([
+      expect.objectContaining({ extractorName: "declarations", startPage: 1, endPage: 1 }),
+      expect.objectContaining({ extractorName: "conditions", startPage: 2, endPage: 2 }),
+      expect.objectContaining({ extractorName: "sections", startPage: 3, endPage: 3 }),
     ]);
   });
 
