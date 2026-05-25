@@ -1,3 +1,10 @@
+## [1.3.3](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.2...v1.3.3) (2026-05-25)
+
+
+### Bug Fixes
+
+* **extraction:** prefer source-backed planning ([690f1b0](https://github.com/claritylabs-inc/cl-sdk/commit/690f1b0b17bfaa49f0fe6f7a5d363cd03e2ef1b9))
+
 ## [1.3.2](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.1...v1.3.2) (2026-05-25)
 
 
