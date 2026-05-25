@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.0...v1.3.1) (2026-05-25)
+
+
+### Bug Fixes
+
+* publish core package with provenance flag ([e984f7d](https://github.com/claritylabs-inc/cl-sdk/commit/e984f7db696524c42680eb4891af3f39813a3bf6))
+
 # [1.3.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.2.1...v1.3.0) (2026-05-25)
 
 
