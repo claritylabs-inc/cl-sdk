@@ -142,6 +142,14 @@ export async function runExtractor<T>(params: ExtractorParams<T>): Promise<Extra
       maxTokens,
       taskKind,
       budgetDiagnostics,
+      trace: {
+        label: `${name} pages ${startPage}-${endPage}`,
+        extractorName: name,
+        startPage,
+        endPage,
+        phase: "extractor",
+        sourceBacked: !!sourceContext,
+      },
       providerOptions: extractorProviderOptions,
     })
   );

@@ -61,6 +61,11 @@ function collectContentFields(doc: InsuranceDocument): ContentEntry[] {
     }
   }
 
+  function hasSourceBacking(record: { sourceSpanIds?: string[]; sourceTextHash?: string }) {
+    return (Array.isArray(record.sourceSpanIds) && record.sourceSpanIds.length > 0)
+      || !!record.sourceTextHash;
+  }
+
   // Document-level summary
   add("summary", doc.summary);
 
@@ -68,10 +73,14 @@ function collectContentFields(doc: InsuranceDocument): ContentEntry[] {
   if (doc.sections) {
     for (let i = 0; i < doc.sections.length; i++) {
       const s = doc.sections[i];
-      add(`sections[${i}].content`, s.content);
+      if (!hasSourceBacking(s)) {
+        add(`sections[${i}].content`, s.content);
+      }
       if (s.subsections) {
         for (let j = 0; j < s.subsections.length; j++) {
-          add(`sections[${i}].subsections[${j}].content`, s.subsections[j].content);
+          if (!hasSourceBacking(s.subsections[j])) {
+            add(`sections[${i}].subsections[${j}].content`, s.subsections[j].content);
+          }
         }
       }
     }
@@ -80,7 +89,9 @@ function collectContentFields(doc: InsuranceDocument): ContentEntry[] {
   // Endorsements
   if (doc.endorsements) {
     for (let i = 0; i < doc.endorsements.length; i++) {
-      add(`endorsements[${i}].content`, doc.endorsements[i].content);
+      if (!hasSourceBacking(doc.endorsements[i])) {
+        add(`endorsements[${i}].content`, doc.endorsements[i].content);
+      }
     }
   }
 
@@ -245,6 +256,12 @@ export async function formatDocumentContent(
             maxTokens: options?.maxTokens ?? 16384,
             taskKind: options?.taskKind,
             budgetDiagnostics: options?.budgetDiagnostics,
+            trace: {
+              label: `format content batch ${batchIdx + 1}/${batches.length}`,
+              phase: "format",
+              batchIndex: batchIdx + 1,
+              batchCount: batches.length,
+            },
             providerOptions: options?.providerOptions,
           })
         );

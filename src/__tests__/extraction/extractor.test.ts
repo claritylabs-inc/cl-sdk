@@ -187,5 +187,13 @@ describe("runExtractor", () => {
     expect(callArgs.prompt).toContain("sourceSpan:doc:span:2:0:bbb");
     expect(callArgs.prompt).toContain("SECTION I COVERAGE");
     expect(callArgs.prompt).not.toContain("Page one");
+    expect(callArgs.trace).toEqual({
+      label: "test pages 2-3",
+      extractorName: "test",
+      startPage: 2,
+      endPage: 3,
+      phase: "extractor",
+      sourceBacked: true,
+    });
   });
 });

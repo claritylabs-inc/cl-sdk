@@ -44,8 +44,8 @@ The extraction system uses a coordinator/worker pattern with page-aware planning
 7. **Referential resolution** (`resolve-referential.ts`, `referential-workflow.ts`): resolve referential coverage values with cheap local section/form matches first, then bounded target-specific actions for declarations, schedules, sections, page-location lookup, or skip.
 8. **Review** (`coordinator.ts` + `prompts/coordinator/review.ts`): review completeness and quality using the full PDF, the page-map summary, the live extractor catalog, and a summary of extracted results. Review should catch generic placeholder outputs and missing declaration-grade values, and can request follow-up tasks from registered extractors.
 9. **Assemble** (`assembler.ts`): merge all extracted data into a final `InsuranceDocument`.
-10. **Format** (`formatter.ts`): cost-aware markdown cleanup for content-bearing fields. Plain prose skips the LLM formatting pass; long/noisy markdown, list, heading, spacing, or table-like content is formatted.
-11. **Chunk** (`chunking.ts`): break the formatted document into `DocumentChunk[]` for vector storage.
+10. **Format** (`formatter.ts`): cost-aware markdown cleanup for content-bearing fields. Plain prose skips the LLM formatting pass; long/noisy markdown, list, heading, spacing, or table-like content is formatted. Source-backed sections and endorsements skip this cleanup because their canonical wording lives in source spans.
+11. **Chunk** (`chunking.ts`): break the formatted document into `DocumentChunk[]` for vector storage. Structured facts become retrieval chunks, while sections and endorsements are compact navigation/index chunks only. Do not store generated full policy wording in section or endorsement chunks; Q&A and source viewers should use source spans/source chunks as the evidence corpus.
 
 Entry point: `createExtractor(config)` returns `{ extract(pdfBase64, documentId?) }`.
 
@@ -62,8 +62,10 @@ Important extraction contract:
 
 - `providerOptions.pdfBase64` carries document content for classify, page-map, review, and PDF-mode extractor calls
 - `providerOptions.images` carries rendered page images for image-mode extractor calls
+- `providerOptions.sourceSpans` carries source evidence for page-scoped extraction; source-backed section and endorsement extractors should return compact metadata, excerpts, and `sourceSpanIds`, not full verbatim text
 - the callback must translate those fields into actual file/image parts in the provider request
 - if usage is omitted by the callback, extraction still works but `usageReporting.callsMissingUsage` will surface that gap
+- callbacks may receive `trace` metadata identifying extractor/page range or formatting batch; hosts should preserve it in model-call telemetry
 
 ### Key Patterns
 

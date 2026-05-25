@@ -80,6 +80,8 @@ const extractor = createExtractor({ generateText, generateObject, sourceStore })
 const result = await extractor.extract(pdfBase64, "policy-123", { sourceSpans });
 ```
 
+When source spans are available, section and endorsement extraction returns a compact index with page ranges, short excerpts, and `sourceSpanIds`/`sourceTextHash` instead of asking the model to reproduce full policy wording. Store `result.sourceSpans`/source chunks as the canonical evidence corpus for Q&A and source viewers; use `result.chunks` for structured facts and navigation metadata.
+
 See the [full documentation](https://cl-sdk.claritylabs.inc/docs) for architecture, provider setup, API reference, and more.
 
 ## Multimodal Querying
@@ -135,7 +137,7 @@ If your callback ignores those fields, the model will only see the text prompt.
 
 ## Model routing metadata
 
-Every SDK model callback may receive `taskKind` and `budgetDiagnostics`. Hosts can use these provider-agnostic fields for cheap-first routing, fallback, and telemetry without the SDK hardcoding model names. Example task kinds include `extraction_classify`, `extraction_focused`, `extraction_review`, `query_reason`, `application_extract_fields`, and `pce_impact_analysis`. `budgetDiagnostics` includes the resolved max-token budget and truncation-risk warnings for the current subtask.
+Every SDK model callback may receive `taskKind`, `budgetDiagnostics`, and `trace`. Hosts can use these provider-agnostic fields for cheap-first routing, fallback, and telemetry without the SDK hardcoding model names. Example task kinds include `extraction_classify`, `extraction_focused`, `extraction_review`, `query_reason`, `application_extract_fields`, and `pce_impact_analysis`. `budgetDiagnostics` includes the resolved max-token budget and truncation-risk warnings for the current subtask. `trace` identifies the current extractor, page range, format batch, or source-backed call so host logs can show what was being generated instead of a generic model-call label.
 
 ## Bounded Agentic Workflows
 

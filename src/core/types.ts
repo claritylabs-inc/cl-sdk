@@ -17,6 +17,17 @@ export type PdfInput =
   | Uint8Array
   | { fileId: string; mimeType?: string };
 
+export interface ModelCallTrace {
+  label?: string;
+  extractorName?: string;
+  startPage?: number;
+  endPage?: number;
+  batchIndex?: number;
+  batchCount?: number;
+  phase?: string;
+  sourceBacked?: boolean;
+}
+
 /** Callback to generate text from a prompt. Provider-agnostic. */
 export type GenerateText = (params: {
   prompt: string;
@@ -26,6 +37,8 @@ export type GenerateText = (params: {
   taskKind?: ModelTaskKind;
   /** Resolved budget diagnostics for hosts that route/escalate based on truncation risk. */
   budgetDiagnostics?: ModelBudgetResolution;
+  /** Optional host telemetry metadata for debugging model-call purpose. */
+  trace?: ModelCallTrace;
   providerOptions?: Record<string, unknown>;
 }) => Promise<{
   text: string;
@@ -60,6 +73,8 @@ export type GenerateObject<T = unknown> = (params: {
   taskKind?: ModelTaskKind;
   /** Resolved budget diagnostics for hosts that route/escalate based on truncation risk. */
   budgetDiagnostics?: ModelBudgetResolution;
+  /** Optional host telemetry metadata for debugging model-call purpose. */
+  trace?: ModelCallTrace;
   providerOptions?: Record<string, unknown>;
 }) => Promise<{
   object: T;

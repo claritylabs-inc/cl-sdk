@@ -135,6 +135,9 @@ describe("chunkDocument", () => {
     const chunks = chunkDocument(doc);
     const endorsements = chunks.filter((c) => c.type === "endorsement");
     expect(endorsements.length).toBe(1);
+    expect(endorsements[0].text).toContain("Endorsement: Additional Insured");
+    expect(endorsements[0].text).toContain("Type: additional_insured");
+    expect(endorsements[0].text).not.toContain("Adds additional insured coverage");
   });
 
   it("assigns deterministic IDs", () => {
@@ -274,7 +277,7 @@ describe("chunkDocument", () => {
     expect(taxFee!.text).toContain("Stamping Fee: $25");
   });
 
-  it("splits large sections into smaller chunks", () => {
+  it("creates section navigation chunks without generated long text", () => {
     const longContent = Array.from({ length: 30 }, (_, i) =>
       `Paragraph ${i + 1}: This is a substantial paragraph of policy content that contains important information about the terms and conditions.`,
     ).join("\n\n");
@@ -288,12 +291,14 @@ describe("chunkDocument", () => {
 
     const chunks = chunkDocument(docWithLongSection);
     const sectionChunks = chunks.filter((c) => c.type === "section");
-    expect(sectionChunks.length).toBeGreaterThan(1);
-    expect(sectionChunks[0].text).toContain("General Conditions (part 1)");
-    expect(sectionChunks[0].id).toContain(":part:");
+    expect(sectionChunks).toHaveLength(1);
+    expect(sectionChunks[0].text).toContain("Section: General Conditions");
+    expect(sectionChunks[0].text).toContain("Type: conditions");
+    expect(sectionChunks[0].text).not.toContain("Paragraph 1");
+    expect(sectionChunks[0].metadata.evidenceKind).toBe("navigation");
   });
 
-  it("splits sections with subsections into individual chunks", () => {
+  it("creates compact section and subsection navigation chunks", () => {
     const docWithSubsections: PolicyDocument = {
       ...doc,
       sections: [
@@ -302,8 +307,15 @@ describe("chunkDocument", () => {
           type: "coverage",
           pageStart: 3,
           content: "This section covers property damage.",
+          excerpt: "Property coverage applies as scheduled.",
+          sourceSpanIds: ["span-section"],
           subsections: [
-            { title: "Covered Property", content: "We cover building and contents." },
+            {
+              title: "Covered Property",
+              content: "We cover building and contents.",
+              excerpt: "Covered property includes building and contents.",
+              sourceSpanIds: ["span-covered"],
+            },
             { title: "Property Not Covered", content: "We do not cover land or water." },
           ],
         },
@@ -313,7 +325,14 @@ describe("chunkDocument", () => {
     const chunks = chunkDocument(docWithSubsections);
     const sectionChunks = chunks.filter((c) => c.type === "section");
     expect(sectionChunks.length).toBe(3); // parent + 2 subsections
+    expect(sectionChunks[0].text).toContain("Subsections: Covered Property, Property Not Covered");
+    expect(sectionChunks[0].text).not.toContain("This section covers property damage");
+    expect(sectionChunks[0].metadata.sourceSpanIds).toBe("span-section");
     expect(sectionChunks[1].text).toContain("Property Coverage > Covered Property");
+    expect(sectionChunks[1].text).toContain("Covered property includes building and contents.");
+    expect(sectionChunks[1].text).not.toContain("We cover building and contents.");
+    expect(sectionChunks[1].metadata.evidenceKind).toBe("navigation");
+    expect(sectionChunks[1].metadata.sourceSpanIds).toBe("span-covered");
     expect(sectionChunks[2].text).toContain("Property Coverage > Property Not Covered");
     expect(sectionChunks[1].metadata.parentSection).toBe("Property Coverage");
   });

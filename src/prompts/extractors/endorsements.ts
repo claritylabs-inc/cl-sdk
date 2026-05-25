@@ -60,9 +60,12 @@ export const EndorsementsSchema = z.object({
           .optional()
           .describe("Key terms or notable provisions in the endorsement"),
         premiumImpact: z.string().optional().describe("Additional premium or credit"),
-        content: z.string().describe("Full verbatim text of the endorsement"),
+        excerpt: z.string().optional().describe("Short source excerpt, not full verbatim text"),
+        content: z.string().optional().describe("Legacy fallback only; do not return full text when sourceSpanIds are available"),
         pageStart: z.number().describe("Starting page number of this endorsement"),
         pageEnd: z.number().optional().describe("Ending page number of this endorsement"),
+        sourceSpanIds: z.array(z.string()).optional().describe("Source span IDs grounding this endorsement"),
+        sourceTextHash: z.string().optional().describe("Hash of the source text when available"),
       }),
     )
     .describe("All endorsements found in the document"),
@@ -71,7 +74,7 @@ export const EndorsementsSchema = z.object({
 export type EndorsementsResult = z.infer<typeof EndorsementsSchema>;
 
 export function buildEndorsementsPrompt(): string {
-  return `You are an expert insurance document analyst. Extract ALL endorsements from this document. Preserve original language verbatim.
+  return `You are an expert insurance document analyst. Build a compact source-backed endorsement index for this document. Do not reproduce full endorsement language in the JSON output.
 
 For EACH endorsement, extract:
 - formNumber: the form identifier (e.g. "CG 21 47") — REQUIRED
@@ -83,7 +86,9 @@ For EACH endorsement, extract:
 - namedParties: for each party, extract name, role (additional_insured, loss_payee, mortgage_holder, certificate_holder, waiver_beneficiary, designated_person, other), relationship, and scope
 - keyTerms: notable provisions or key terms
 - premiumImpact: additional premium or credit if shown
-- content: full verbatim text — REQUIRED
+- excerpt: short identifying source excerpt, capped at 300 characters
+- sourceSpanIds: source span IDs from the provided SOURCE SPANS that ground this endorsement
+- content: legacy fallback only; omit/null when sourceSpanIds are available
 - pageStart: page number where endorsement begins — REQUIRED
 - pageEnd: page number where endorsement ends
 
@@ -92,6 +97,11 @@ PERSONAL LINES ENDORSEMENT RECOGNITION:
 - PP 03 XX series: personal auto endorsements
 - HO 17 XX series: mobilehome endorsements
 - DP 04 XX series: dwelling fire endorsements
+
+Critical rules:
+- Return compact metadata plus source references. The original endorsement wording lives in source spans.
+- Do not return full endorsement text in content when sourceSpanIds are available.
+- Prefer sourceSpanIds over generated prose for evidence.
 
 Return JSON only.`;
 }

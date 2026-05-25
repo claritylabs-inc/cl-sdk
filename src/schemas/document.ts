@@ -41,7 +41,10 @@ export const SubsectionSchema = z.object({
   title: z.string(),
   sectionNumber: z.string().optional(),
   pageNumber: z.number().optional(),
-  content: z.string(),
+  excerpt: z.string().optional(),
+  content: z.string().optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+  sourceTextHash: z.string().optional(),
 });
 export type Subsection = z.infer<typeof SubsectionSchema>;
 
@@ -52,7 +55,8 @@ export const SectionSchema = z.object({
   pageEnd: z.number().optional(),
   type: z.string(),
   coverageType: z.string().optional(),
-  content: z.string(),
+  excerpt: z.string().optional(),
+  content: z.string().optional(),
   subsections: z.array(SubsectionSchema).optional(),
   recordId: z.string().optional(),
   sourceSpanIds: z.array(z.string()).optional(),

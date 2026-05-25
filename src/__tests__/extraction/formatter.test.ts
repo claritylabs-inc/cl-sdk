@@ -67,6 +67,37 @@ describe("formatDocumentContent", () => {
     );
   });
 
+  it("does not format source-backed section or endorsement content", async () => {
+    const doc = createPolicyDoc({
+      sections: [
+        {
+          title: "Coverage Schedule",
+          pageStart: 1,
+          type: "schedule",
+          content: "COVERAGE | LIMIT\nEmployee Theft | $10,000",
+          sourceSpanIds: ["span-section"],
+        },
+      ],
+      endorsements: [
+        {
+          title: "Additional Insured",
+          formNumber: "CG2010",
+          endorsementType: "additional_insured",
+          content: "FORM | TERMS\nCG2010 | Additional insured wording",
+          pageStart: 2,
+          sourceSpanIds: ["span-endorsement"],
+        },
+      ],
+    });
+    const generateText = vi.fn<GenerateText>();
+
+    const result = await formatDocumentContent(doc, generateText);
+
+    expect(generateText).not.toHaveBeenCalled();
+    expect(result.document.sections?.[0].content).toBe("COVERAGE | LIMIT\nEmployee Theft | $10,000");
+    expect(result.document.endorsements?.[0].content).toBe("FORM | TERMS\nCG2010 | Additional insured wording");
+  });
+
   it("formats batches in parallel up to the configured concurrency", async () => {
     const doc = createPolicyDoc({
       sections: Array.from({ length: 41 }, (_, index) => ({

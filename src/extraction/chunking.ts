@@ -65,7 +65,7 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
       documentId: docId,
       type,
       text,
-      metadata: stringMetadata(metadata),
+      metadata: stringMetadata({ evidenceKind: "structured_fact", ...metadata }),
     });
   }
 
@@ -379,15 +379,29 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
 
   // Endorsement chunks
   doc.endorsements?.forEach((end, i) => {
+    const text = lines([
+      `Endorsement: ${end.title}`,
+      end.formNumber ? `Form: ${end.formNumber}` : null,
+      end.editionDate ? `Edition: ${end.editionDate}` : null,
+      `Type: ${end.endorsementType}`,
+      end.effectiveDate ? `Effective Date: ${end.effectiveDate}` : null,
+      end.affectedCoverageParts?.length ? `Affected Coverage Parts: ${end.affectedCoverageParts.join(", ")}` : null,
+      end.keyTerms?.length ? `Key Terms: ${end.keyTerms.join("; ")}` : null,
+      end.premiumImpact ? `Premium Impact: ${end.premiumImpact}` : null,
+      end.excerpt ? `Excerpt: ${end.excerpt}` : null,
+    ]);
+    if (!text.trim()) return;
     pushChunk(
       `endorsement:${i}`,
       "endorsement",
-      `Endorsement: ${end.title}\n${end.content}`.trim(),
+      text,
       {
         endorsementType: end.endorsementType,
         formNumber: end.formNumber,
         pageStart: end.pageStart,
         pageEnd: end.pageEnd,
+        sourceSpanIds: end.sourceSpanIds?.join(","),
+        sourceTextHash: end.sourceTextHash,
         documentType: doc.type,
       },
     );
@@ -519,99 +533,56 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
     }
   }
 
-  // Section chunks — split large sections into subsections
+  // Section chunks are navigation metadata only. Full source text belongs in
+  // sourceChunks/sourceSpans so Q&A does not answer from generated section prose.
   doc.sections?.forEach((sec, i) => {
     const hasSubsections = sec.subsections && sec.subsections.length > 0;
-    const contentLength = sec.content.length;
+    pushChunk(
+      `section:${i}`,
+      "section",
+      lines([
+        `Section: ${sec.title}`,
+        `Type: ${sec.type}`,
+        sec.sectionNumber ? `Section Number: ${sec.sectionNumber}` : null,
+        `Pages: ${sec.pageStart}${sec.pageEnd ? `-${sec.pageEnd}` : ""}`,
+        sec.excerpt ? `Excerpt: ${sec.excerpt}` : null,
+        hasSubsections ? `Subsections: ${sec.subsections!.map((sub) => sub.title).join(", ")}` : null,
+      ]),
+      {
+        evidenceKind: "navigation",
+        sectionType: sec.type,
+        sectionNumber: sec.sectionNumber,
+        pageStart: sec.pageStart,
+        pageEnd: sec.pageEnd,
+        sourceSpanIds: sec.sourceSpanIds?.join(","),
+        sourceTextHash: sec.sourceTextHash,
+        documentType: doc.type,
+        hasSubsections,
+      },
+    );
 
-    if (hasSubsections) {
-      // Parent section chunk with just the title and overview
+    sec.subsections?.forEach((sub, j) => {
       pushChunk(
-        `section:${i}`,
+        `section:${i}:sub:${j}`,
         "section",
-        `Section: ${sec.title}\n${sec.content}`,
+        lines([
+          `Section: ${sec.title} > ${sub.title}`,
+          sub.sectionNumber ? `Section Number: ${sub.sectionNumber}` : null,
+          sub.pageNumber ? `Page: ${sub.pageNumber}` : null,
+          sub.excerpt ? `Excerpt: ${sub.excerpt}` : null,
+        ]),
         {
+          evidenceKind: "navigation",
           sectionType: sec.type,
-          sectionNumber: sec.sectionNumber,
-          pageStart: sec.pageStart,
-          pageEnd: sec.pageEnd,
-          documentType: doc.type,
-          hasSubsections: "true",
-        },
-      );
-
-      // Individual subsection chunks
-      sec.subsections!.forEach((sub, j) => {
-        pushChunk(
-          `section:${i}:sub:${j}`,
-          "section",
-          `${sec.title} > ${sub.title}\n${sub.content}`,
-          {
-            sectionType: sec.type,
-            parentSection: sec.title,
-            sectionNumber: sub.sectionNumber,
-            pageNumber: sub.pageNumber,
-            documentType: doc.type,
-          },
-        );
-      });
-    } else if (contentLength > 2000) {
-      // Split long sections into ~1000 char chunks at paragraph boundaries
-      const paragraphs = sec.content.split(/\n\n+/);
-      let currentChunk = "";
-      let chunkIndex = 0;
-
-      for (const para of paragraphs) {
-        if (currentChunk.length + para.length > 1000 && currentChunk.length > 0) {
-          pushChunk(
-            `section:${i}:part:${chunkIndex}`,
-            "section",
-            `Section: ${sec.title} (part ${chunkIndex + 1})\n${currentChunk.trim()}`,
-            {
-              sectionType: sec.type,
-              sectionNumber: sec.sectionNumber,
-              pageStart: sec.pageStart,
-              pageEnd: sec.pageEnd,
-              documentType: doc.type,
-              partIndex: chunkIndex,
-            },
-          );
-          currentChunk = "";
-          chunkIndex++;
-        }
-        currentChunk += (currentChunk ? "\n\n" : "") + para;
-      }
-
-      // Emit remaining content
-      if (currentChunk.trim()) {
-        pushChunk(
-          `section:${i}:part:${chunkIndex}`,
-          "section",
-          `Section: ${sec.title} (part ${chunkIndex + 1})\n${currentChunk.trim()}`,
-          {
-            sectionType: sec.type,
-            sectionNumber: sec.sectionNumber,
-            pageStart: sec.pageStart,
-            pageEnd: sec.pageEnd,
-            documentType: doc.type,
-            partIndex: chunkIndex,
-          },
-        );
-      }
-    } else {
-      pushChunk(
-        `section:${i}`,
-        "section",
-        `Section: ${sec.title}\n${sec.content}`,
-        {
-          sectionType: sec.type,
-          sectionNumber: sec.sectionNumber,
-          pageStart: sec.pageStart,
-          pageEnd: sec.pageEnd,
+          parentSection: sec.title,
+          sectionNumber: sub.sectionNumber,
+          pageNumber: sub.pageNumber,
+          sourceSpanIds: sub.sourceSpanIds?.join(","),
+          sourceTextHash: sub.sourceTextHash,
           documentType: doc.type,
         },
       );
-    }
+    });
   });
 
   // Location chunks — one per insured location

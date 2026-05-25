@@ -4,7 +4,10 @@ const SubsectionSchema = z.object({
   title: z.string().describe("Subsection title"),
   sectionNumber: z.string().optional().describe("Subsection number"),
   pageNumber: z.number().optional().describe("Page number"),
-  content: z.string().describe("Full verbatim text"),
+  excerpt: z.string().optional().describe("Short source excerpt, not full verbatim text"),
+  content: z.string().optional().describe("Legacy fallback only; do not return full text when sourceSpanIds are available"),
+  sourceSpanIds: z.array(z.string()).optional().describe("Source span IDs grounding this subsection"),
+  sourceTextHash: z.string().optional().describe("Hash of the source text when available"),
 });
 
 export const SectionsSchema = z.object({
@@ -29,9 +32,12 @@ export const SectionsSchema = z.object({
             "other",
           ])
           .describe("Section type classification"),
-        content: z.string().describe("Full verbatim text of the section"),
+        excerpt: z.string().optional().describe("Short source excerpt, not full verbatim text"),
+        content: z.string().optional().describe("Legacy fallback only; do not return full text when sourceSpanIds are available"),
         pageStart: z.number().describe("Starting page number"),
         pageEnd: z.number().optional().describe("Ending page number"),
+        sourceSpanIds: z.array(z.string()).optional().describe("Source span IDs grounding this section"),
+        sourceTextHash: z.string().optional().describe("Hash of the source text when available"),
         subsections: z.array(SubsectionSchema).optional().describe("Subsections within this section"),
       }),
     )
@@ -41,7 +47,7 @@ export const SectionsSchema = z.object({
 export type SectionsResult = z.infer<typeof SectionsSchema>;
 
 export function buildSectionsPrompt(): string {
-  return `You are an expert insurance document analyst. Extract ALL sections, clauses, endorsements, and schedules from this document. Preserve the original language verbatim — do not summarize or paraphrase.
+  return `You are an expert insurance document analyst. Build a compact source-backed section index for this document. Do not reproduce full policy language in the JSON output.
 
 For each section, classify its type:
 - "declarations" — declarations page(s) listing named insured, policy period, limits, premiums
@@ -55,10 +61,13 @@ For each section, classify its type:
 - "notice", "regulatory" — notice provisions or regulatory disclosures
 - "other" — anything that doesn't fit the above categories
 
-Include accurate page numbers for every section. Include subsections only if the section has clearly defined subsections with their own titles.
+Include accurate page numbers for every section. Include sourceSpanIds from the provided SOURCE SPANS whenever available. Include subsections only if the section has clearly defined subsections with their own titles.
 If a page begins or ends in the middle of a section, treat it as a continuation of the existing section instead of creating a new orphan section from the fragment.
 
 Critical rules:
+- Return compact metadata plus source references. The original policy wording lives in source spans.
+- Use excerpt only for a short identifying snippet, capped at 300 characters.
+- Do not return full section text in content when sourceSpanIds are available. Leave content omitted/null in source-backed mode.
 - Ignore table-of-contents entries, page-number references, repeating headers/footers, and other navigational artifacts.
 - Do not create a new section from a lone continuation fragment such as a single paragraph tail or list item that clearly belongs to the previous page's section.
 - When a section spans multiple pages, keep it as one section with pageStart/pageEnd covering the full span represented in this extraction.

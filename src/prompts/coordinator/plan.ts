@@ -27,13 +27,13 @@ Available extractors:
 - carrier_info: Carrier name, legal name, NAIC, AM Best rating, admitted status, MGA, underwriter
 - named_insured: Insured name, DBA, address, entity type, FEIN, SIC/NAICS codes, additional named insureds
 - coverage_limits: Coverage names, limits, deductibles, coverage form, triggers
-- endorsements: Endorsement forms, titles, types, content, affected parties
+- endorsements: Endorsement forms, titles, types, source-backed excerpts, affected parties
 - exclusions: Exclusion titles, content, applicability
 - conditions: Policy conditions (duties after loss, cancellation, etc.)
 - premium_breakdown: Premium amounts, taxes, fees, payment plans, rating basis
 - declarations: Line-specific structured declarations data (varies by policy type)
 - loss_history: Loss runs, claim records, experience modification
-- sections: Raw section content (for sections that don't fit other extractors)
+- sections: Compact source-backed section index and page ranges for sections that don't fit other extractors
 - supplementary: Regulatory context, contacts, claims contacts, third-party administrators
 
 Return JSON:
