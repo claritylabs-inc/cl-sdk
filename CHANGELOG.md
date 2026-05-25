@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.2.1...v1.3.0) (2026-05-25)
+
+
+### Features
+
+* make extraction source-backed for policy text ([cea75d3](https://github.com/claritylabs-inc/cl-sdk/commit/cea75d3421bcf8422376b666974263be4d6c4a19))
+
 ## [1.2.1](https://github.com/claritylabs-inc/cl-sdk/compare/v1.2.0...v1.2.1) (2026-05-17)
 
 
