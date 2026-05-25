@@ -66,6 +66,7 @@ export interface ModelBudgetResolution {
   taskKind: ModelTaskKind;
   maxTokens: number;
   hintTokens: number;
+  preferredOutputTokens?: number;
   modelMaxOutputTokens?: number;
   hardMaxOutputTokens?: number;
   estimatedInputTokens?: number;
@@ -97,12 +98,17 @@ export function resolveModelBudget(params: ResolveModelBudgetParams): ModelBudge
   const expectedListLength = positiveInteger(params.expectedListLength) ?? 0;
   const warnings: string[] = [];
 
-  let maxTokens =
+  const preferredOutputTokens =
     constrainedPreference
     ?? taskCapability
     ?? longListCapability
     ?? defaultCapability
     ?? hintTokens;
+
+  let maxTokens =
+    hardMaxOutputTokens
+    ?? modelMaxOutputTokens
+    ?? preferredOutputTokens;
 
   if (minOutputTokens) {
     maxTokens = Math.max(maxTokens, minOutputTokens);
@@ -142,6 +148,7 @@ export function resolveModelBudget(params: ResolveModelBudgetParams): ModelBudge
     taskKind,
     maxTokens,
     hintTokens,
+    preferredOutputTokens,
     modelMaxOutputTokens,
     hardMaxOutputTokens,
     estimatedInputTokens,

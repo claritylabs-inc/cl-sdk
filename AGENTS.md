@@ -75,6 +75,7 @@ Important extraction contract:
 - **Review quality checks**: review is not just “are keys present”; it should catch generic form-language placeholders and weak extraction quality, then request focused follow-up tasks from the registered extractor catalog.
 - **Strict schema compatibility**: `toStrictSchema()` auto-transforms Zod schemas before `generateObject` calls.
 - **Safe generate**: `safeGenerateObject()` wraps `generateObject` with retry, strictification, and optional fallbacks.
+- **Output token caps**: `resolveModelBudget()` treats task budgets as preferences/diagnostics. When model capabilities provide `maxOutputTokens`, use that model maximum as the request cap so extraction does not truncate just because a cheap task preference was too low. Only explicit hard constraints should lower the cap.
 - **Token tracking**: `tokenUsage` aggregates available usage values; `usageReporting` tells you how many calls did or did not report usage.
 
 ### Query and Application Workflows

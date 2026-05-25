@@ -469,7 +469,7 @@ describe("createExtractor", () => {
     );
   });
 
-  it("expands long-list extractor budgets when model capabilities allow it", async () => {
+  it("uses the model output limit for long-list extractors when capabilities allow it", async () => {
     safeGenerateObject
       .mockReset()
       .mockResolvedValueOnce({
@@ -503,7 +503,11 @@ describe("createExtractor", () => {
     expect(runExtractor).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "coverage_limits",
-        maxTokens: 16384,
+        maxTokens: 32768,
+        budgetDiagnostics: expect.objectContaining({
+          preferredOutputTokens: 16384,
+          maxTokens: 32768,
+        }),
       }),
     );
   });

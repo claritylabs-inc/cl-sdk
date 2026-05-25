@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { resolveModelBudget } from "../../core/model-budget";
 
 describe("resolveModelBudget", () => {
-  it("expands long-list extraction budgets when model capabilities allow it", () => {
+  it("uses the model max output limit instead of the task preference", () => {
     const budget = resolveModelBudget({
       taskKind: "extraction_long_list",
       hintTokens: 8192,
@@ -13,7 +13,8 @@ describe("resolveModelBudget", () => {
       },
     });
 
-    expect(budget.maxTokens).toBe(16384);
+    expect(budget.maxTokens).toBe(32768);
+    expect(budget.preferredOutputTokens).toBe(16384);
   });
 
   it("honors explicit smaller hard constraints", () => {
@@ -32,20 +33,23 @@ describe("resolveModelBudget", () => {
     expect(budget.maxTokens).toBe(4096);
   });
 
-  it("reports truncation risk and input warnings", () => {
+  it("reports input warnings without forcing low task preferences into output caps", () => {
     const budget = resolveModelBudget({
       taskKind: "extraction_long_list",
       hintTokens: 8192,
-      expectedListLength: 200,
+      expectedListLength: 100,
       inputContextBytes: 390_000,
       modelCapabilities: {
         maxInputTokens: 100_000,
-        maxOutputTokens: 8192,
+        maxOutputTokens: 32768,
       },
     });
 
     expect(budget.estimatedInputTokens).toBe(97500);
-    expect(budget.outputTruncationRisk).toBe("high");
-    expect(budget.warnings.length).toBeGreaterThanOrEqual(2);
+    expect(budget.maxTokens).toBe(32768);
+    expect(budget.outputTruncationRisk).toBe("low");
+    expect(budget.warnings).toEqual([
+      "Estimated extraction_long_list input context is close to or above the configured model input limit.",
+    ]);
   });
 });

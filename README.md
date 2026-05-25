@@ -137,7 +137,7 @@ If your callback ignores those fields, the model will only see the text prompt.
 
 ## Model routing metadata
 
-Every SDK model callback may receive `taskKind`, `budgetDiagnostics`, and `trace`. Hosts can use these provider-agnostic fields for cheap-first routing, fallback, and telemetry without the SDK hardcoding model names. Example task kinds include `extraction_classify`, `extraction_focused`, `extraction_review`, `query_reason`, `application_extract_fields`, and `pce_impact_analysis`. `budgetDiagnostics` includes the resolved max-token budget and truncation-risk warnings for the current subtask. `trace` identifies the current extractor, page range, format batch, or source-backed call so host logs can show what was being generated instead of a generic model-call label.
+Every SDK model callback may receive `taskKind`, `budgetDiagnostics`, and `trace`. Hosts can use these provider-agnostic fields for cheap-first routing, fallback, and telemetry without the SDK hardcoding model names. Example task kinds include `extraction_classify`, `extraction_focused`, `extraction_review`, `query_reason`, `application_extract_fields`, and `pce_impact_analysis`. `budgetDiagnostics` includes the resolved output-token cap, the lower preferred task budget, and truncation-risk warnings for the current subtask. When model capabilities include `maxOutputTokens`, the SDK uses that model maximum as the request cap instead of treating low task preferences as hard limits. `trace` identifies the current extractor, page range, format batch, or source-backed call so host logs can show what was being generated instead of a generic model-call label.
 
 ## Bounded Agentic Workflows
 
