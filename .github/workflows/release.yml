@@ -91,7 +91,7 @@ jobs:
           fi
 
           echo "Publishing version $VERSION to npm..."
-          npm publish --access public
+          npm publish --provenance --access public
           echo "published=true" >> $GITHUB_OUTPUT
           echo "Successfully published to npm"
 
@@ -121,7 +121,7 @@ jobs:
           fi
 
           echo "Repair publishing version $VERSION to npm..."
-          npm publish --access public
+          npm publish --provenance --access public
           echo "published=true" >> $GITHUB_OUTPUT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
