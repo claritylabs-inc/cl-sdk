@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.1...v1.3.2) (2026-05-25)
+
+
+### Bug Fixes
+
+* use model max output token caps ([bdcc60e](https://github.com/claritylabs-inc/cl-sdk/commit/bdcc60e687a53f181ab024139bc757c3502dc939))
+
 ## [1.3.1](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.0...v1.3.1) (2026-05-25)
 
 
