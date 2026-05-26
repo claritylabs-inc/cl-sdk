@@ -1,3 +1,10 @@
+## [1.3.4](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.3...v1.3.4) (2026-05-26)
+
+
+### Bug Fixes
+
+* rely on model passes for numeric extraction ([fcb9a79](https://github.com/claritylabs-inc/cl-sdk/commit/fcb9a79320255359412eb5a57348597739323320))
+
 ## [1.3.3](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.2...v1.3.3) (2026-05-25)
 
 

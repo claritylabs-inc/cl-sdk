@@ -1,6 +1,6 @@
 {
   "name": "@claritylabs/cl-sdk",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "description": "Deterministic insurance intelligence primitives for regulated AI agents",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
