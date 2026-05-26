@@ -3,8 +3,6 @@ import type { InsuranceDocument } from "../schemas/document";
 import {
   promoteCarrierFields,
   promoteBroker,
-  promoteLossPayees,
-  promoteLocations,
   promoteExtractedFields,
 } from "./promote";
 
@@ -72,15 +70,11 @@ describe("promoteCarrierFields", () => {
 // ── promoteBroker ──
 
 describe("promoteBroker", () => {
-  it("promotes broker from declarations fields", () => {
+  it("builds producer from model-extracted broker fields", () => {
     const doc = makeDoc({
-      declarations: {
-        fields: [
-          { field: "brokerName", value: "ABC Agency", section: "Producer" },
-          { field: "brokerPhone", value: "555-1234", section: "Producer" },
-          { field: "brokerLicenseNumber", value: "LIC-789", section: "Producer" },
-        ],
-      },
+      brokerAgency: "ABC Agency",
+      brokerPhone: "555-1234",
+      brokerLicenseNumber: "LIC-789",
     });
     promoteBroker(doc);
     expect((doc as any).brokerAgency).toBe("ABC Agency");
@@ -92,9 +86,8 @@ describe("promoteBroker", () => {
     });
   });
 
-  it("uses carrier-extracted broker fields over declarations", () => {
+  it("does not infer broker fields from generic declaration rows", () => {
     const doc = makeDoc({
-      brokerAgency: "From Carrier",
       declarations: {
         fields: [
           { field: "brokerName", value: "From Declarations" },
@@ -102,120 +95,14 @@ describe("promoteBroker", () => {
       },
     });
     promoteBroker(doc);
-    expect((doc as any).brokerAgency).toBe("From Carrier");
+    expect((doc as any).brokerAgency).toBeUndefined();
+    expect((doc as any).producer).toBeUndefined();
   });
 
   it("does not create producer if no broker data", () => {
     const doc = makeDoc({ declarations: { fields: [] } });
     promoteBroker(doc);
     expect((doc as any).producer).toBeUndefined();
-  });
-
-  it("matches agentName and producerName patterns", () => {
-    const doc = makeDoc({
-      declarations: {
-        fields: [
-          { field: "agentName", value: "Agent Smith Agency" },
-        ],
-      },
-    });
-    promoteBroker(doc);
-    expect((doc as any).brokerAgency).toBe("Agent Smith Agency");
-  });
-});
-
-// ── promoteLossPayees ──
-
-describe("promoteLossPayees", () => {
-  it("promotes loss payee from declarations", () => {
-    const doc = makeDoc({
-      declarations: {
-        fields: [
-          { field: "lossPayeeName", value: "BMO Bank of Montreal" },
-          { field: "lossPayeeAddress", value: "100 King St, Toronto" },
-        ],
-      },
-    });
-    promoteLossPayees(doc);
-    expect((doc as any).lossPayees).toEqual([{
-      name: "BMO Bank of Montreal",
-      role: "loss_payee",
-      address: { street1: "100 King St, Toronto" },
-    }]);
-  });
-
-  it("promotes mortgage holder from declarations", () => {
-    const doc = makeDoc({
-      declarations: {
-        fields: [
-          { field: "mortgagee", value: "First National Bank" },
-        ],
-      },
-    });
-    promoteLossPayees(doc);
-    expect((doc as any).mortgageHolders).toEqual([{
-      name: "First National Bank",
-      role: "mortgage_holder",
-    }]);
-  });
-
-  it("does not overwrite existing lossPayees", () => {
-    const doc = makeDoc({
-      lossPayees: [{ name: "Existing", role: "loss_payee" }],
-      declarations: {
-        fields: [
-          { field: "lossPayeeName", value: "New" },
-        ],
-      },
-    });
-    promoteLossPayees(doc);
-    expect((doc as any).lossPayees).toEqual([{ name: "Existing", role: "loss_payee" }]);
-  });
-});
-
-// ── promoteLocations ──
-
-describe("promoteLocations", () => {
-  it("promotes location from declarations fields", () => {
-    const doc = makeDoc({
-      declarations: {
-        fields: [
-          { field: "locationNumber", value: "001", section: "Location Schedule" },
-          { field: "construction", value: "Masonry Non-Combustible", section: "Location Schedule" },
-          { field: "occupancy", value: "Office", section: "Location Schedule" },
-          { field: "industryAddress", value: "3525 Platinum Dr, Suite 100", section: "Location Schedule" },
-          { field: "buildingValue", value: "$500,000", section: "Location Schedule" },
-        ],
-      },
-    });
-    promoteLocations(doc);
-    expect((doc as any).locations).toHaveLength(1);
-    const loc = (doc as any).locations[0];
-    expect(loc.number).toBe(1);
-    expect(loc.constructionType).toBe("Masonry Non-Combustible");
-    expect(loc.occupancy).toBe("Office");
-    expect(loc.address.street1).toBe("3525 Platinum Dr, Suite 100");
-    expect(loc.buildingValue).toBe("$500,000");
-  });
-
-  it("does not overwrite existing locations", () => {
-    const doc = makeDoc({
-      locations: [{ number: 1, address: { street1: "Existing" } }],
-      declarations: {
-        fields: [
-          { field: "locationNumber", value: "001", section: "Location Schedule" },
-        ],
-      },
-    });
-    promoteLocations(doc);
-    expect((doc as any).locations).toHaveLength(1);
-    expect((doc as any).locations[0].address.street1).toBe("Existing");
-  });
-
-  it("handles no location data gracefully", () => {
-    const doc = makeDoc({ declarations: { fields: [] } });
-    promoteLocations(doc);
-    expect((doc as any).locations).toBeUndefined();
   });
 });
 
@@ -228,6 +115,8 @@ describe("promoteExtractedFields (integration)", () => {
       amBestRating: "A+ XV",
       admittedStatus: "surplus_lines",
       carrierLegalName: "Test Carrier Underwriters",
+      brokerAgency: "Smith Insurance Agency",
+      brokerPhone: "555-0100",
       coverages: [
         { name: "Each Occurrence", limit: "$1,000,000", deductible: "$2,500" },
         { name: "General Aggregate", limit: "$2,000,000", deductible: "$2,500" },
@@ -262,13 +151,9 @@ describe("promoteExtractedFields (integration)", () => {
     expect((doc as any).producer.agencyName).toBe("Smith Insurance Agency");
     expect((doc as any).producer.phone).toBe("555-0100");
 
-    // Loss payees
-    expect((doc as any).lossPayees).toHaveLength(1);
-    expect((doc as any).lossPayees[0].name).toBe("BMO Bank of Montreal");
-
-    // Locations
-    expect((doc as any).locations).toHaveLength(1);
-    expect((doc as any).locations[0].constructionType).toBe("Frame");
+    // Declaration rows are preserved for LLM review but not promoted into facts.
+    expect((doc as any).lossPayees).toBeUndefined();
+    expect((doc as any).locations).toBeUndefined();
 
     expect((doc as any).limits).toBeUndefined();
     expect((doc as any).deductibles).toBeUndefined();
