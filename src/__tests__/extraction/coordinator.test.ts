@@ -371,11 +371,21 @@ describe("createExtractor", () => {
     });
   });
 
-  it("uses source spans for deterministic section indexes without section LLM calls", async () => {
+  it("uses source spans for section indexes without section LLM calls", async () => {
     safeGenerateObject
       .mockReset()
       .mockResolvedValueOnce({
         object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
+      })
+      .mockResolvedValueOnce({
+        object: { forms: [] },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          pages: [
+            { localPageNumber: 2, extractorNames: ["sections"] },
+          ],
+        },
       });
     const sourceSpans = [
       buildSourceSpan({
@@ -406,9 +416,9 @@ describe("createExtractor", () => {
 
     const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
 
-    expect(safeGenerateObject).toHaveBeenCalledTimes(2);
-    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_form_inventory")).toBe(false);
-    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_page_map")).toBe(false);
+    expect(safeGenerateObject).toHaveBeenCalledTimes(4);
+    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_form_inventory")).toBe(true);
+    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_page_map")).toBe(true);
     expect(runExtractor.mock.calls.some(([arg]) => arg.name === "sections")).toBe(false);
     expect(result.document.sections).toEqual([
       expect.objectContaining({
@@ -608,7 +618,7 @@ describe("createExtractor", () => {
     );
   });
 
-  it("drops coverage_limits from generic form-language page assignments before planning", async () => {
+  it("honors model page-map choices for coverage_limits before planning", async () => {
     safeGenerateObject
       .mockReset()
       .mockResolvedValueOnce({
@@ -664,7 +674,7 @@ describe("createExtractor", () => {
     expect(coverageCalls).toHaveLength(1);
     expect(coverageCalls[0]).toEqual(expect.objectContaining({
       startPage: 1,
-      endPage: 1,
+      endPage: 3,
     }));
   });
 

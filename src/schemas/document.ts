@@ -78,6 +78,7 @@ export type UnderwritingCondition = z.infer<typeof UnderwritingConditionSchema>;
 export const PremiumLineSchema = z.object({
   line: z.string(),
   amount: z.string(),
+  amountValue: z.number().optional(),
 });
 export type PremiumLine = z.infer<typeof PremiumLineSchema>;
 
@@ -130,6 +131,7 @@ const BaseDocumentFields = {
   security: z.string().optional(),
   insuredName: z.string(),
   premium: z.string().optional(),
+  premiumAmount: z.number().optional(),
   summary: z.string().optional(),
   policyTypes: z.array(z.string()).optional(),
   coverages: z.array(CoverageSchema),
@@ -188,8 +190,11 @@ const BaseDocumentFields = {
 
   taxesAndFees: z.array(TaxFeeItemSchema).optional(),
   totalCost: z.string().optional(),
+  totalCostAmount: z.number().optional(),
   minimumPremium: z.string().optional(),
+  minimumPremiumAmount: z.number().optional(),
   depositPremium: z.string().optional(),
+  depositPremiumAmount: z.number().optional(),
   paymentPlan: PaymentPlanSchema.optional(),
   auditType: AuditTypeSchema.optional(),
   ratingBasis: z.array(RatingBasisSchema).optional(),

@@ -5,62 +5,12 @@ import type { ExtractionPlan } from "./plan";
 
 export function normalizePageAssignments(
   pageAssignments: PageAssignment[],
-  formInventory?: FormInventoryResult,
+  _formInventory?: FormInventoryResult,
 ): PageAssignment[] {
-  // Build a lookup: page number -> form types from inventory
-  const pageFormTypes = new Map<number, Set<string>>();
-  if (formInventory) {
-    for (const form of formInventory.forms) {
-      if (form.pageStart != null) {
-        const end = form.pageEnd ?? form.pageStart;
-        for (let p = form.pageStart; p <= end; p += 1) {
-          const types = pageFormTypes.get(p) ?? new Set();
-          types.add(form.formType);
-          pageFormTypes.set(p, types);
-        }
-      }
-    }
-  }
-
   return pageAssignments.map((assignment) => {
-    let extractorNames: PageAssignment["extractorNames"] = [...new Set(
+    const extractorNames: PageAssignment["extractorNames"] = [...new Set(
       assignment.extractorNames.filter(Boolean),
     )] as PageAssignment["extractorNames"];
-
-    const hasDeclarations = extractorNames.includes("declarations");
-    const hasConditions = extractorNames.includes("conditions");
-    const hasExclusions = extractorNames.includes("exclusions");
-    const hasEndorsements = extractorNames.includes("endorsements");
-    const looksLikeScheduleValues = assignment.hasScheduleValues === true;
-    const roleBlocksCoverageLimits = assignment.pageRole === "policy_form"
-      || assignment.pageRole === "condition_exclusion_form"
-      || assignment.pageRole === "endorsement_form";
-
-    // Use form inventory to further constrain: if the inventory says this page
-    // belongs to an endorsement/notice/application form, block coverage_limits
-    // unless the page has explicit schedule values.
-    const inventoryTypes = pageFormTypes.get(assignment.localPageNumber);
-    const inventoryBlocksCoverageLimits = inventoryTypes != null
-      && !looksLikeScheduleValues
-      && !hasDeclarations
-      && (inventoryTypes.has("endorsement") || inventoryTypes.has("notice") || inventoryTypes.has("application"));
-
-    if (extractorNames.includes("coverage_limits")) {
-      const shouldDropCoverageLimits = inventoryBlocksCoverageLimits
-        || (!looksLikeScheduleValues && roleBlocksCoverageLimits)
-        || (!hasDeclarations && !looksLikeScheduleValues && (hasConditions || hasExclusions))
-        || (!hasDeclarations && !looksLikeScheduleValues && hasEndorsements);
-
-      if (shouldDropCoverageLimits) {
-        extractorNames = extractorNames.filter((name) => name !== "coverage_limits") as PageAssignment["extractorNames"];
-      }
-    }
-
-    // If inventory says this page is an endorsement form, ensure endorsements extractor is assigned
-    if (inventoryTypes?.has("endorsement") && !extractorNames.includes("endorsements")) {
-      extractorNames = [...extractorNames, "endorsements"] as PageAssignment["extractorNames"];
-    }
-
     return {
       ...assignment,
       extractorNames,

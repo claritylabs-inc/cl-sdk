@@ -5,7 +5,7 @@ description: Working with InsuranceDocument, DocumentChunk, and token usage outp
 
 import { Callout } from "@/components/ui/callout";
 
-The extraction pipeline returns a fully typed `ExtractionResult` containing the structured document, retrieval-ready chunks, cumulative token usage, and usage-reporting metadata. The pipeline's promotion pass automatically fills top-level typed fields from declarations data and coverage arrays, so no post-processing or normalization step is needed — results are ready for persistence and querying.
+The extraction pipeline returns a fully typed `ExtractionResult` containing the structured document, retrieval-ready chunks, cumulative token usage, and usage-reporting metadata. The pipeline's focused extractors and review passes own financial and numeric coverage fields; the promotion pass only fills non-financial convenience fields from declarations data, so hosts do not need separate numeric post-processing before persistence.
 
 ## ExtractionResult
 
@@ -76,8 +76,8 @@ These fields appear on both `PolicyDocument` and `QuoteDocument`:
 | `conditions` | `PolicyCondition[]?` | Structured conditions |
 | `declarations` | `Declarations?` | Line-specific structured declarations |
 | `sections` | `Section[]?` | Raw document sections |
-| `limits` | `LimitSchedule?` | Structured limits schedule (synthesized from coverages by Promote phase) |
-| `deductibles` | `DeductibleSchedule?` | Structured deductible schedule (synthesized from coverages by Promote phase) |
+| `limits` | `LimitSchedule?` | Structured limits schedule when extracted directly |
+| `deductibles` | `DeductibleSchedule?` | Structured deductible schedule when extracted directly |
 | `locations` | `InsuredLocation[]?` | Insured premises (promoted from declarations by Promote phase) |
 | `vehicles` | `InsuredVehicle[]?` | Insured vehicles |
 | `classifications` | `ClassificationCode[]?` | Rating class codes |
@@ -287,15 +287,14 @@ For per-call tracking, use the `onTokenUsage` callback in `ExtractorConfig`. If 
 
 ## Declarations promotion
 
-The pipeline's Promote phase bridges the gap between raw extraction and typed output. Extractors capture detailed data — often 100+ declaration fields, dozens of coverages with individual limits and deductibles — but the initial assembly only spreads flat results. The promotion pass scans this data and fills typed top-level fields:
+The pipeline's Promote phase bridges a narrow gap between raw extraction and typed output. Extractors capture detailed data, while the promotion pass fills non-financial convenience fields that are copied or grouped from already-extracted declaration data:
 
 - **Carrier fields** — Maps extractor short names (`naicNumber`, `admittedStatus`, `amBestRating`) to canonical schema names (`carrierNaicNumber`, `carrierAdmittedStatus`, `carrierAmBestRating`)
 - **Broker/producer** — Promotes broker data from declarations or carrier extractor into `brokerAgency`, `brokerContactName`, `producer`
 - **Loss payees and mortgage holders** — Promotes from declarations into `lossPayees[]` and `mortgageHolders[]`
 - **Locations** — Groups location-related declaration fields by location number into `locations[]`
-- **Limits schedule** — Synthesizes `limits` from well-known coverage name patterns (GL, auto, umbrella, workers comp)
-- **Deductible schedule** — Finds the base deductible and SIR from coverage data into `deductibles`
-- **Financial fallback** — Promotes premium and total cost from declaration aliases if the premium extractor missed them, and synthesizes `taxesAndFees[]` from declaration tax/fee/surcharge/assessment fields
+
+Financial fields such as premium, total cost, taxes, fees, minimum premium, deposit premium, payment plan, and numeric coverage values are owned by focused extractor and review LLM passes. The promotion pass does not infer numeric values from declaration aliases or coverage-name patterns.
 
 All sub-passes are idempotent — they never overwrite values that were directly extracted.
 

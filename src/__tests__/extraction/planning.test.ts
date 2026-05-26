@@ -18,7 +18,7 @@ describe("planning helpers", () => {
     ]);
   });
 
-  it("normalizes page assignments using form inventory constraints", () => {
+  it("normalizes page assignments without overriding extractor choices", () => {
     const assignments: PageAssignment[] = [
       {
         localPageNumber: 2,
@@ -43,8 +43,8 @@ describe("planning helpers", () => {
     };
 
     expect(normalizePageAssignments(assignments, formInventory).map((assignment) => assignment.extractorNames)).toEqual([
-      ["sections", "endorsements"],
-      ["coverage_limits", "endorsements"],
+      ["coverage_limits", "sections"],
+      ["coverage_limits"],
       [],
     ]);
   });

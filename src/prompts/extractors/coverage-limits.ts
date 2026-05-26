@@ -49,7 +49,9 @@ For EACH coverage, also extract:
 - sectionRef: the declarations/schedule/endorsement section heading where it appears
 - originalContent: the verbatim row or short source snippet used for this coverage
 - limitType: when applicable, classify the limit as per_occurrence, per_claim, aggregate, per_person, per_accident, statutory, blanket, or scheduled
+- limitAmount: the limit as a plain number with no currency symbols or commas when the source states a fixed numeric currency amount
 - limitValueType: classify the limit as numeric, included, not_included, as_stated, waiting_period, referential, or other
+- deductibleAmount: the deductible or retention as a plain number with no currency symbols or commas when the source states a fixed numeric currency amount
 - deductibleValueType: classify the deductible/value term similarly when deductible is present
 
 Critical rules:
@@ -58,6 +60,7 @@ Critical rules:
 - Do not treat a generic waiting period, deductible explanation, limits clause, coinsurance clause, or definitions text as a standalone coverage unless the page contains an actual policy-specific schedule row or declaration entry.
 - Values like "Included" or "Not Included" are valid only when they appear as an explicit declarations/schedule/endorsement entry for a named coverage. Do not infer them from narrative form language.
 - If a waiting period or hour deductible is shown as part of a specific declarations/schedule row, it may be captured in deductible. Otherwise omit it.
+- Only populate limitAmount and deductibleAmount from actual policy-specific declaration, schedule, or endorsement values. Do not calculate them from examples, definitions, rating narratives, or generic form language.
 - Use limitValueType or deductibleValueType to preserve non-numeric terms precisely instead of forcing them into numeric semantics.
 - Preserve one row per real coverage entry. Do not merge adjacent schedule rows into malformed names.
 - Keep individual/per-occurrence limits separate from aggregate limits even when they have the same coverage name, limit amount, deductible, and form number. Use limitType to distinguish them.

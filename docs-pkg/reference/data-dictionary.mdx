@@ -104,11 +104,15 @@ Fields present on ALL insurance documents regardless of line of business. These 
 | Field | Type | Description | Source Section | Reliability | Context Key |
 |-------|------|-------------|----------------|-------------|-------------|
 | `total_premium` | `string` | Total policy premium in the carrier's standard currency format (e.g., "$12,500"). Does not include taxes and fees unless so stated. | Declarations | high | — |
+| `premium_amount` | `number \| null` | Total policy premium as a plain number when the source states a fixed amount. | Declarations / premium page | high | — |
 | `premium_breakdown` | `PremiumLine[]` | Premium allocated by coverage line or part. See `PremiumLine` type in `src/types/document.ts`. Essential for package policies with multiple lines. | Declarations / premium page | high | — |
 | `taxes_and_fees` | `TaxFeeItem[]` | Itemized taxes, surcharges, and fees. Includes state premium taxes, surplus lines taxes, stamping fees, TRIA surcharges, inspection fees, etc. | Declarations / billing page | medium | — |
 | `total_cost` | `string` | Total amount due: premium + taxes + fees. What the insured actually pays. | Declarations / billing page | medium | — |
+| `total_cost_amount` | `number \| null` | Total amount due as a plain number when the source states a fixed amount. | Declarations / billing page | medium | — |
 | `minimum_premium` | `string \| null` | Minimum premium that will be earned regardless of cancellation or audit result. Expressed as dollar amount. | Declarations / conditions | medium | — |
+| `minimum_premium_amount` | `number \| null` | Minimum premium as a plain number when the source states a fixed amount. | Declarations / conditions | medium | — |
 | `deposit_premium` | `string \| null` | Initial deposit premium for audit-based policies. Actual premium is determined at audit. | Declarations | medium | — |
+| `deposit_premium_amount` | `number \| null` | Deposit premium as a plain number when the source states a fixed amount. | Declarations | medium | — |
 | `payment_plan` | `PaymentPlan \| null` | Installment payment schedule if not paid in full. See `PaymentPlan` type. | Billing page / dec | low | — |
 | `audit_type` | `"annual" \| "semi_annual" \| "quarterly" \| "monthly" \| "self" \| "physical" \| "none" \| null` | Type of premium audit. Policies with variable exposure bases (payroll, revenue) are typically audited annually. | Declarations / conditions | medium | — |
 | `rating_basis` | `RatingBasis[]` | What the premium is based on (payroll, revenue, square footage, vehicle count, etc.). See `RatingBasis` type. | Declarations / rating page | medium | — |
@@ -239,8 +243,10 @@ A richer coverage model that replaces the flat `{name, limit, deductible}` struc
 | `coverages[].form_number` | `string \| null` | ISO or carrier form number providing this coverage (e.g., "CG 00 01"). | Form schedule | medium |
 | `coverages[].form_edition_date` | `string \| null` | Edition date of the form providing coverage (e.g., "04 13"). | Form schedule | medium |
 | `coverages[].limit` | `string` | Coverage limit as stated (e.g., "$1,000,000"). | Declarations | high |
+| `coverages[].limit_amount` | `number \| null` | Coverage limit as a plain number when the source states a fixed numeric currency amount. | Declarations | high |
 | `coverages[].limit_type` | `"per_occurrence" \| "per_claim" \| "aggregate" \| "per_person" \| "per_accident" \| "statutory" \| "blanket" \| "scheduled"` | How the limit applies. Determines how claims are counted against the limit. | Declarations | high |
 | `coverages[].deductible` | `string \| null` | Deductible amount for this coverage. | Declarations | high |
+| `coverages[].deductible_amount` | `number \| null` | Deductible or retention as a plain number when the source states a fixed numeric currency amount. | Declarations | high |
 | `coverages[].deductible_type` | `"per_occurrence" \| "per_claim" \| "aggregate" \| "percentage" \| "waiting_period" \| null` | How the deductible applies. | Declarations | medium |
 | `coverages[].sir` | `string \| null` | Self-insured retention amount for this coverage. | Declarations | medium |
 | `coverages[].sublimit` | `string \| null` | Sublimit if this coverage is subject to a limit lower than the overall policy limit. | Declarations / endorsement | medium |
@@ -601,6 +607,7 @@ interface FormReference {
 interface TaxFeeItem {
   name: string;            // e.g., "California Premium Tax", "Surplus Lines Tax", "TRIA Surcharge"
   amount: string;          // Dollar amount as string, e.g., "$125.00"
+  amountValue?: number;    // Plain numeric amount when the source states a fixed amount
   type?: "tax" | "fee" | "surcharge" | "assessment";
   description?: string;    // Additional context
 }

@@ -76,5 +76,11 @@ Focus on:
 
 Look on the declarations page, named insured schedule, loss payee schedule, mortgagee schedule, and any endorsements that add or modify named insureds, loss payees, or mortgage holders.
 
+Critical rules:
+- Prefer declaration-table labels such as "Named Insured", "Named Insured and Address", "Applicant", or "Insured" over contact blocks, notice contacts, authorized officers, licensing statements, signatures, and corporate-authority wording.
+- Do not use an authorized officer, broker, producer, contact person, officer title, email address owner, or licensing/entity-status statement as the primary insured unless that exact person/entity is explicitly labeled as the named insured.
+- If a row combines the insured name with a mailing address, put the legal name in insuredName and the mailing address in insuredAddress.
+- Entity type must come from the insured's own legal suffix or an explicit declaration field, not from generic incorporation/licensing notices elsewhere in the policy.
+
 Return JSON only.`;
 }

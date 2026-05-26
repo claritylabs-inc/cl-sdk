@@ -139,8 +139,7 @@ export function assembleDocument(
     } as QuoteDocument;
   }
 
-  // Promote declarations → top-level typed fields, fix field name mapping,
-  // synthesize limits/deductibles from coverages
+  // Promote non-financial declaration data and fix field name mapping.
   promoteExtractedFields(doc);
 
   return doc;

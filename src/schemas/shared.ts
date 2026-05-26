@@ -36,6 +36,7 @@ export type FormReference = z.infer<typeof FormReferenceSchema>;
 export const TaxFeeItemSchema = z.object({
   name: z.string(),
   amount: z.string(),
+  amountValue: z.number().optional(),
   type: z.enum(["tax", "fee", "surcharge", "assessment"]).optional(),
   description: z.string().optional(),
 });

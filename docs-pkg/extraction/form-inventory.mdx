@@ -15,7 +15,7 @@ description: "How the form inventory phase constrains page mapping and extractio
 
 Insurance documents contain dozens of distinct forms — declarations pages, coverage forms, endorsements, notices, and applications — often interleaved across hundreds of pages. Without structural awareness, the page mapper can misassign pages, sending endorsement form language to the `coverage_limits` extractor (producing phantom coverages from referential wording) or missing endorsement pages entirely.
 
-The **form inventory** phase catalogs every form in the document before page mapping begins, giving both the LLM page mapper and the deterministic normalizer a structural map to work with.
+The **form inventory** phase catalogs every form in the document before page mapping begins, giving the LLM page mapper a structural map to work with.
 
 ---
 
@@ -73,15 +73,13 @@ This gives the model structural context before it assigns extractors per page. T
 
 **Formatting helper:** `formatFormInventoryForPageMap()` converts `FormInventoryEntry[]` into the concise prompt block shown above. Only entries with `pageStart` are included.
 
-### Deterministic Normalization
+### Page Assignment Normalization
 
-After the LLM produces page assignments, `normalizePageAssignments()` applies hard constraints using the form inventory:
+After the LLM produces page assignments, `normalizePageAssignments()` only deduplicates extractor names and preserves the model's extractor choices. Form-type constraints remain in the page-map prompt so assignment decisions stay model-owned:
 
-1. **Block `coverage_limits`** on pages the inventory identifies as endorsement, notice, or application forms — unless `hasScheduleValues` is true or the page also has `declarations` assigned.
-2. **Ensure `endorsements`** is assigned to pages the inventory identifies as endorsement forms, even if the LLM missed it.
-3. **Existing role-based rules** still apply: `coverage_limits` is dropped from pages with `pageRole` of `policy_form`, `condition_exclusion_form`, or `endorsement_form`.
-
-This two-layer approach (soft prompt constraint + hard deterministic override) prevents the most common misassignment patterns.
+- the form inventory is passed into the page-map prompt as context
+- the prompt tells the model not to assign `coverage_limits` to generic form, endorsement, condition, exclusion, notice, or application pages unless the page contains actual policy-specific schedule values
+- the planner groups the resulting page assignments into extraction tasks without reclassifying coverage pages through hardcoded rules
 
 ---
 

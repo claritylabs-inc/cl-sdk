@@ -172,6 +172,7 @@ interface BaseDocument {
   security?: string;
   insuredName: string;
   premium?: string;
+  premiumAmount?: number;
   summary?: string;
   policyTypes?: string[];
   coverages: Coverage[];
@@ -239,8 +240,11 @@ interface BaseDocument {
   // Financial
   taxesAndFees?: TaxFeeItem[];
   totalCost?: string;
+  totalCostAmount?: number;
   minimumPremium?: string;
+  minimumPremiumAmount?: number;
   depositPremium?: string;
+  depositPremiumAmount?: number;
   paymentPlan?: PaymentPlan;
   auditType?: AuditType;
   ratingBasis?: RatingBasis[];
@@ -295,7 +299,9 @@ interface QuoteDocument extends BaseDocument {
 interface Coverage {
   name: string;
   limit: string;
+  limitAmount?: number;
   deductible?: string;
+  deductibleAmount?: number;
   pageNumber?: number;
   sectionRef?: string;
 }
@@ -350,6 +356,7 @@ interface UnderwritingCondition {
 interface PremiumLine {
   line: string;
   amount: string;
+  amountValue?: number;
 }
 ```
 
@@ -717,6 +724,7 @@ interface FormReference {
 interface TaxFeeItem {
   name: string;
   amount: string;
+  amountValue?: number;
   type?: "tax" | "fee" | "surcharge" | "assessment";
   description?: string;
 }

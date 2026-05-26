@@ -5,10 +5,6 @@ import {
   promoteBroker,
   promoteLossPayees,
   promoteLocations,
-  synthesizeLimits,
-  synthesizeDeductibles,
-  synthesizeTaxesAndFees,
-  promotePremium,
   promoteExtractedFields,
 } from "./promote";
 
@@ -223,246 +219,6 @@ describe("promoteLocations", () => {
   });
 });
 
-// ── synthesizeLimits ──
-
-describe("synthesizeLimits", () => {
-  it("synthesizes GL limits from coverages", () => {
-    const doc = makeDoc({
-      coverages: [
-        { name: "Each Occurrence", limit: "$1,000,000", limitType: "per_occurrence" },
-        { name: "General Aggregate", limit: "$2,000,000", limitType: "aggregate" },
-        { name: "Products/Completed Operations Aggregate", limit: "$2,000,000", limitType: "aggregate" },
-        { name: "Personal & Advertising Injury", limit: "$1,000,000" },
-        { name: "Fire Damage", limit: "$100,000" },
-        { name: "Medical Expense", limit: "$5,000" },
-      ],
-    });
-    synthesizeLimits(doc);
-    expect((doc as any).limits).toEqual({
-      perOccurrence: "$1,000,000",
-      generalAggregate: "$2,000,000",
-      productsCompletedOpsAggregate: "$2,000,000",
-      personalAdvertisingInjury: "$1,000,000",
-      fireDamage: "$100,000",
-      medicalExpense: "$5,000",
-    });
-  });
-
-  it("does not overwrite existing limits", () => {
-    const doc = makeDoc({
-      limits: { perOccurrence: "$500,000" },
-      coverages: [
-        { name: "Each Occurrence", limit: "$1,000,000" },
-      ],
-    });
-    synthesizeLimits(doc);
-    expect((doc as any).limits.perOccurrence).toBe("$500,000");
-  });
-
-  it("handles empty coverages", () => {
-    const doc = makeDoc({ coverages: [] });
-    synthesizeLimits(doc);
-    expect((doc as any).limits).toBeUndefined();
-  });
-});
-
-// ── synthesizeDeductibles ──
-
-describe("synthesizeDeductibles", () => {
-  it("finds most common deductible as perOccurrence", () => {
-    const doc = makeDoc({
-      coverages: [
-        { name: "Coverage A", limit: "$100,000", deductible: "$2,500" },
-        { name: "Coverage B", limit: "$100,000", deductible: "$2,500" },
-        { name: "Coverage C", limit: "$50,000", deductible: "$5,000" },
-        { name: "Coverage D", limit: "$50,000", deductible: "$2,500" },
-      ],
-    });
-    synthesizeDeductibles(doc);
-    expect((doc as any).deductibles).toEqual({ perOccurrence: "$2,500" });
-  });
-
-  it("ignores N/A and None deductibles", () => {
-    const doc = makeDoc({
-      coverages: [
-        { name: "Coverage A", limit: "$100,000", deductible: "N/A" },
-        { name: "Coverage B", limit: "$100,000", deductible: "$1,000" },
-      ],
-    });
-    synthesizeDeductibles(doc);
-    expect((doc as any).deductibles).toEqual({ perOccurrence: "$1,000" });
-  });
-
-  it("does not overwrite existing deductibles", () => {
-    const doc = makeDoc({
-      deductibles: { perOccurrence: "$500" },
-      coverages: [{ name: "A", limit: "$1", deductible: "$2,500" }],
-    });
-    synthesizeDeductibles(doc);
-    expect((doc as any).deductibles.perOccurrence).toBe("$500");
-  });
-});
-
-// ── promotePremium ──
-
-describe("promotePremium", () => {
-  it("promotes premium from common total premium aliases", () => {
-    const doc = makeDoc({
-      declarations: {
-        fields: [
-          { field: "Estimated Annual Premium", value: "$12,500" },
-        ],
-      },
-    });
-    promotePremium(doc);
-    expect((doc as any).premium).toBe("$12,500");
-  });
-
-  it("treats total policy premium as premium rather than total cost", () => {
-    const doc = makeDoc({
-      declarations: {
-        fields: [
-          { field: "totalPolicyPremium", value: "$9,750" },
-        ],
-      },
-    });
-    promotePremium(doc);
-    expect((doc as any).premium).toBe("$9,750");
-    expect((doc as any).totalCost).toBeUndefined();
-  });
-
-  it("promotes premium from declarations", () => {
-    const doc = makeDoc({
-      declarations: {
-        fields: [
-          { field: "premium_amount", value: "$12,500" },
-        ],
-      },
-    });
-    promotePremium(doc);
-    expect((doc as any).premium).toBe("$12,500");
-  });
-
-  it("does not promote premium tax as premium", () => {
-    const doc = makeDoc({
-      declarations: {
-        fields: [
-          { field: "premiumTax", value: "$535" },
-        ],
-      },
-    });
-    promotePremium(doc);
-    expect((doc as any).premium).toBeUndefined();
-  });
-
-  it("promotes totalCost from amount due aliases", () => {
-    const doc = makeDoc({
-      declarations: {
-        fields: [
-          { field: "totalPaid", value: "$13,035" },
-        ],
-      },
-    });
-    promotePremium(doc);
-    expect((doc as any).totalCost).toBe("$13,035");
-  });
-
-  it("does not overwrite existing premium", () => {
-    const doc = makeDoc({
-      premium: "$10,000",
-      declarations: {
-        fields: [
-          { field: "premium", value: "$12,500" },
-        ],
-      },
-    });
-    promotePremium(doc);
-    expect((doc as any).premium).toBe("$10,000");
-  });
-
-  it("strips negative sign from premium", () => {
-    const doc = makeDoc({ premium: "-$535" });
-    promotePremium(doc);
-    expect((doc as any).premium).toBe("$535");
-  });
-
-  it("strips negative sign from totalCost", () => {
-    const doc = makeDoc({ totalCost: "-$1,200" });
-    promotePremium(doc);
-    expect((doc as any).totalCost).toBe("$1,200");
-  });
-
-  it("strips parenthesized negatives from premium", () => {
-    const doc = makeDoc({ premium: "($535)" });
-    promotePremium(doc);
-    expect((doc as any).premium).toBe("$535");
-  });
-});
-
-// ── synthesizeTaxesAndFees ──
-
-describe("synthesizeTaxesAndFees", () => {
-  it("synthesizes taxes and fees from declaration fields", () => {
-    const doc = makeDoc({
-      declarations: {
-        fields: [
-          { field: "surplusLinesTax", value: "$535" },
-          { field: "GST", value: "$20" },
-          { field: "policyFee", value: "$100" },
-          { field: "stamping fee", value: "$25" },
-        ],
-      },
-    });
-
-    synthesizeTaxesAndFees(doc);
-
-    expect((doc as any).taxesAndFees).toEqual([
-      { name: "Surplus Lines Tax", amount: "$535", type: "tax" },
-      { name: "GST", amount: "$20", type: "tax" },
-      { name: "Policy Fee", amount: "$100", type: "fee" },
-      { name: "Stamping Fee", amount: "$25", type: "fee" },
-    ]);
-  });
-
-  it("does not turn total cost aliases into tax line items", () => {
-    const doc = makeDoc({
-      declarations: {
-        fields: [
-          { field: "totalCost", value: "$13,035" },
-          { field: "premiumTax", value: "$535" },
-        ],
-      },
-    });
-
-    synthesizeTaxesAndFees(doc);
-
-    expect((doc as any).taxesAndFees).toEqual([
-      { name: "Premium Tax", amount: "$535", type: "tax" },
-    ]);
-  });
-
-  it("deduplicates synthesized taxes and existing tax records by normalized key", () => {
-    const doc = makeDoc({
-      taxesAndFees: [
-        { name: "Surplus Lines Tax", amount: "$535", type: "tax" },
-      ],
-      declarations: {
-        fields: [
-          { field: "surplus_lines_tax", value: "$535" },
-          { field: "policyFee", value: "$100" },
-        ],
-      },
-    });
-
-    synthesizeTaxesAndFees(doc);
-
-    expect((doc as any).taxesAndFees).toEqual([
-      { name: "Surplus Lines Tax", amount: "$535", type: "tax" },
-      { name: "Policy Fee", amount: "$100", type: "fee" },
-    ]);
-  });
-});
-
 // ── Full pipeline ──
 
 describe("promoteExtractedFields (integration)", () => {
@@ -486,7 +242,6 @@ describe("promoteExtractedFields (integration)", () => {
           { field: "locationNumber", value: "001", section: "Location Schedule" },
           { field: "locationAddress", value: "3525 Platinum Dr", section: "Location Schedule" },
           { field: "construction", value: "Frame", section: "Location Schedule" },
-          { field: "totalPremium", value: "$8,750" },
         ],
       },
     });
@@ -515,14 +270,7 @@ describe("promoteExtractedFields (integration)", () => {
     expect((doc as any).locations).toHaveLength(1);
     expect((doc as any).locations[0].constructionType).toBe("Frame");
 
-    // Limits
-    expect((doc as any).limits.perOccurrence).toBe("$1,000,000");
-    expect((doc as any).limits.generalAggregate).toBe("$2,000,000");
-
-    // Deductibles
-    expect((doc as any).deductibles.perOccurrence).toBe("$2,500");
-
-    // Premium
-    expect((doc as any).premium).toBe("$8,750");
+    expect((doc as any).limits).toBeUndefined();
+    expect((doc as any).deductibles).toBeUndefined();
   });
 });

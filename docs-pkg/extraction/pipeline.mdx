@@ -5,7 +5,7 @@ description: Turn insurance PDFs into structured data with the agentic extractio
 
 import { Callout } from "@/components/ui/callout";
 
-CL SDK's extraction pipeline uses an agentic coordinator/worker pattern to process insurance documents. It classifies the document, maps pages to focused extractors, builds deterministic tasks, dispatches focused extractors in parallel, conditionally runs supplementary extraction for hidden retrieval facts, resolves referential coverage values, reviews for completeness and quality when configured, assembles a fully typed `InsuranceDocument`, promotes declarations data into typed top-level fields, generates a document summary, formats content in bounded parallel batches, and produces retrieval-ready chunks.
+CL SDK's extraction pipeline uses an agentic coordinator/worker pattern to process insurance documents. It classifies the document, maps pages to focused extractors, builds extraction tasks, dispatches focused extractors in parallel, conditionally runs supplementary extraction for hidden retrieval facts, resolves referential coverage values, reviews for completeness and quality when configured, assembles a fully typed `InsuranceDocument`, promotes non-financial declaration data into convenience top-level fields, generates a document summary, formats content in bounded parallel batches, and produces retrieval-ready chunks.
 
 ## Quick start
 
@@ -70,9 +70,9 @@ Classification uses `generateObject` with the `ClassifyResultSchema` and drives 
 
 ## Phase 2: Page Map
 
-The coordinator first maps each page to one or more focused extractors. This is the step that prevents broad, mixed ranges from sending declaration pages and generic policy forms through the same extractor without distinction.
+The coordinator first maps each page to one or more focused extractors with a model pass. This is the step that prevents broad, mixed ranges from sending declaration pages and generic policy forms through the same extractor without distinction.
 
-The page mapper receives chunked PDFs through `providerOptions.pdfBase64` or page-scoped Docling text through `providerOptions.doclingText`, then assigns pages one by one. Page-map chunks run with `pageMapConcurrency` when configured, otherwise the shared `concurrency` value.
+The page mapper receives chunked PDFs through `providerOptions.pdfBase64`, page-scoped Docling text through `providerOptions.doclingText`, or caller-provided source-span text, then assigns pages one by one. Page-map chunks run with `pageMapConcurrency` when configured, otherwise the shared `concurrency` value.
 
 ## Phase 3: Plan
 
@@ -209,9 +209,9 @@ The assembler merges all extractor results from the in-memory `Map` into a singl
 
 ## Phase 9: Promote
 
-After assembly, a promotion pass fills in top-level typed fields from data that was extracted but not directly surfaced. The extractors do detailed work — 100+ declaration fields, dozens of coverages — but the initial assembly only spreads flat results. The promotion pass bridges this gap.
+After assembly, a promotion pass fills in non-financial convenience fields from data that was extracted but not directly surfaced. Numeric coverage and financial values remain owned by focused extractor and review LLM passes.
 
-The promoter runs eight sub-passes, all pure data transformations with no model calls:
+The promoter runs pure data transformations with no model calls:
 
 | Sub-pass | What it does |
 |----------|-------------|
@@ -219,12 +219,10 @@ The promoter runs eight sub-passes, all pure data transformations with no model 
 | **Broker promotion** | Scans declarations for broker/agent/producer fields and promotes to `brokerAgency`, `brokerContactName`, `brokerLicenseNumber`, and the structured `producer` object. Falls back to declarations if the carrier extractor didn't capture broker data. |
 | **Loss payee / mortgage holder promotion** | Scans declarations for loss payees and mortgage holders and populates `lossPayees[]` and `mortgageHolders[]` as `EndorsementParty` objects. |
 | **Location promotion** | Groups location-related declaration fields (address, construction type, occupancy, building value, etc.) by location number and populates the `locations[]` array. |
-| **Limits synthesis** | Maps well-known coverage names (e.g. "Each Occurrence", "General Aggregate", "Products/Completed Operations Aggregate") from the `coverages[]` array into the structured `limits` schedule. Handles GL, auto, umbrella, workers comp, and employers liability patterns. |
-| **Deductible synthesis** | Finds the most common deductible across coverages as the base `perOccurrence` deductible. Detects self-insured retentions and aggregate deductibles. |
-| **Taxes and fees synthesis** | Converts declaration tax, fee, surcharge, and assessment fields into structured `taxesAndFees[]` entries, including common GST/HST/PST/QST-style labels. |
-| **Premium and total-cost fallback** | If the premium extractor didn't find financial data, promotes premium and total-cost values from declaration aliases such as `premiumAmount`, `totalPaid`, `amountPaid`, and `amountCharged`. Tax fields are excluded from premium promotion. |
 
-All sub-passes are idempotent — they never overwrite fields that already have values from direct extraction.
+Financial fields and numeric coverage fields are extracted by focused LLM passes and review follow-up tasks, not inferred in promotion from declaration aliases or coverage-name patterns. This keeps premium, total payable, taxes, fees, limits, deductibles, and payment-plan values tied to source-evidence extraction instead of hardcoded field-name matching.
+
+All promotion sub-passes are idempotent — they never overwrite fields that already have values from direct extraction.
 
 <Callout type="info">
   The promotion pass runs in `src/extraction/promote.ts` and is called automatically by `assembleDocument()`. It produces no model calls and adds no latency.
