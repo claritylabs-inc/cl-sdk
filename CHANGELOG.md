@@ -1,3 +1,10 @@
+## [1.3.5](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.4...v1.3.5) (2026-05-26)
+
+
+### Bug Fixes
+
+* **extraction:** keep declaration facts model-owned ([a95c2e2](https://github.com/claritylabs-inc/cl-sdk/commit/a95c2e2f2c0a9b2cac9a17325b38a8228762605f))
+
 ## [1.3.4](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.3...v1.3.4) (2026-05-26)
 
 
