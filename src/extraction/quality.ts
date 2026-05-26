@@ -3,7 +3,7 @@ import type { ReviewResult } from "../prompts/coordinator/review";
 import type { BaseQualityIssue, QualityArtifact, QualityGateStatus, QualityRound, UnifiedQualityReport } from "../core/quality";
 import { evaluateQualityGate } from "../core/quality";
 import type { FormInventoryEntry as ExtractedFormInventoryEntry } from "../prompts/coordinator/form-inventory";
-import { looksCoveredReasonSection, looksReferential } from "./heuristics";
+import { looksCoveredReasonSection } from "./heuristics";
 
 export interface FormInventoryEntry {
   formNumber: string;
@@ -249,18 +249,6 @@ export function buildExtractionReviewReport(params: {
       });
     }
 
-    if (looksReferential(coverage.limit) || looksReferential(coverage.deductible)) {
-      deterministicIssues.push({
-        code: "coverage_referential_value",
-        severity: "warning",
-        message: `Coverage "${String(coverage.name ?? "unknown")}" contains referential language instead of a concrete scheduled term.`,
-        extractorName: "coverage_limits",
-        formNumber,
-        pageNumber: typeof coverage.pageNumber === "number" ? coverage.pageNumber : undefined,
-        itemName: typeof coverage.name === "string" ? coverage.name : undefined,
-      });
-    }
-
     if (formNumber && !inventory.has(formNumber)) {
       deterministicIssues.push({
         code: "coverage_form_missing_from_inventory",
@@ -419,17 +407,6 @@ export function buildExtractionReviewReport(params: {
         message: `Covered reason "${itemName}" is missing page provenance.`,
         extractorName: "covered_reasons",
         formNumber: normalizeFormNumber(coveredReason.formNumber),
-        itemName,
-      });
-    }
-    if (looksReferential(content) || looksReferential(coveredReason.reason)) {
-      deterministicIssues.push({
-        code: "covered_reason_referential_value",
-        severity: "warning",
-        message: `Covered reason "${itemName}" contains referential language instead of the extracted covered cause wording.`,
-        extractorName: "covered_reasons",
-        formNumber: normalizeFormNumber(coveredReason.formNumber),
-        pageNumber: typeof coveredReason.pageNumber === "number" ? coveredReason.pageNumber : typeof coveredReason.pageStart === "number" ? coveredReason.pageStart : undefined,
         itemName,
       });
     }

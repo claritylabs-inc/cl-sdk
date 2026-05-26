@@ -67,7 +67,7 @@ describe("buildExtractionReviewReport", () => {
     expect(report.artifacts.find((artifact) => artifact.kind === "covered_reasons")?.itemCount).toBe(1);
     expect(report.issues.some((issue) => issue.code === "definition_missing_content")).toBe(true);
     expect(report.issues.some((issue) => issue.code === "covered_reason_missing_page_number")).toBe(true);
-    expect(report.issues.some((issue) => issue.code === "covered_reason_referential_value")).toBe(true);
+    expect(report.issues.some((issue) => issue.code === "covered_reason_referential_value")).toBe(false);
   });
 
   it("distinguishes source-grounding failures when source spans are available", () => {

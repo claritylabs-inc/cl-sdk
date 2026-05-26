@@ -12,12 +12,6 @@ import {
   type ReferentialLookupResult,
 } from "../prompts/extractors/referential-lookup";
 import type { FormInventoryEntry } from "../prompts/coordinator/form-inventory";
-import { looksReferential } from "./heuristics";
-import {
-  decideReferentialResolutionAction,
-  findLocalReferentialPages,
-  type ReferentialSectionEntry,
-} from "./referential-workflow";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,7 +31,7 @@ export interface ReferentialResolutionResult {
   }>;
 }
 
-interface SectionEntry extends ReferentialSectionEntry {
+interface SectionEntry {
   title?: string;
   type?: string;
   pageStart?: number;
@@ -58,53 +52,10 @@ function formatDoclingTextContext(providerOptions?: Record<string, unknown>): st
 // parseReferenceTarget
 // ---------------------------------------------------------------------------
 
-/**
- * Extracts a section identifier from a referential string.
- *
- * Examples:
- *   "As stated in Section 4 of Policy" -> "Section 4"
- *   "As stated in Policy"              -> "Policy"
- *   "Shown in the Declarations"        -> "Declarations"
- *   "See Schedule of Coverage"         -> "Schedule of Coverage"
- *
- * Returns undefined when no meaningful target can be parsed.
- */
 export function parseReferenceTarget(text: string): string | undefined {
   if (typeof text !== "string") return undefined;
   const normalized = text.trim();
-  if (!normalized) return undefined;
-
-  // "Section N" / "Section N of ..."
-  const sectionMatch = normalized.match(/\b(Section\s+\d+[A-Za-z]?)/i);
-  if (sectionMatch) return sectionMatch[1];
-
-  const itemMatch = normalized.match(/\b(Item\s+\d+[A-Za-z]?)/i);
-  if (itemMatch) return itemMatch[1];
-
-  const premisesMatch = normalized.match(/\b(Premises?(?:\s+No\.?\s*\d+[A-Za-z]?|\s+\d+[A-Za-z]?)?)/i);
-  if (premisesMatch) return premisesMatch[1].trim();
-
-  // "Shown in the Declarations" / "shown in declarations"
-  if (/declarations/i.test(normalized)) return "Declarations";
-
-  // "Shown in the Schedule" / "See Schedule of ..."
-  const scheduleMatch = normalized.match(/\b(Schedule(?:\s+of\s+[A-Za-z ]+)?)/i);
-  if (scheduleMatch) return scheduleMatch[1].trim();
-
-  // "As stated in <target>"  /  "See <target>"
-  const asStatedMatch = normalized.match(/(?:as\s+stated\s+in|see|shown\s+in(?:\s+the)?)\s+(.+)/i);
-  if (asStatedMatch) {
-    // Strip trailing noise like "of the Policy"
-    let target = asStatedMatch[1].trim().replace(/\s+of\s+the\s+policy$/i, "").trim();
-    // Remove trailing periods
-    target = target.replace(/\.+$/, "").trim();
-    if (target) return target;
-  }
-
-  // "If applicable" — no concrete target
-  if (/if applicable/i.test(normalized)) return undefined;
-
-  return undefined;
+  return normalized || undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,12 +67,6 @@ const PageLocationSchema = z.object({
   endPage: z.number(),
 });
 
-/**
- * Three-tier page location strategy for a reference target:
- * 1. Match against extracted sections in memory.
- * 2. Fall back to form inventory entries.
- * 3. Final fallback: ask the LLM which pages contain the section.
- */
 export async function findReferencedPages(params: {
   referenceTarget: string;
   sections: SectionEntry[];
@@ -137,8 +82,6 @@ export async function findReferencedPages(params: {
 }): Promise<{ startPage: number; endPage: number } | undefined> {
   const {
     referenceTarget,
-    sections,
-    formInventory,
     pdfInput,
     pageCount,
     generateObject,
@@ -149,35 +92,6 @@ export async function findReferencedPages(params: {
     log,
   } = params;
 
-  const localPageRange = findLocalReferentialPages({
-    referenceTarget,
-    sections,
-    formInventory,
-  });
-
-  const action = decideReferentialResolutionAction({
-    referenceTarget,
-    sections,
-    formInventory,
-    localPageRange,
-  });
-
-  if (action.kind === "lookup_pages") {
-    await log?.(
-      `Referential target "${referenceTarget}" resolved to pages ${action.pageRange.startPage}-${action.pageRange.endPage} via ${action.source}.`,
-    );
-    return action.pageRange;
-  }
-
-  if (action.kind === "skip") {
-    await log?.(
-      `Skipping referential target "${referenceTarget}": ${action.reason}.`,
-    );
-    return undefined;
-  }
-
-  // Bounded LLM fallback — ask which pages contain the referenced section only
-  // after deterministic memory lookups fail.
   try {
     const budget = resolveModelBudget({
       taskKind: "extraction_referential_lookup",
@@ -291,9 +205,7 @@ export async function resolveReferentialCoverages(params: {
       limitType === "referential" ||
       limitType === "as_stated" ||
       deductibleType === "referential" ||
-      deductibleType === "as_stated" ||
-      looksReferential(cov.limit) ||
-      looksReferential(cov.deductible)
+      deductibleType === "as_stated"
     );
   });
 
@@ -321,15 +233,12 @@ export async function resolveReferentialCoverages(params: {
   for (let i = 0; i < referentialCoverages.length; i++) {
     const cov = referentialCoverages[i];
     const refString =
-      (looksReferential(cov.limit) ? (cov.limit as string) : undefined) ??
-      (looksReferential(cov.deductible) ? (cov.deductible as string) : undefined) ??
       (cov.limit as string | undefined) ??
       "";
     const sectionRef = typeof cov.sectionRef === "string" ? cov.sectionRef : "";
     const parsedTarget =
-      parseReferenceTarget(refString) ??
-      parseReferenceTarget(sectionRef) ??
-      sectionRef;
+      sectionRef ||
+      parseReferenceTarget(refString);
     const target = parsedTarget || "unknown";
 
     const group = targetGroups.get(target) ?? [];
@@ -458,14 +367,12 @@ export async function resolveReferentialCoverages(params: {
             const limitResolved =
               rc.resolvedLimit &&
               rc.resolvedLimitValueType !== "referential" &&
-              rc.resolvedLimitValueType !== "as_stated" &&
-              !looksReferential(rc.resolvedLimit);
+              rc.resolvedLimitValueType !== "as_stated";
 
             const deductibleResolved =
               rc.resolvedDeductible &&
               rc.resolvedDeductibleValueType !== "referential" &&
-              rc.resolvedDeductibleValueType !== "as_stated" &&
-              !looksReferential(rc.resolvedDeductible);
+              rc.resolvedDeductibleValueType !== "as_stated";
 
             if (limitResolved || deductibleResolved) {
               // Merge resolved values back into the original coverage object
