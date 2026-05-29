@@ -1,3 +1,10 @@
+## [1.3.7](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.6...v1.3.7) (2026-05-29)
+
+
+### Bug Fixes
+
+* flag deductible rows extracted as coverage limits ([f8014cb](https://github.com/claritylabs-inc/cl-sdk/commit/f8014cbf43f0e118c1b71726ec539785aa8145a7))
+
 ## [1.3.6](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.5...v1.3.6) (2026-05-26)
 
 
