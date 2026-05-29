@@ -87,6 +87,25 @@ function sourcePrecedence(sectionRef: unknown): number {
   return 0;
 }
 
+function looksDeductibleOnlyCoverageRow(coverage: Record<string, unknown>): boolean {
+  const name = typeof coverage.name === "string" ? coverage.name : "";
+  const originalContent = typeof coverage.originalContent === "string" ? coverage.originalContent : "";
+  const evidenceText = originalContent || name;
+  const normalizedEvidence = evidenceText.toLowerCase();
+  const normalizedName = name.toLowerCase();
+  if (!/\b(deductible|retention|self[-\s]?insured retention|sir)\b/.test(`${normalizedName} ${normalizedEvidence}`)) return false;
+  if (coverage.deductible || coverage.deductibleAmount !== undefined) return false;
+  if (!coverage.limit && coverage.limitAmount === undefined) return false;
+  if (
+    originalContent
+    && /\b(deductible|retention|self[-\s]?insured retention|sir)\b/.test(normalizedEvidence)
+    && !/\b(?:sub[-\s]?limit|limit|coverage)\b/.test(normalizedEvidence)
+  ) {
+    return true;
+  }
+  return /[-–—]\s*(?:enhanced\s+|standard\s+)?(?:deductible|retention|sir)\b/.test(normalizedName);
+}
+
 export function buildExtractionReviewReport(params: {
   memory: Map<string, unknown>;
   pageAssignments: PageAssignment[];
@@ -211,6 +230,18 @@ export function buildExtractionReviewReport(params: {
         formNumber,
         pageNumber: typeof coverage.pageNumber === "number" ? coverage.pageNumber : undefined,
         itemName: coverage.name,
+      });
+    }
+
+    if (looksDeductibleOnlyCoverageRow(coverage)) {
+      deterministicIssues.push({
+        code: "deductible_row_as_coverage_limit",
+        severity: "blocking",
+        message: `Coverage "${String(coverage.name ?? "unknown")}" appears to store a deductible or retention value as a coverage limit.`,
+        extractorName: "coverage_limits",
+        formNumber,
+        pageNumber: typeof coverage.pageNumber === "number" ? coverage.pageNumber : undefined,
+        itemName: typeof coverage.name === "string" ? coverage.name : undefined,
       });
     }
 

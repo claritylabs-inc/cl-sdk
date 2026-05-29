@@ -95,4 +95,54 @@ describe("buildExtractionReviewReport", () => {
       }),
     ]));
   });
+
+  it("blocks deductible rows that were extracted as coverage limits", () => {
+    const report = buildExtractionReviewReport({
+      memory: new Map<string, unknown>([
+        ["coverage_limits", {
+          coverages: [{
+            name: "Premium Trust Fund Conversion Sub-Limit - Enhanced Deductible (CAD$100,000 each Claim; Loss and Defence Costs)",
+            limit: "100000",
+            limitAmount: 100000,
+            pageNumber: 18,
+            sectionRef: "SCHEDULE",
+            originalContent: "Enhanced Deductible - CAD$100,000 each Claim (Loss and Defence Costs)",
+          }],
+        }],
+      ]),
+      pageAssignments: [{ localPageNumber: 18, extractorNames: ["coverage_limits"] }],
+      reviewRounds: [{ round: 1, complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] }],
+    });
+
+    expect(report.qualityGateStatus).toBe("failed");
+    expect(report.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "deductible_row_as_coverage_limit",
+        severity: "blocking",
+        extractorName: "coverage_limits",
+        pageNumber: 18,
+      }),
+    ]));
+  });
+
+  it("allows legitimate deductible coverage rows with limits", () => {
+    const report = buildExtractionReviewReport({
+      memory: new Map<string, unknown>([
+        ["coverage_limits", {
+          coverages: [{
+            name: "Deductible Reimbursement Coverage",
+            limit: "$25,000",
+            limitAmount: 25000,
+            pageNumber: 7,
+            sectionRef: "SCHEDULE",
+            originalContent: "Deductible Reimbursement Coverage limit $25,000",
+          }],
+        }],
+      ]),
+      pageAssignments: [{ localPageNumber: 7, extractorNames: ["coverage_limits"] }],
+      reviewRounds: [{ round: 1, complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] }],
+    });
+
+    expect(report.issues.some((issue) => issue.code === "deductible_row_as_coverage_limit")).toBe(false);
+  });
 });
