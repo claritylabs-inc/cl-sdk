@@ -1,3 +1,10 @@
+## [1.3.8](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.7...v1.3.8) (2026-05-30)
+
+
+### Bug Fixes
+
+* **extraction:** recover row-backed coverage schedules ([2cae416](https://github.com/claritylabs-inc/cl-sdk/commit/2cae416fc6bc30706616c384eb70d8214f1e3da6))
+
 ## [1.3.7](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.6...v1.3.7) (2026-05-29)
 
 
