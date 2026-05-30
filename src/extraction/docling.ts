@@ -60,6 +60,20 @@ export interface DoclingNormalizedUnit {
   pageStart?: number;
   pageEnd?: number;
   bboxes?: SourceSpanBBox[];
+  table?: NormalizedDoclingTable;
+}
+
+interface NormalizedDoclingTableCell {
+  row: number;
+  col: number;
+  text: string;
+}
+
+interface NormalizedDoclingTable {
+  markdown: string;
+  headers: string[];
+  rows: string[][];
+  cells: NormalizedDoclingTableCell[];
 }
 
 export interface NormalizedDoclingDocument {
@@ -113,31 +127,12 @@ export function normalizeDoclingDocument(
   }).filter(Boolean).join("\n\n");
 
   const sourceKind = options.sourceKind ?? "policy_pdf";
-  const sourceSpans = units.map((unit, index) => {
-    const span = buildSourceSpan(
-      {
-        documentId: options.documentId,
-        sourceKind,
-        text: unit.text,
-        pageStart: unit.pageStart,
-        pageEnd: unit.pageEnd,
-        sectionId: unit.label,
-        metadata: {
-          sourceSystem: "docling",
-          sourceUnit: "docling_item",
-          doclingRef: unit.ref,
-          ...(unit.label ? { doclingLabel: unit.label } : {}),
-        },
-      },
-      index,
-    );
-
-    return {
-      ...span,
-      kind: "plain_text" as const,
-      bbox: unit.bboxes?.length ? unit.bboxes : undefined,
-    };
-  });
+  const sourceSpans = units.flatMap((unit, index) =>
+    buildSourceSpansForUnit(unit, index, {
+      documentId: options.documentId,
+      sourceKind,
+    })
+  );
 
   return {
     pageCount,
@@ -185,6 +180,11 @@ export function mergeSourceSpans(spans: SourceSpan[]): SourceSpan[] {
       span.pageStart ?? span.location?.startPage ?? span.location?.page ?? "na",
       span.pageEnd ?? span.location?.endPage ?? span.pageStart ?? "na",
       span.sectionId ?? span.location?.fieldPath ?? "na",
+      span.sourceUnit ?? span.metadata?.sourceUnit ?? "na",
+      span.parentSpanId ?? "na",
+      span.table?.tableId ?? span.metadata?.tableId ?? "na",
+      span.table?.rowIndex ?? span.metadata?.rowIndex ?? "na",
+      span.table?.columnIndex ?? span.metadata?.columnIndex ?? "na",
       span.textHash ?? sourceSpanTextHash(span.text),
     ].join(":");
     if (seen.has(key)) continue;
@@ -267,6 +267,7 @@ function getOrderedBodyRefs(
 function normalizeItem(ref: string, item: DoclingItemLike): DoclingNormalizedUnit | undefined {
   const text = getItemText(item).trim();
   if (!text) return undefined;
+  const table = getItemTable(item);
 
   const pages = (item.prov ?? [])
     .map((prov) => getPageNumber(prov))
@@ -284,20 +285,165 @@ function normalizeItem(ref: string, item: DoclingItemLike): DoclingNormalizedUni
     pageStart,
     pageEnd,
     bboxes: bboxes.length ? bboxes : undefined,
+    table,
   };
+}
+
+function buildSourceSpansForUnit(
+  unit: DoclingNormalizedUnit,
+  index: number,
+  options: {
+    documentId: string;
+    sourceKind: SourceKind;
+  },
+): SourceSpan[] {
+  const baseMetadata = {
+    sourceSystem: "docling",
+    sourceUnit: unit.table ? "table" : "docling_item",
+    doclingRef: unit.ref,
+    ...(unit.label ? { doclingLabel: unit.label } : {}),
+  };
+  const tableId = unit.table ? `${unit.ref}:table` : undefined;
+  const tableSpan = withDoclingKind(buildSourceSpan(
+    {
+      documentId: options.documentId,
+      sourceKind: options.sourceKind,
+      text: unit.text,
+      pageStart: unit.pageStart,
+      pageEnd: unit.pageEnd,
+      sectionId: unit.label,
+      sourceUnit: unit.table ? "table" : labelToSourceUnit(unit.label),
+      table: tableId ? { tableId } : undefined,
+      metadata: baseMetadata,
+    },
+    index * 1000,
+  ), unit);
+
+  if (!unit.table) return [tableSpan];
+
+  const spans: SourceSpan[] = [tableSpan];
+  const table = unit.table;
+  for (let rowIndex = 0; rowIndex < table.rows.length; rowIndex += 1) {
+    const row = table.rows[rowIndex];
+    const isHeader = rowIndex === 0 && table.headers.length > 0;
+    const rowText = tableRowText(table, rowIndex);
+    if (!rowText) continue;
+
+    const rowSpan = withDoclingKind(buildSourceSpan(
+      {
+        documentId: options.documentId,
+        sourceKind: options.sourceKind,
+        text: rowText,
+        pageStart: unit.pageStart,
+        pageEnd: unit.pageEnd,
+        sectionId: unit.label,
+        sourceUnit: "table_row",
+        parentSpanId: tableSpan.id,
+        table: {
+          tableId,
+          tableSpanId: tableSpan.id,
+          rowIndex,
+          isHeader,
+        },
+        metadata: {
+          ...baseMetadata,
+          sourceUnit: "table_row",
+          tableId: tableId ?? "",
+          tableSpanId: tableSpan.id,
+          rowIndex: String(rowIndex),
+          isHeader: String(isHeader),
+        },
+      },
+      index * 1000 + 1 + rowIndex,
+    ), unit);
+    spans.push(rowSpan);
+
+    for (let columnIndex = 0; columnIndex < row.length; columnIndex += 1) {
+      const text = row[columnIndex]?.trim();
+      if (!text) continue;
+      const columnName = table.headers[columnIndex]?.trim() || undefined;
+      const cellSpan = withDoclingKind(buildSourceSpan(
+        {
+          documentId: options.documentId,
+          sourceKind: options.sourceKind,
+          text,
+          pageStart: unit.pageStart,
+          pageEnd: unit.pageEnd,
+          sectionId: unit.label,
+          sourceUnit: "table_cell",
+          parentSpanId: rowSpan.id,
+          table: {
+            tableId,
+            tableSpanId: tableSpan.id,
+            rowSpanId: rowSpan.id,
+            rowIndex,
+            columnIndex,
+            columnName,
+            isHeader,
+          },
+          metadata: {
+            ...baseMetadata,
+            sourceUnit: "table_cell",
+            tableId: tableId ?? "",
+            tableSpanId: tableSpan.id,
+            rowSpanId: rowSpan.id,
+            rowIndex: String(rowIndex),
+            columnIndex: String(columnIndex),
+            ...(columnName ? { columnName } : {}),
+            isHeader: String(isHeader),
+          },
+        },
+        index * 1000 + 100 + rowIndex * 100 + columnIndex,
+      ), unit);
+      spans.push(cellSpan);
+    }
+  }
+
+  return spans;
+}
+
+function withDoclingKind(span: SourceSpan, unit: DoclingNormalizedUnit): SourceSpan {
+  return {
+    ...span,
+    kind: "plain_text",
+    bbox: unit.bboxes?.length ? unit.bboxes : undefined,
+  };
+}
+
+function labelToSourceUnit(label: string | undefined): SourceSpan["sourceUnit"] {
+  const normalized = label?.toLowerCase() ?? "";
+  if (normalized.includes("table")) return "table";
+  if (normalized.includes("key")) return "key_value";
+  if (normalized.includes("section") || normalized.includes("header")) return "section";
+  return "text";
+}
+
+function tableRowText(table: NormalizedDoclingTable, rowIndex: number): string {
+  const row = table.rows[rowIndex] ?? [];
+  const headers = table.headers;
+  if (rowIndex === 0 && headers.length > 0) return row.filter(Boolean).join(" | ");
+  return row
+    .map((value, columnIndex) => {
+      const trimmed = value.trim();
+      if (!trimmed) return "";
+      const header = headers[columnIndex]?.trim();
+      return header ? `${header}: ${trimmed}` : trimmed;
+    })
+    .filter(Boolean)
+    .join(" | ");
 }
 
 function getItemText(item: DoclingItemLike): string {
   if (typeof item.text === "string" && item.text.trim()) return item.text;
   if (typeof item.orig === "string" && item.orig.trim()) return item.orig;
 
-  const table = tableToMarkdown(item.data);
-  if (table) return table;
+  const table = parseTableData(item.data);
+  if (table) return table.markdown;
 
   return "";
 }
 
-function tableToMarkdown(data: unknown): string | undefined {
+function parseTableData(data: unknown): NormalizedDoclingTable | undefined {
   const record = asRecord(data);
   const cells = Array.isArray(record?.table_cells)
     ? record.table_cells
@@ -324,12 +470,23 @@ function tableToMarkdown(data: unknown): string | undefined {
     rows[cell.row][cell.col] = cell.text;
   }
 
-  if (rows.length === 1) return rows[0].filter(Boolean).join(" | ");
+  if (rows.length === 1) {
+    const markdown = rows[0].filter(Boolean).join(" | ");
+    return { markdown, headers: [], rows, cells: parsedCells };
+  }
   const header = rows[0];
   const separator = header.map(() => "---");
-  return [header, separator, ...rows.slice(1)]
+  const markdown = [header, separator, ...rows.slice(1)]
     .map((row) => `| ${row.map((value) => value.trim()).join(" | ")} |`)
     .join("\n");
+  return { markdown, headers: header, rows, cells: parsedCells };
+}
+
+function getItemTable(item: DoclingItemLike): NormalizedDoclingTable | undefined {
+  if ((typeof item.text === "string" && item.text.trim()) || (typeof item.orig === "string" && item.orig.trim())) {
+    return undefined;
+  }
+  return parseTableData(item.data);
 }
 
 function inferPageCount(document: DoclingDocumentLike, units: DoclingNormalizedUnit[]): number {

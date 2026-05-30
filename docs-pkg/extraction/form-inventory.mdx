@@ -94,11 +94,14 @@ Coverage rows extracted by the `coverage_limits` extractor now carry provenance 
 | `originalContent` | `string` | Verbatim source text used for extraction |
 | `limitValueType` | `CoverageValueType` | Classifies the limit: `numeric`, `included`, `not_included`, `as_stated`, `waiting_period`, `referential`, `other` |
 | `deductibleValueType` | `CoverageValueType` | Same classification for the deductible term |
+| `retroactiveDate` | `string` | Coverage-row retroactive date when stated in the schedule |
+| `sourceSpanIds` | `string[]` | Source evidence, preferring table row spans when available |
 
 These fields are defined in `CoverageSchema` (`src/schemas/coverage.ts`) and flow through to:
 - `EnrichedCoverageSchema` — carries `limitValueType`, `deductibleValueType`, `originalContent`
 - Document chunks — included in chunk text and `metadata`
 - Quality reports — missing provenance triggers `coverage_missing_page_number`, `coverage_missing_section_ref`, `coverage_missing_original_content` warnings
+- Source-backed recovery — explicit declaration/schedule table rows can be added deterministically when model extraction misses them, and unrecovered rows trigger `coverage_schedule_row_missing`
 - Merge — `mergeShallowPreferPresent` preserves provenance when duplicate coverage rows are merged
 
 ### Coverage Value Types

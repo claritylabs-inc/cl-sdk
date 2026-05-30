@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPageSourceSpans } from "../../source";
+import { buildPageSourceSpans, buildSourceSpan } from "../../source";
 import { findSourceSpansForRecord, groundExtractionMemoryWithSourceSpans } from "../../extraction/source-grounding";
 
 describe("extraction source grounding", () => {
@@ -59,5 +59,48 @@ describe("extraction source grounding", () => {
         }),
       ],
     });
+  });
+
+  it("grounds table-cell matches to their parent row span", () => {
+    const tableSpan = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      pageStart: 18,
+      pageEnd: 18,
+      text: "| Coverage | Limit |\n| --- | --- |\n| Premium Trust Fund Sub-Limit | CAD $250,000 / $250,000 |",
+      sourceUnit: "table",
+      table: { tableId: "table-1" },
+      metadata: { sourceUnit: "table", tableId: "table-1" },
+    }, 0);
+    const rowSpan = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      pageStart: 18,
+      pageEnd: 18,
+      text: "Coverage: Premium Trust Fund Sub-Limit | Limit: CAD $250,000 / $250,000",
+      sourceUnit: "table_row",
+      parentSpanId: tableSpan.id,
+      table: { tableId: "table-1", tableSpanId: tableSpan.id, rowIndex: 1 },
+      metadata: { sourceUnit: "table_row", tableId: "table-1", tableSpanId: tableSpan.id, rowIndex: "1" },
+    }, 1);
+    const cellSpan = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      pageStart: 18,
+      pageEnd: 18,
+      text: "CAD $250,000 / $250,000",
+      sourceUnit: "table_cell",
+      parentSpanId: rowSpan.id,
+      table: { tableId: "table-1", tableSpanId: tableSpan.id, rowSpanId: rowSpan.id, rowIndex: 1, columnIndex: 1, columnName: "Limit" },
+      metadata: { sourceUnit: "table_cell", tableId: "table-1", tableSpanId: tableSpan.id, rowSpanId: rowSpan.id, rowIndex: "1", columnIndex: "1", columnName: "Limit" },
+    }, 2);
+
+    const matches = findSourceSpansForRecord({
+      name: "Premium Trust Fund Sub-Limit",
+      limit: "CAD $250,000 / $250,000",
+      pageNumber: 18,
+    }, [tableSpan, cellSpan, rowSpan]);
+
+    expect(matches[0].id).toBe(rowSpan.id);
   });
 });

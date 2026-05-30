@@ -13,9 +13,10 @@ When source spans are available, extraction checks for weak grounding in high-va
 - records that cite page or form provenance inconsistently
 - generic placeholder language such as "see attached form" without resolved values
 - referential coverage values that still point to schedules or declarations after review
+- explicit coverage schedule table rows that are present in source evidence but missing from `coverage_limits`
 - source hash mismatches when source span IDs are attached to extracted records
 
-These checks do not replace review. They give the coordinator a deterministic signal for follow-up tasks and give host UIs a clear warning surface.
+These checks do not replace review. They give the coordinator a deterministic signal for follow-up tasks and give host UIs a clear warning surface. For coverage schedules, the extraction pipeline first tries to recover explicit row-backed coverage limits from table evidence; if a source-backed row still remains missing, the quality report emits a blocking `coverage_schedule_row_missing` issue.
 
 ## Quoted evidence gates
 

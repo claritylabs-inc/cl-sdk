@@ -53,6 +53,9 @@ function rowToSourceSpan(row: Record<string, unknown>): SourceSpan {
     pageEnd: (row.page_end ?? undefined) as number | undefined,
     sectionId: (row.section_id ?? undefined) as string | undefined,
     formNumber: (row.form_number ?? undefined) as string | undefined,
+    sourceUnit: (row.source_unit ?? undefined) as SourceSpan["sourceUnit"],
+    parentSpanId: (row.parent_span_id ?? undefined) as string | undefined,
+    table: parseJson(row.table_location as string | undefined, undefined),
     location: parseJson(row.location as string | undefined, undefined),
     bbox: parseJson(row.bbox as string | undefined, undefined),
     metadata: Object.keys(metadata).length ? metadata : undefined,
@@ -80,8 +83,9 @@ export function createSqliteSourceStore(db: Database.Database, embed: EmbedText)
       const stmt = db.prepare(`
         INSERT OR REPLACE INTO source_spans (
           id, document_id, source_kind, chunk_id, kind, text, hash, text_hash,
-          page_start, page_end, section_id, form_number, location, bbox, metadata, embedding
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          page_start, page_end, section_id, form_number, source_unit, parent_span_id,
+          table_location, location, bbox, metadata, embedding
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const insertMany = db.transaction((items: SourceSpan[]) => {
         for (const span of items) {
@@ -98,6 +102,9 @@ export function createSqliteSourceStore(db: Database.Database, embed: EmbedText)
             span.pageEnd ?? null,
             span.sectionId ?? null,
             span.formNumber ?? null,
+            span.sourceUnit ?? null,
+            span.parentSpanId ?? null,
+            span.table ? JSON.stringify(span.table) : null,
             span.location ? JSON.stringify(span.location) : null,
             span.bbox ? JSON.stringify(span.bbox) : null,
             JSON.stringify(span.metadata ?? {}),

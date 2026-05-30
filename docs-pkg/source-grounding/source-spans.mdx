@@ -20,10 +20,23 @@ interface SourceSpan {
   pageEnd?: number;
   sectionId?: string;
   formNumber?: string;
+  sourceUnit?: "page" | "section" | "table" | "table_row" | "table_cell" | "key_value" | "text";
+  parentSpanId?: string;
+  table?: {
+    tableId?: string;
+    rowIndex?: number;
+    columnIndex?: number;
+    columnName?: string;
+    rowSpanId?: string;
+    tableSpanId?: string;
+    isHeader?: boolean;
+  };
   location?: SourceSpanLocation;
   metadata?: Record<string, string>;
 }
 ```
+
+`sourceUnit`, `parentSpanId`, and `table` are optional and backwards-compatible. Hosts that persist only generic metadata should still preserve the same values from `metadata.sourceUnit`, `metadata.tableId`, `metadata.rowSpanId`, and related keys.
 
 ## Builders
 
@@ -65,6 +78,16 @@ const spans = buildSectionSourceSpans(pages, {
 });
 ```
 
+### Table spans
+
+When a Docling document includes table structure, CL-SDK emits a hierarchy:
+
+- `table` spans contain the whole markdown table.
+- `table_row` spans contain one header-aware row, for example `Coverage: E&O | Limit: $5,000,000 Each Claim`.
+- `table_cell` spans point back to their parent row.
+
+Extraction prompts, source grounding, and source chunks prefer row spans over isolated cells. Cell spans remain available for UI highlighting, but row spans are the canonical evidence for table-derived policy facts.
+
 ### Long text spans
 
 Use `buildTextSourceSpans()` for emails, notes, or long pasted text:
@@ -88,4 +111,4 @@ const spans = buildTextSourceSpans({
 const chunks = chunkSourceSpans(spans, { maxChars: 6000 });
 ```
 
-Each chunk stores the source span IDs it was built from. Retrieval can return a chunk for context while the final citation still points to the original span.
+Each chunk stores the source span IDs it was built from. Retrieval can return a chunk for context while the final citation still points to the original span. When row spans exist, child cells are not duplicated into source chunks ahead of their parent rows.

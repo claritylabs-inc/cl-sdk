@@ -62,6 +62,45 @@ function sourceHashFor(spans: SourceSpan[]): string | undefined {
   return spans.map((span) => span.textHash ?? span.hash).filter(Boolean).join(":") || undefined;
 }
 
+function sourceUnit(span: SourceSpan): string | undefined {
+  return span.sourceUnit ?? span.metadata?.sourceUnit;
+}
+
+function hierarchyScore(span: SourceSpan): number {
+  switch (sourceUnit(span)) {
+    case "table_row":
+      return 5;
+    case "table":
+      return 3;
+    case "section":
+    case "page":
+      return 2;
+    case "table_cell":
+      return -2;
+    default:
+      return 0;
+  }
+}
+
+function parentRowId(span: SourceSpan): string | undefined {
+  return span.parentSpanId ?? span.table?.rowSpanId ?? span.metadata?.rowSpanId;
+}
+
+function preferParentRows(matches: SourceSpan[], sourceSpans: SourceSpan[]): SourceSpan[] {
+  if (matches.length === 0) return matches;
+  const byId = new Map(sourceSpans.map((span) => [span.id, span]));
+  const expanded: SourceSpan[] = [];
+  const seen = new Set<string>();
+  for (const match of matches) {
+    const parent = sourceUnit(match) === "table_cell" ? byId.get(parentRowId(match) ?? "") : undefined;
+    const preferred = parent && sourceUnit(parent) === "table_row" ? parent : match;
+    if (seen.has(preferred.id)) continue;
+    seen.add(preferred.id);
+    expanded.push(preferred);
+  }
+  return expanded;
+}
+
 export function findSourceSpansForRecord(record: Record<string, unknown>, sourceSpans: SourceSpan[]): SourceSpan[] {
   if (sourceSpans.length === 0) return [];
   const pageStart = numberValue(record, "pageNumber", "pageStart");
@@ -73,6 +112,7 @@ export function findSourceSpansForRecord(record: Record<string, unknown>, source
       if (pageOverlaps(pageStart, pageEnd, span)) score += 4;
       if (formMatches(record, span)) score += 3;
       if (textMatches(record, span)) score += 2;
+      if (score > 0) score += hierarchyScore(span);
       return { span, score };
     })
     .filter((item) => item.score >= 2)
@@ -81,7 +121,7 @@ export function findSourceSpansForRecord(record: Record<string, unknown>, source
       return left.span.id.localeCompare(right.span.id);
     });
 
-  return scored.slice(0, 3).map((item) => item.span);
+  return preferParentRows(scored.slice(0, 5).map((item) => item.span), sourceSpans).slice(0, 3);
 }
 
 function groundRecord<T extends Record<string, unknown>>(record: T, sourceSpans: SourceSpan[]): T {

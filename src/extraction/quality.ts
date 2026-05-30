@@ -2,8 +2,10 @@ import type { PageAssignment } from "../prompts/coordinator/page-map";
 import type { ReviewResult } from "../prompts/coordinator/review";
 import type { BaseQualityIssue, QualityArtifact, QualityGateStatus, QualityRound, UnifiedQualityReport } from "../core/quality";
 import { evaluateQualityGate } from "../core/quality";
+import type { SourceSpan } from "../source";
 import type { FormInventoryEntry as ExtractedFormInventoryEntry } from "../prompts/coordinator/form-inventory";
 import { looksCoveredReasonSection } from "./heuristics";
+import { recoverCoverageScheduleRows } from "./coverage-schedule-recovery";
 
 export interface FormInventoryEntry {
   formNumber: string;
@@ -111,6 +113,7 @@ export function buildExtractionReviewReport(params: {
   pageAssignments: PageAssignment[];
   reviewRounds: ReviewRoundRecord[];
   sourceSpansAvailable?: boolean;
+  sourceSpans?: SourceSpan[];
 }): ExtractionReviewReport {
   const { memory, reviewRounds } = params;
   const deterministicIssues: QualityIssue[] = [];
@@ -143,6 +146,30 @@ export function buildExtractionReviewReport(params: {
     addMissingSourceGroundingIssues(deterministicIssues, "sections", "sections", sections, "title");
     addMissingSourceGroundingIssues(deterministicIssues, "definitions", "definitions", definitions, "term");
     addMissingSourceGroundingIssues(deterministicIssues, "covered_reasons", "coveredReasons", coveredReasons, "name");
+  }
+
+  if (params.sourceSpans?.length) {
+    const tempCoveragePayload = {
+      ...(memory.get("coverage_limits") as Record<string, unknown> | undefined ?? {}),
+      coverages: coverages.map((coverage) => ({ ...coverage })),
+    };
+    const tempMemory = new Map(memory);
+    tempMemory.set("coverage_limits", tempCoveragePayload);
+    const scheduleRecovery = recoverCoverageScheduleRows({
+      memory: tempMemory,
+      sourceSpans: params.sourceSpans,
+      pageAssignments: params.pageAssignments,
+    });
+    for (const recovered of scheduleRecovery.recovered) {
+      deterministicIssues.push({
+        code: "coverage_schedule_row_missing",
+        severity: "blocking",
+        message: `Coverage schedule row "${String(recovered.name ?? "unknown")}" is present in source table evidence but missing from extracted coverages.`,
+        extractorName: "coverage_limits",
+        pageNumber: typeof recovered.pageNumber === "number" ? recovered.pageNumber : undefined,
+        itemName: typeof recovered.name === "string" ? recovered.name : undefined,
+      });
+    }
   }
 
   if (mappedDefinitions && definitions.length === 0) {

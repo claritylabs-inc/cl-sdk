@@ -60,7 +60,7 @@ describe("Docling normalization", () => {
     expect(normalized.fullText).toContain("| Coverage | Limit |");
     expect(getDoclingPageRangeText(normalized, 2, 2)).not.toContain("Page 1");
     expect(getDoclingPageRangeText(normalized, 2, 2)).toContain("Building limit $1,000,000");
-    expect(normalized.sourceSpans).toHaveLength(3);
+    expect(normalized.sourceSpans).toHaveLength(9);
     expect(normalized.sourceSpans[0]).toEqual(expect.objectContaining({
       documentId: "doc-1",
       kind: "plain_text",
@@ -72,6 +72,26 @@ describe("Docling normalization", () => {
         doclingRef: "#/texts/0",
       }),
       bbox: [{ page: 1, x: 10, y: 20, width: 200, height: 20 }],
+    }));
+    const tableSpan = normalized.sourceSpans.find((span) => span.sourceUnit === "table");
+    const rowSpan = normalized.sourceSpans.find((span) =>
+      span.sourceUnit === "table_row" && span.text.includes("Coverage: Building")
+    );
+    const cellSpan = normalized.sourceSpans.find((span) =>
+      span.sourceUnit === "table_cell" && span.text === "$1,000,000"
+    );
+    expect(tableSpan).toEqual(expect.objectContaining({
+      table: expect.objectContaining({ tableId: "#/tables/0:table" }),
+    }));
+    expect(rowSpan).toEqual(expect.objectContaining({
+      parentSpanId: tableSpan?.id,
+      table: expect.objectContaining({ rowIndex: 1, tableSpanId: tableSpan?.id }),
+      metadata: expect.objectContaining({ sourceUnit: "table_row" }),
+    }));
+    expect(cellSpan).toEqual(expect.objectContaining({
+      parentSpanId: rowSpan?.id,
+      table: expect.objectContaining({ rowSpanId: rowSpan?.id, columnName: "Limit" }),
+      metadata: expect.objectContaining({ sourceUnit: "table_cell" }),
     }));
   });
 

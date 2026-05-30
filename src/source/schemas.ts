@@ -10,6 +10,17 @@ export const SourceSpanKindSchema = z.enum([
 ]);
 export type SourceSpanKind = z.infer<typeof SourceSpanKindSchema>;
 
+export const SourceSpanUnitSchema = z.enum([
+  "page",
+  "section",
+  "table",
+  "table_row",
+  "table_cell",
+  "key_value",
+  "text",
+]);
+export type SourceSpanUnit = z.infer<typeof SourceSpanUnitSchema>;
+
 export const SourceKindSchema = z.enum([
   "policy_pdf",
   "application_pdf",
@@ -40,6 +51,17 @@ export const SourceSpanLocationSchema = z.object({
 });
 export type SourceSpanLocation = z.infer<typeof SourceSpanLocationSchema>;
 
+export const SourceSpanTableLocationSchema = z.object({
+  tableId: z.string().optional(),
+  rowIndex: z.number().int().nonnegative().optional(),
+  columnIndex: z.number().int().nonnegative().optional(),
+  columnName: z.string().optional(),
+  rowSpanId: z.string().optional(),
+  tableSpanId: z.string().optional(),
+  isHeader: z.boolean().optional(),
+});
+export type SourceSpanTableLocation = z.infer<typeof SourceSpanTableLocationSchema>;
+
 export const SourceSpanSchema = z.object({
   id: z.string().min(1),
   documentId: z.string().min(1),
@@ -53,6 +75,9 @@ export const SourceSpanSchema = z.object({
   pageEnd: z.number().int().positive().optional(),
   sectionId: z.string().optional(),
   formNumber: z.string().optional(),
+  sourceUnit: SourceSpanUnitSchema.optional(),
+  parentSpanId: z.string().optional(),
+  table: SourceSpanTableLocationSchema.optional(),
   bbox: z.array(SourceSpanBBoxSchema).optional(),
   location: SourceSpanLocationSchema.optional(),
   metadata: z.record(z.string(), z.string()).optional(),

@@ -34,6 +34,7 @@ import { buildSummaryPrompt, SummaryResultSchema, type SummaryResult } from "../
 import { formatExtractorCatalogForPrompt } from "../prompts/extractors/index";
 import { buildSupplementaryPrompt, SupplementarySchema } from "../prompts/extractors/supplementary";
 import { resolveReferentialCoverages } from "./resolve-referential";
+import { recoverCoverageScheduleRows } from "./coverage-schedule-recovery";
 import { runFocusedExtractorWithFallback } from "./focused-dispatch";
 import { buildExtractionReviewReport, toReviewRoundRecord, type ExtractionReviewReport, type ReviewRoundRecord } from "./quality";
 import { shouldFailQualityGate } from "../core/quality";
@@ -934,6 +935,15 @@ export function createExtractor(config: ExtractorConfig) {
         }
       }
 
+      const recoveredCoverages = recoverCoverageScheduleRows({
+        memory,
+        sourceSpans,
+        pageAssignments,
+      });
+      if (recoveredCoverages.recovered.length > 0) {
+        await log?.(`Recovered ${recoveredCoverages.recovered.length} source-backed coverage schedule row(s) from table evidence`);
+      }
+
       const planIncludesSupplementary = tasks.some((task) => task.extractorName === "supplementary");
       if (!planIncludesSupplementary && hasSupplementaryExtractionSignal(pageAssignments, formInventory, memory)) {
         onProgress?.("Extracting supplementary retrieval facts...");
@@ -1037,6 +1047,7 @@ export function createExtractor(config: ExtractorConfig) {
         pageAssignments,
         reviewRounds,
         sourceSpansAvailable: sourceSpans.length > 0,
+        sourceSpans,
       });
 
       if (shouldRunLlmReview(reviewMode, preReviewReport, sourceSpans.length > 0)) {
@@ -1112,6 +1123,14 @@ export function createExtractor(config: ExtractorConfig) {
               mergeMemoryResult(result.name, result.data, memory);
             }
           }
+          const recoveredCoverages = recoverCoverageScheduleRows({
+            memory,
+            sourceSpans,
+            pageAssignments,
+          });
+          if (recoveredCoverages.recovered.length > 0) {
+            await log?.(`Recovered ${recoveredCoverages.recovered.length} source-backed coverage schedule row(s) from follow-up table evidence`);
+          }
         }
       } else {
         onProgress?.("Skipping LLM extraction review; deterministic checks passed.");
@@ -1124,6 +1143,7 @@ export function createExtractor(config: ExtractorConfig) {
         pageAssignments,
         reviewRounds,
         sourceSpansAvailable: sourceSpans.length > 0,
+        sourceSpans,
       });
 
       if (reviewReport.issues.length > 0) {
@@ -1155,6 +1175,7 @@ export function createExtractor(config: ExtractorConfig) {
       pageAssignments,
       reviewRounds,
       sourceSpansAvailable: sourceSpans.length > 0,
+      sourceSpans,
     });
 
     // Step 7: Assemble

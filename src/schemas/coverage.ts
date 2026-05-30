@@ -26,6 +26,8 @@ export const CoverageSchema = z.object({
   deductible: z.string().optional(),
   deductibleAmount: z.number().optional(),
   deductibleValueType: CoverageValueTypeSchema.optional(),
+  trigger: CoverageTriggerSchema.optional(),
+  retroactiveDate: z.string().optional(),
   formNumber: z.string().optional(),
   pageNumber: z.number().optional(),
   sectionRef: z.string().optional(),

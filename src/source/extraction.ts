@@ -4,6 +4,8 @@ import {
   type SourceChunk,
   type SourceKind,
   type SourceSpan,
+  type SourceSpanTableLocation,
+  type SourceSpanUnit,
 } from "./schemas";
 import { sourceSpanTextHash, stableHash } from "./ids";
 
@@ -15,6 +17,9 @@ export interface SourceTextUnitInput {
   pageEnd?: number;
   sectionId?: string;
   formNumber?: string;
+  sourceUnit?: SourceSpanUnit;
+  parentSpanId?: string;
+  table?: SourceSpanTableLocation;
   metadata?: Record<string, string>;
 }
 
@@ -70,6 +75,9 @@ export function buildSourceSpan(input: SourceTextUnitInput, localIndex = 0): Sou
     pageEnd: input.pageEnd,
     sectionId: input.sectionId,
     formNumber: input.formNumber,
+    sourceUnit: input.sourceUnit,
+    parentSpanId: input.parentSpanId,
+    table: input.table,
     location: {
       page: input.pageStart === input.pageEnd ? input.pageStart : undefined,
       startPage: input.pageStart,
@@ -93,7 +101,11 @@ export function buildPageSourceSpans(pages: SourcePageInput[]): SourceSpan[] {
           pageEnd: page.pageNumber,
           sectionId: page.sectionId,
           formNumber: page.formNumber,
-          metadata: page.metadata,
+          sourceUnit: "page",
+          metadata: {
+            ...(page.metadata ?? {}),
+            sourceUnit: page.metadata?.sourceUnit ?? "page",
+          },
         },
         index,
       ),
@@ -120,6 +132,7 @@ export function buildSectionSourceSpans(
           pageEnd: page.pageNumber,
           sectionId: section.title,
           formNumber: inferFormNumber(section.text),
+          sourceUnit: "section",
           metadata: {
             ...(page.metadata ?? {}),
             sourceUnit: "section_candidate",
@@ -157,6 +170,7 @@ export function chunkSourceSpans(spans: SourceSpan[], options: SourceChunkOption
   const chunks: SourceChunk[] = [];
   let current: SourceSpan[] = [];
   let currentLength = 0;
+  const spansForChunking = filterChunkableSourceSpans(spans);
 
   const flush = () => {
     if (current.length === 0) return;
@@ -182,7 +196,7 @@ export function chunkSourceSpans(spans: SourceSpan[], options: SourceChunkOption
     currentLength = 0;
   };
 
-  for (const span of spans) {
+  for (const span of spansForChunking) {
     const nextLength = currentLength + span.text.length + (current.length > 0 ? 2 : 0);
     if (current.length > 0 && nextLength > maxChars) {
       flush();
@@ -193,6 +207,24 @@ export function chunkSourceSpans(spans: SourceSpan[], options: SourceChunkOption
   flush();
 
   return chunks;
+}
+
+function sourceUnit(span: SourceSpan): string | undefined {
+  return span.sourceUnit ?? span.metadata?.sourceUnit;
+}
+
+function filterChunkableSourceSpans(spans: SourceSpan[]): SourceSpan[] {
+  const rowIds = new Set(
+    spans
+      .filter((span) => sourceUnit(span) === "table_row")
+      .map((span) => span.id),
+  );
+  if (rowIds.size === 0) return spans;
+  return spans.filter((span) => {
+    if (sourceUnit(span) !== "table_cell") return true;
+    const rowId = span.parentSpanId ?? span.table?.rowSpanId ?? span.metadata?.rowSpanId;
+    return !rowId || !rowIds.has(rowId);
+  });
 }
 
 function splitPageIntoSections(

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { buildSourceSpan } from "../../source";
 import { buildExtractionReviewReport } from "../../extraction/quality";
 import { commercialPropertyReviewFixture } from "../fixtures/extraction/commercial-property-review.fixture";
 
@@ -144,5 +145,38 @@ describe("buildExtractionReviewReport", () => {
     });
 
     expect(report.issues.some((issue) => issue.code === "deductible_row_as_coverage_limit")).toBe(false);
+  });
+
+  it("blocks when explicit source schedule rows are missing from coverage extraction", () => {
+    const sourceRow = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      pageStart: 18,
+      pageEnd: 18,
+      text: "Premium Trust Fund Sub-Limit (Each Claim / Aggregate): CAD $250,000 / $250,000",
+      sourceUnit: "table_row",
+      table: { tableId: "table-18", tableSpanId: "table-18", rowIndex: 1 },
+      metadata: { sourceUnit: "table_row", tableId: "table-18", tableSpanId: "table-18", rowIndex: "1", isHeader: "false" },
+    }, 1);
+
+    const report = buildExtractionReviewReport({
+      memory: new Map<string, unknown>([
+        ["coverage_limits", { coverages: [] }],
+      ]),
+      pageAssignments: [{ localPageNumber: 18, extractorNames: ["coverage_limits"], hasScheduleValues: true }],
+      reviewRounds: [{ round: 1, complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] }],
+      sourceSpansAvailable: true,
+      sourceSpans: [sourceRow],
+    });
+
+    expect(report.qualityGateStatus).toBe("failed");
+    expect(report.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "coverage_schedule_row_missing",
+        severity: "blocking",
+        extractorName: "coverage_limits",
+        pageNumber: 18,
+      }),
+    ]));
   });
 });
