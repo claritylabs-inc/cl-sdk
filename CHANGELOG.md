@@ -1,3 +1,10 @@
+## [2.0.1](https://github.com/claritylabs-inc/cl-sdk/compare/v2.0.0...v2.0.1) (2026-05-31)
+
+
+### Bug Fixes
+
+* **release:** publish v2.0.1 after npm tombstone ([733aed4](https://github.com/claritylabs-inc/cl-sdk/commit/733aed4c5576807d3cdcba3155f9af3b386a1ff0))
+
 # [2.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.8...v2.0.0) (2026-05-31)
 
 
