@@ -1,3 +1,13 @@
+# [2.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.8...v2.0.0) (2026-05-31)
+
+
+* feat!: add source-native document structure ([803e6df](https://github.com/claritylabs-inc/cl-sdk/commit/803e6df4b196b43e4694a7f5a0bc8c78f358d790))
+
+
+### BREAKING CHANGES
+
+* PolicyDocument and QuoteDocument now require documentMetadata and documentOutline.
+
 ## [1.3.8](https://github.com/claritylabs-inc/cl-sdk/compare/v1.3.7...v1.3.8) (2026-05-30)
 
 
