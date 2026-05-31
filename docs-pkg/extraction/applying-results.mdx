@@ -13,6 +13,8 @@ The extraction pipeline returns a fully typed `ExtractionResult` containing the 
 interface ExtractionResult {
   document: InsuranceDocument;  // Fully typed policy or quote
   chunks: DocumentChunk[];       // Ready for vector storage
+  sourceSpans: SourceSpan[];     // Source evidence spans, including page/row/cell hierarchy when available
+  sourceChunks: SourceChunk[];   // Retrieval windows built from source spans
   tokenUsage: TokenUsage;        // Cumulative { inputTokens, outputTokens }
   usageReporting: {
     modelCalls: number;
@@ -64,6 +66,8 @@ These fields appear on both `PolicyDocument` and `QuoteDocument`:
 | `insuredNaicsCode` | `string?` | NAICS code |
 | `additionalNamedInsureds` | `NamedInsured[]?` | Additional named insureds |
 | `policyTypes` | `string[]?` | Lines of business |
+| `documentMetadata` | `DocumentMetadata` | Required v2 metadata for form inventory, table of contents, page map, and agent guidance; nested arrays may be absent when unavailable |
+| `documentOutline` | `DocumentNode[]` | Required v2 source-order document outline; empty when no reliable structure is available |
 | `premium` | `string?` | Total premium |
 | `totalCost` | `string?` | Premium + taxes + fees |
 | `summary` | `string?` | AI-generated 1–3 sentence overview (populated by the Summarize phase) |
@@ -98,6 +102,41 @@ These fields appear on both `PolicyDocument` and `QuoteDocument`:
 | `lossSummary` | `LossSummary?` | Loss history summary |
 | `individualClaims` | `ClaimRecord[]?` | Individual claim records |
 | `experienceMod` | `ExperienceMod?` | Experience modification |
+
+### Source-native document structure
+
+In v2, `documentMetadata` and `documentOutline` are required on every `PolicyDocument` and `QuoteDocument`. This is a breaking schema change from v1: hosts should persist both fields and render `documentOutline` as the primary policy breakdown whenever it is non-empty.
+
+`documentOutline` preserves the original document hierarchy and order. Use SDK labels such as `type`, `label`, and `interpretationLabels` as interpretation hints only; do not regroup the document into application-owned buckets such as "strict policy details" or "covered reasons" when rendering the policy text. Extracted facts can carry `documentNodeId`, `sourceSpanIds`, and `sourceTextHash`, which lets a host show the fact inside the original section while still opening the precise source span.
+
+```typescript
+interface DocumentMetadata {
+  formInventory?: FormReference[];
+  tableOfContents?: DocumentTableOfContentsEntry[];
+  pageMap?: DocumentPageMapEntry[];
+  agentGuidance?: DocumentAgentGuidance[];
+}
+
+interface DocumentNode {
+  id: string;
+  title: string;
+  originalTitle?: string;
+  type?: string;
+  label?: string;
+  level?: number;
+  sectionNumber?: string;
+  pageStart?: number;
+  pageEnd?: number;
+  formNumber?: string;
+  formTitle?: string;
+  excerpt?: string;
+  content?: string;
+  interpretationLabels?: string[];
+  sourceSpanIds?: string[];
+  sourceTextHash?: string;
+  children?: DocumentNode[];
+}
+```
 
 ### PolicyDocument fields
 

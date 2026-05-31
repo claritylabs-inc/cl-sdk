@@ -10,6 +10,8 @@ describe("document schemas", () => {
     policyNumber: "POL-001",
     effectiveDate: "01/01/2026",
     coverages: [],
+    documentMetadata: {},
+    documentOutline: [],
   };
 
   it("validates a minimal policy", () => {
@@ -27,14 +29,27 @@ describe("document schemas", () => {
     insuredName: "Test Corp",
     quoteNumber: "Q-001",
     coverages: [],
+    documentMetadata: {},
+    documentOutline: [],
   };
 
   it("validates a minimal quote", () => {
     expect(QuoteDocumentSchema.parse(minimalQuote)).toMatchObject({ id: "q-1", type: "quote" });
   });
 
-  it("rejects missing required fields", () => {
+  it("rejects missing required fields and major-version document structure", () => {
     expect(() => PolicyDocumentSchema.parse({ id: "pol-2", type: "policy" })).toThrow();
+    expect(() =>
+      PolicyDocumentSchema.parse({
+        id: "pol-2",
+        type: "policy",
+        carrier: "Acme",
+        insuredName: "Test Corp",
+        policyNumber: "POL-002",
+        effectiveDate: "01/01/2026",
+        coverages: [],
+      }),
+    ).toThrow();
   });
 
   it("accepts policy with optional enriched fields", () => {
@@ -89,6 +104,70 @@ describe("document schemas", () => {
 
     expect(result.definitions?.[0]?.term).toBe("Occurrence");
     expect(result.coveredReasons?.[0]?.title).toBe("Fire");
+  });
+
+  it("accepts source-backed document metadata and outline", () => {
+    const result = PolicyDocumentSchema.parse({
+      ...minimalPolicy,
+      documentMetadata: {
+        tableOfContents: [
+          {
+            title: "Declarations",
+            level: 1,
+            pageStart: 1,
+            documentNodeId: "node-declarations",
+            sourceSpanIds: ["span-page-1"],
+          },
+        ],
+        pageMap: [
+          {
+            page: 1,
+            label: "Declarations",
+            extractorNames: ["carrier_info", "declarations"],
+            sourceSpanIds: ["span-page-1"],
+          },
+        ],
+        agentGuidance: [
+          {
+            kind: "declarations",
+            title: "Declarations establish facts",
+            detail: "Use declarations as the primary source for policy facts unless modified.",
+          },
+        ],
+      },
+      documentOutline: [
+        {
+          id: "node-declarations",
+          title: "Declarations",
+          originalTitle: "Declarations",
+          type: "declarations",
+          pageStart: 1,
+          pageEnd: 1,
+          sourceSpanIds: ["span-page-1"],
+          children: [
+            {
+              id: "node-declarations-insured",
+              title: "Named insured",
+              pageStart: 1,
+              pageEnd: 1,
+              sourceSpanIds: ["span-row-1"],
+            },
+          ],
+        },
+      ],
+      coverages: [
+        {
+          name: "General Liability",
+          limit: "$1,000,000",
+          documentNodeId: "node-declarations",
+          sourceSpanIds: ["span-row-2"],
+        },
+      ],
+    });
+
+    expect(result.documentMetadata?.tableOfContents?.[0]?.title).toBe("Declarations");
+    expect(result.documentOutline?.[0]?.children?.[0]?.id).toBe("node-declarations-insured");
+    expect(result.coverages[0]?.documentNodeId).toBe("node-declarations");
   });
 
   it("accepts quote with enriched fields", () => {

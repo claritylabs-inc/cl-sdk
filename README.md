@@ -12,7 +12,7 @@ npm install @claritylabs/cl-sdk pdf-lib zod
 
 ## What It Does
 
-- **Document Extraction** — Deterministic extraction pipeline with focused model calls that turns insurance PDFs or host-provided Docling documents into structured data with page-level provenance, quality gates, first-class definitions and covered reasons, referential coverage resolution, cost-aware formatting, and automatic declarations-to-schema promotion (limits, deductibles, locations, broker, loss payees, premium, taxes/fees, summary)
+- **Document Extraction** — Deterministic extraction pipeline with focused model calls that turns insurance PDFs or host-provided Docling documents into structured data with page-level provenance, source-backed document metadata, a hierarchy-preserving document outline, quality gates, first-class definitions and covered reasons, referential coverage resolution, cost-aware formatting, and automatic declarations-to-schema promotion (limits, deductibles, locations, broker, loss payees, premium, taxes/fees, summary)
 - **Source Grounding** — Shared source spans, hierarchical table row/cell evidence, source chunks, source stores, quoted evidence validation, and deterministic evidence ordering across extraction, query, application, PCE, and case workflows
 - **Query Agent** — Citation-backed question answering over stored documents, source spans, and inbound photos/PDFs/text with sub-question decomposition, bounded retrieval planning, attachment-only reasoning when retrieval is unnecessary, and grounding verification
 - **Application Processing** — Bounded workflows handle intake with deterministic planning — field extraction, prior-answer backfill, context auto-fill, document lookup gating, topic-based question batching, reply parsing, source-backed field provenance, and PDF mapping
@@ -81,6 +81,8 @@ const result = await extractor.extract(pdfBase64, "policy-123", { sourceSpans })
 ```
 
 When source spans are available, section and endorsement extraction returns a compact index with page ranges, short excerpts, and `sourceSpanIds`/`sourceTextHash` instead of asking the model to reproduce full policy wording. Table-derived records prefer parent row spans over isolated cells, and coverage schedule rows can be recovered deterministically when the model misses explicit table evidence. Store `result.sourceSpans`/source chunks as the canonical evidence corpus for Q&A and source viewers; use `result.chunks` for structured facts and navigation metadata.
+
+Extraction results always include `documentMetadata` and `documentOutline` in the v2 schema. `documentMetadata` carries form inventory, table-of-contents entries, page-map entries, and agent guidance about document logic; fields are empty when no reliable source structure is available. `documentOutline` preserves the source document's original order and hierarchy; SDK interpretation labels live on nodes as metadata and should not be used to reorganize the source document in host UIs. Extracted facts may include `documentNodeId` plus `sourceSpanIds` so hosts can render facts inside the source outline while still opening exact PDF evidence.
 
 See the [full documentation](https://cl-sdk.claritylabs.inc/docs) for architecture, provider setup, API reference, and more.
 

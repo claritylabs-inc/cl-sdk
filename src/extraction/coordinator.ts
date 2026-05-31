@@ -21,6 +21,7 @@ import {
 } from "./docling";
 import { runExtractor, type PageRangeImage } from "./extractor";
 import { assembleDocument } from "./assembler";
+import { attachDocumentStructure } from "./document-structure";
 import { formatDocumentContent } from "./formatter";
 import { chunkDocument } from "./chunking";
 import { mergeExtractorResult } from "./merge";
@@ -1181,6 +1182,7 @@ export function createExtractor(config: ExtractorConfig) {
     // Step 7: Assemble
     onProgress?.("Assembling document...");
     const document = assembleDocument(id, documentType, memory);
+    attachDocumentStructure({ document, pageAssignments, sourceSpans });
 
     await pipelineCtx.save("assemble", {
       id,

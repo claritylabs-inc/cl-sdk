@@ -26,6 +26,22 @@ Released 2026-05-09.
 - Removed hardcoded numeric promotion for premiums, taxes, fees, limits, and deductibles. Financial and numeric coverage values are now owned by focused extractor and review LLM passes.
 - Source-span form inventory and page mapping now use LLM passes instead of deterministic keyword assignment.
 
+## v2.0.0 -- Source-Native Document Structure
+
+Released 2026-05-31.
+
+### Breaking
+
+- `PolicyDocument` and `QuoteDocument` now require `documentMetadata` and `documentOutline`. Hosts should persist both fields; use `{}` and `[]` respectively only when no reliable source structure is available.
+- Policy breakdown renderers should treat `documentOutline` as the canonical source-order hierarchy and use SDK interpretation labels as hints, not as a reason to regroup the document into application-defined categories.
+- Source-backed facts can now carry `documentNodeId`, `sourceSpanIds`, and `sourceTextHash` across coverages, form inventory, premium lines, taxes/fees, definitions, covered reasons, endorsements, exclusions, conditions, sections, and supplementary facts.
+
+### Added
+
+- Added `DocumentMetadata`, `DocumentNode`, table-of-contents entries, page-map entries, and agent guidance schemas.
+- Added deterministic outline assembly from source spans, page assignments, form inventory, and extracted section records.
+- Added source-structure chunks so retrieval can find document navigation metadata in addition to extracted fact chunks.
+
 ## v1.0.1 -- Publishable v1 Release Line
 
 Released 2026-05-08.

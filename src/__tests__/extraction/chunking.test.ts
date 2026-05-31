@@ -11,6 +11,8 @@ describe("chunkDocument", () => {
     insuredName: "Test Corp",
     policyNumber: "POL-001",
     effectiveDate: "01/01/2026",
+    documentMetadata: {},
+    documentOutline: [],
     coverages: [
       {
         name: "General Liability",
@@ -344,6 +346,8 @@ describe("chunkDocument", () => {
       carrier: "Acme Insurance",
       insuredName: "Test Corp",
       quoteNumber: "Q-001",
+      documentMetadata: {},
+      documentOutline: [],
       coverages: [{ name: "GL", limit: "$1M" }],
       subjectivities: [
         { description: "Provide loss runs for 5 years", category: "documentation" },

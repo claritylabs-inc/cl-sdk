@@ -13,6 +13,7 @@ export const PolicyConditionSchema = z.object({
   keyValues: z.array(ConditionKeyValueSchema).optional(),
   pageNumber: z.number().optional(),
   recordId: z.string().optional(),
+  documentNodeId: z.string().optional(),
   sourceSpanIds: z.array(z.string()).optional(),
   sourceTextHash: z.string().optional(),
 });

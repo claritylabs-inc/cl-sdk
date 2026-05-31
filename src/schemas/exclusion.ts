@@ -12,6 +12,7 @@ export const ExclusionSchema = z.object({
   content: z.string(),
   pageNumber: z.number().optional(),
   recordId: z.string().optional(),
+  documentNodeId: z.string().optional(),
   sourceSpanIds: z.array(z.string()).optional(),
   sourceTextHash: z.string().optional(),
 });

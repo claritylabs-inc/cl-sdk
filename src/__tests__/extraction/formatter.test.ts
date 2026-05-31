@@ -11,6 +11,8 @@ function createPolicyDoc(overrides: Partial<PolicyDocument> = {}): PolicyDocumen
     insuredName: "Test Corp",
     policyNumber: "POL-001",
     effectiveDate: "01/01/2026",
+    documentMetadata: {},
+    documentOutline: [],
     coverages: [],
     ...overrides,
   };

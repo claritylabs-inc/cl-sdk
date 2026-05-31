@@ -9,6 +9,9 @@ const ARRAY_PATHS: Array<{ memoryKey: string; arrayKeys: string[] }> = [
   { memoryKey: "definitions", arrayKeys: ["definitions"] },
   { memoryKey: "covered_reasons", arrayKeys: ["coveredReasons", "covered_reasons"] },
   { memoryKey: "declarations", arrayKeys: ["fields"] },
+  { memoryKey: "premium_breakdown", arrayKeys: ["premiumBreakdown", "taxesAndFees"] },
+  { memoryKey: "supplementary", arrayKeys: ["auxiliaryFacts", "supplementaryFacts"] },
+  { memoryKey: "form_inventory", arrayKeys: ["forms"] },
 ];
 
 function normalize(value: string): string {

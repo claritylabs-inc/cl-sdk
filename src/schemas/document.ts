@@ -43,6 +43,7 @@ export const SubsectionSchema = z.object({
   pageNumber: z.number().optional(),
   excerpt: z.string().optional(),
   content: z.string().optional(),
+  documentNodeId: z.string().optional(),
   sourceSpanIds: z.array(z.string()).optional(),
   sourceTextHash: z.string().optional(),
 });
@@ -59,6 +60,7 @@ export const SectionSchema = z.object({
   content: z.string().optional(),
   subsections: z.array(SubsectionSchema).optional(),
   recordId: z.string().optional(),
+  documentNodeId: z.string().optional(),
   sourceSpanIds: z.array(z.string()).optional(),
   sourceTextHash: z.string().optional(),
 });
@@ -79,6 +81,9 @@ export const PremiumLineSchema = z.object({
   line: z.string(),
   amount: z.string(),
   amountValue: z.number().optional(),
+  documentNodeId: z.string().optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+  sourceTextHash: z.string().optional(),
 });
 export type PremiumLine = z.infer<typeof PremiumLineSchema>;
 
@@ -87,6 +92,9 @@ export const AuxiliaryFactSchema = z.object({
   value: z.string(),
   subject: z.string().optional(),
   context: z.string().optional(),
+  documentNodeId: z.string().optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+  sourceTextHash: z.string().optional(),
 });
 export type AuxiliaryFact = z.infer<typeof AuxiliaryFactSchema>;
 
@@ -99,6 +107,7 @@ export const DefinitionSchema = z.object({
   sectionRef: z.string().optional(),
   originalContent: z.string().optional(),
   recordId: z.string().optional(),
+  documentNodeId: z.string().optional(),
   sourceSpanIds: z.array(z.string()).optional(),
   sourceTextHash: z.string().optional(),
 });
@@ -118,10 +127,90 @@ export const CoveredReasonSchema = z.object({
   sectionRef: z.string().optional(),
   originalContent: z.string().optional(),
   recordId: z.string().optional(),
+  documentNodeId: z.string().optional(),
   sourceSpanIds: z.array(z.string()).optional(),
   sourceTextHash: z.string().optional(),
 });
 export type CoveredReason = z.infer<typeof CoveredReasonSchema>;
+
+export const DocumentTableOfContentsEntrySchema = z.object({
+  title: z.string(),
+  level: z.number().int().positive().optional(),
+  pageStart: z.number().optional(),
+  pageEnd: z.number().optional(),
+  documentNodeId: z.string().optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+});
+export type DocumentTableOfContentsEntry = z.infer<typeof DocumentTableOfContentsEntrySchema>;
+
+export const DocumentPageMapEntrySchema = z.object({
+  page: z.number().int().positive(),
+  label: z.string().optional(),
+  formNumber: z.string().optional(),
+  formTitle: z.string().optional(),
+  sectionTitle: z.string().optional(),
+  extractorNames: z.array(z.string()).optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+});
+export type DocumentPageMapEntry = z.infer<typeof DocumentPageMapEntrySchema>;
+
+export const DocumentAgentGuidanceSchema = z.object({
+  kind: z.string(),
+  title: z.string(),
+  detail: z.string(),
+  sourceSpanIds: z.array(z.string()).optional(),
+});
+export type DocumentAgentGuidance = z.infer<typeof DocumentAgentGuidanceSchema>;
+
+export const DocumentMetadataSchema = z.object({
+  formInventory: z.array(FormReferenceSchema).optional(),
+  tableOfContents: z.array(DocumentTableOfContentsEntrySchema).optional(),
+  pageMap: z.array(DocumentPageMapEntrySchema).optional(),
+  agentGuidance: z.array(DocumentAgentGuidanceSchema).optional(),
+});
+export type DocumentMetadata = z.infer<typeof DocumentMetadataSchema>;
+
+export type DocumentNode = {
+  id: string;
+  title: string;
+  originalTitle?: string;
+  type?: string;
+  label?: string;
+  level?: number;
+  sectionNumber?: string;
+  pageStart?: number;
+  pageEnd?: number;
+  formNumber?: string;
+  formTitle?: string;
+  excerpt?: string;
+  content?: string;
+  interpretationLabels?: string[];
+  sourceSpanIds?: string[];
+  sourceTextHash?: string;
+  children?: DocumentNode[];
+};
+
+export const DocumentNodeSchema: z.ZodType<DocumentNode> = z.lazy(() =>
+  z.object({
+    id: z.string(),
+    title: z.string(),
+    originalTitle: z.string().optional(),
+    type: z.string().optional(),
+    label: z.string().optional(),
+    level: z.number().int().positive().optional(),
+    sectionNumber: z.string().optional(),
+    pageStart: z.number().optional(),
+    pageEnd: z.number().optional(),
+    formNumber: z.string().optional(),
+    formTitle: z.string().optional(),
+    excerpt: z.string().optional(),
+    content: z.string().optional(),
+    interpretationLabels: z.array(z.string()).optional(),
+    sourceSpanIds: z.array(z.string()).optional(),
+    sourceTextHash: z.string().optional(),
+    children: z.array(DocumentNodeSchema).optional(),
+  }),
+);
 
 // ── Base document fields (shared between policy and quote) ──
 
@@ -135,6 +224,8 @@ const BaseDocumentFields = {
   summary: z.string().optional(),
   policyTypes: z.array(z.string()).optional(),
   coverages: z.array(CoverageSchema),
+  documentMetadata: DocumentMetadataSchema,
+  documentOutline: z.array(DocumentNodeSchema),
   sections: z.array(SectionSchema).optional(),
   definitions: z.array(DefinitionSchema).optional(),
   coveredReasons: z.array(CoveredReasonSchema).optional(),

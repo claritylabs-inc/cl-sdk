@@ -26,6 +26,7 @@ export const EndorsementSchema = z.object({
   pageStart: z.number(),
   pageEnd: z.number().optional(),
   recordId: z.string().optional(),
+  documentNodeId: z.string().optional(),
   sourceSpanIds: z.array(z.string()).optional(),
   sourceTextHash: z.string().optional(),
 });

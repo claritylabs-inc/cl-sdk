@@ -43,6 +43,7 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
     definitions?: Array<Record<string, unknown>>;
     coveredReasons?: Array<Record<string, unknown>>;
     covered_reasons?: Array<Record<string, unknown>>;
+    documentOutline?: Array<Record<string, unknown>>;
   };
 
   function stringMetadata(entries: Record<string, MetadataValue>): Record<string, string> {
@@ -372,6 +373,8 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
       {
         formNumber: form.formNumber,
         formType: form.formType,
+        documentNodeId: form.documentNodeId,
+        sourceSpanIds: form.sourceSpanIds?.join(","),
         documentType: doc.type,
       },
     );
@@ -400,6 +403,7 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
         formNumber: end.formNumber,
         pageStart: end.pageStart,
         pageEnd: end.pageEnd,
+        documentNodeId: end.documentNodeId,
         sourceSpanIds: end.sourceSpanIds?.join(","),
         sourceTextHash: end.sourceTextHash,
         documentType: doc.type,
@@ -412,6 +416,8 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
     pushChunk(`exclusion:${i}`, "exclusion", `Exclusion: ${exc.name}\n${exc.content}`.trim(), {
       formNumber: exc.formNumber,
       pageNumber: exc.pageNumber,
+      documentNodeId: exc.documentNodeId,
+      sourceSpanIds: exc.sourceSpanIds?.join(","),
       documentType: doc.type,
     });
   });
@@ -431,6 +437,8 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
         conditionName: cond.name,
         conditionType: cond.conditionType,
         pageNumber: cond.pageNumber,
+        documentNodeId: cond.documentNodeId,
+        sourceSpanIds: cond.sourceSpanIds?.join(","),
         documentType: doc.type,
       },
     );
@@ -454,6 +462,9 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
         formTitle: firstString(definition, ["formTitle"]),
         pageNumber: typeof definition.pageNumber === "number" ? definition.pageNumber : undefined,
         sectionRef: firstString(definition, ["sectionRef", "sectionTitle"]),
+        documentNodeId: firstString(definition, ["documentNodeId"]),
+        sourceSpanIds: Array.isArray(definition.sourceSpanIds) ? definition.sourceSpanIds.join(",") : undefined,
+        sourceTextHash: firstString(definition, ["sourceTextHash"]),
         documentType: doc.type,
       },
     );
@@ -484,6 +495,9 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
         formTitle: firstString(coveredReason, ["formTitle"]),
         pageNumber: typeof coveredReason.pageNumber === "number" ? coveredReason.pageNumber : undefined,
         sectionRef: firstString(coveredReason, ["sectionRef", "sectionTitle"]),
+        documentNodeId: firstString(coveredReason, ["documentNodeId"]),
+        sourceSpanIds: Array.isArray(coveredReason.sourceSpanIds) ? coveredReason.sourceSpanIds.join(",") : undefined,
+        sourceTextHash: firstString(coveredReason, ["sourceTextHash"]),
         documentType: doc.type,
       },
     );
@@ -552,6 +566,7 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
         evidenceKind: "navigation",
         sectionType: sec.type,
         sectionNumber: sec.sectionNumber,
+        documentNodeId: sec.documentNodeId,
         pageStart: sec.pageStart,
         pageEnd: sec.pageEnd,
         sourceSpanIds: sec.sourceSpanIds?.join(","),
@@ -576,6 +591,7 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
           sectionType: sec.type,
           parentSection: sec.title,
           sectionNumber: sub.sectionNumber,
+          documentNodeId: sub.documentNodeId,
           pageNumber: sub.pageNumber,
           sourceSpanIds: sub.sourceSpanIds?.join(","),
           sourceTextHash: sub.sourceTextHash,
@@ -583,6 +599,36 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
         },
       );
     });
+  });
+
+  asRecordArray(extendedDoc.documentOutline).forEach((node, i) => {
+    const title = firstString(node, ["title", "originalTitle"]) ?? `Document Node ${i + 1}`;
+    const children = asRecordArray(node.children);
+    pushChunk(
+      `section:outline:${i}`,
+      "section",
+      lines([
+        `Document Outline: ${title}`,
+        firstString(node, ["label", "type"]) ? `Label: ${firstString(node, ["label", "type"])}` : null,
+        typeof node.pageStart === "number"
+          ? `Pages: ${node.pageStart}${typeof node.pageEnd === "number" ? `-${node.pageEnd}` : ""}`
+          : null,
+        firstString(node, ["excerpt", "content"]),
+        children.length > 0
+          ? `Children: ${children.map((child, childIndex) => firstString(child, ["title", "originalTitle"]) ?? `Child ${childIndex + 1}`).join(", ")}`
+          : null,
+      ]),
+      {
+        evidenceKind: "navigation",
+        documentNodeId: firstString(node, ["id"]),
+        sectionType: firstString(node, ["type", "label"]),
+        pageStart: typeof node.pageStart === "number" ? node.pageStart : undefined,
+        pageEnd: typeof node.pageEnd === "number" ? node.pageEnd : undefined,
+        sourceSpanIds: Array.isArray(node.sourceSpanIds) ? node.sourceSpanIds.join(",") : undefined,
+        sourceTextHash: firstString(node, ["sourceTextHash"]),
+        documentType: doc.type,
+      },
+    );
   });
 
   // Location chunks — one per insured location

@@ -33,6 +33,7 @@ export const CoverageSchema = z.object({
   sectionRef: z.string().optional(),
   originalContent: z.string().optional(),
   recordId: z.string().optional(),
+  documentNodeId: z.string().optional(),
   sourceSpanIds: z.array(z.string()).optional(),
   sourceTextHash: z.string().optional(),
 });
@@ -64,6 +65,7 @@ export const EnrichedCoverageSchema = z.object({
   sectionRef: z.string().optional(),
   originalContent: z.string().optional(),
   recordId: z.string().optional(),
+  documentNodeId: z.string().optional(),
   sourceSpanIds: z.array(z.string()).optional(),
   sourceTextHash: z.string().optional(),
 });

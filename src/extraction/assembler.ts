@@ -85,6 +85,8 @@ export function assembleDocument(
     carrier: readRecordValue(carrier, "carrierName") ?? "Unknown",
     insuredName: readRecordValue(insured, "insuredName") ?? "Unknown",
     coverages: coverageRecords,
+    documentMetadata: {},
+    documentOutline: [],
     policyTypes: readRecordValue(classify, "policyTypes"),
     ...sanitizeNulls(carrier ?? {}),
     ...sanitizeNulls(insured ?? {}),
@@ -125,7 +127,7 @@ export function assembleDocument(
       effectiveDate: readRecordValue(carrier, "effectiveDate") ?? readRecordValue(insured, "effectiveDate") ?? "Unknown",
       expirationDate: readRecordValue(carrier, "expirationDate"),
       policyTermType: readRecordValue(carrier, "policyTermType"),
-    } as PolicyDocument;
+    } as unknown as PolicyDocument;
   } else {
     doc = {
       ...base,
@@ -136,7 +138,7 @@ export function assembleDocument(
       subjectivities: readRecordValue(coverages, "subjectivities"),
       underwritingConditions: readRecordValue(coverages, "underwritingConditions"),
       premiumBreakdown: readRecordValue(premium, "premiumBreakdown"),
-    } as QuoteDocument;
+    } as unknown as QuoteDocument;
   }
 
   // Promote non-financial declaration data and fix field name mapping.

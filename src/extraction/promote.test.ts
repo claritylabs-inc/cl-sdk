@@ -14,6 +14,8 @@ function makeDoc(overrides: Record<string, unknown> = {}): InsuranceDocument {
     carrier: "Test Carrier",
     insuredName: "Test Insured",
     coverages: [],
+    documentMetadata: {},
+    documentOutline: [],
     policyNumber: "POL-001",
     effectiveDate: "01/01/2025",
     ...overrides,

@@ -26,6 +26,8 @@ describe("SQLite store", () => {
     insuredName: "Test Corp",
     policyNumber: "POL-001",
     effectiveDate: "01/01/2026",
+    documentMetadata: {},
+    documentOutline: [],
     coverages: [{ name: "GL", limit: "$1M" }],
   };
 

@@ -134,6 +134,10 @@ interface SourceSpan {
   pageEnd?: number;
   sectionId?: string;
   formNumber?: string;
+  sourceUnit?: "page" | "section" | "table" | "table_row" | "table_cell" | "key_value" | "text";
+  parentSpanId?: string;
+  table?: SourceSpanTableLocation;
+  bbox?: SourceSpanBBox[];
   location?: SourceSpanLocation;
   metadata?: Record<string, string>;
 }
@@ -176,6 +180,11 @@ interface BaseDocument {
   summary?: string;
   policyTypes?: string[];
   coverages: Coverage[];
+
+  // Required source-native structure in v2.
+  documentMetadata: DocumentMetadata;
+  documentOutline: DocumentNode[];
+
   sections?: Section[];
   definitions?: Definition[];
   coveredReasons?: CoveredReason[];
@@ -261,6 +270,71 @@ interface BaseDocument {
 }
 ```
 
+### `DocumentMetadata`
+
+Required on every `InsuranceDocument`. Arrays may be omitted inside the object when the extractor cannot infer that metadata reliably.
+
+```typescript
+interface DocumentMetadata {
+  formInventory?: FormReference[];
+  tableOfContents?: DocumentTableOfContentsEntry[];
+  pageMap?: DocumentPageMapEntry[];
+  agentGuidance?: DocumentAgentGuidance[];
+}
+
+interface DocumentTableOfContentsEntry {
+  title: string;
+  level?: number;
+  pageStart?: number;
+  pageEnd?: number;
+  documentNodeId?: string;
+  sourceSpanIds?: string[];
+}
+
+interface DocumentPageMapEntry {
+  page: number;
+  label?: string;
+  formNumber?: string;
+  formTitle?: string;
+  sectionTitle?: string;
+  extractorNames?: string[];
+  sourceSpanIds?: string[];
+}
+
+interface DocumentAgentGuidance {
+  kind: string;
+  title: string;
+  detail: string;
+  sourceSpanIds?: string[];
+}
+```
+
+### `DocumentNode`
+
+Required as `documentOutline` on every `InsuranceDocument`; use an empty array when the extractor cannot infer a reliable outline. Nodes preserve source order and hierarchy. `type`, `label`, and `interpretationLabels` are SDK interpretation hints and should not be used to reorganize the source document in host UIs.
+
+```typescript
+interface DocumentNode {
+  id: string;
+  title: string;
+  originalTitle?: string;
+  type?: string;
+  label?: string;
+  level?: number;
+  sectionNumber?: string;
+  pageStart?: number;
+  pageEnd?: number;
+  formNumber?: string;
+  formTitle?: string;
+  excerpt?: string;
+  content?: string;
+  interpretationLabels?: string[];
+  sourceSpanIds?: string[];
+  sourceTextHash?: string;
+  children?: DocumentNode[];
+}
+```
+
 ### `PolicyDocument`
 
 ```typescript
@@ -304,6 +378,9 @@ interface Coverage {
   deductibleAmount?: number;
   pageNumber?: number;
   sectionRef?: string;
+  documentNodeId?: string;
+  sourceSpanIds?: string[];
+  sourceTextHash?: string;
 }
 ```
 
@@ -317,8 +394,12 @@ interface Section {
   pageEnd?: number;
   type: string;
   coverageType?: string;
-  content: string;
+  excerpt?: string;
+  content?: string;
   subsections?: Subsection[];
+  documentNodeId?: string;
+  sourceSpanIds?: string[];
+  sourceTextHash?: string;
 }
 ```
 
@@ -329,7 +410,11 @@ interface Subsection {
   title: string;
   sectionNumber?: string;
   pageNumber?: number;
-  content: string;
+  excerpt?: string;
+  content?: string;
+  documentNodeId?: string;
+  sourceSpanIds?: string[];
+  sourceTextHash?: string;
 }
 ```
 
@@ -357,6 +442,9 @@ interface PremiumLine {
   line: string;
   amount: string;
   amountValue?: number;
+  documentNodeId?: string;
+  sourceSpanIds?: string[];
+  sourceTextHash?: string;
 }
 ```
 

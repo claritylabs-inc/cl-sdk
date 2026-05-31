@@ -30,6 +30,9 @@ export const FormReferenceSchema = z.object({
   formType: z.enum(["coverage", "endorsement", "declarations", "application", "notice", "other"]),
   pageStart: z.number().optional(),
   pageEnd: z.number().optional(),
+  documentNodeId: z.string().optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+  sourceTextHash: z.string().optional(),
 });
 export type FormReference = z.infer<typeof FormReferenceSchema>;
 
@@ -39,6 +42,9 @@ export const TaxFeeItemSchema = z.object({
   amountValue: z.number().optional(),
   type: z.enum(["tax", "fee", "surcharge", "assessment"]).optional(),
   description: z.string().optional(),
+  documentNodeId: z.string().optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+  sourceTextHash: z.string().optional(),
 });
 export type TaxFeeItem = z.infer<typeof TaxFeeItemSchema>;
 
