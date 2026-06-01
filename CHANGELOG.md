@@ -1,3 +1,13 @@
+# [3.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v2.0.1...v3.0.0) (2026-06-01)
+
+
+* feat!: introduce source-tree extraction v3 ([28bb520](https://github.com/claritylabs-inc/cl-sdk/commit/28bb520ae956d5de511192f161b3a01ec9bf4807))
+
+
+### BREAKING CHANGES
+
+* extraction with source spans now returns sourceTree and operationalProfile as the canonical evidence layer, with typed operational projections replacing broad structured extraction as the primary runtime path.
+
 ## [2.0.1](https://github.com/claritylabs-inc/cl-sdk/compare/v2.0.0...v2.0.1) (2026-05-31)
 
 
