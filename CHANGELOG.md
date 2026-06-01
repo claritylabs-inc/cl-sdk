@@ -1,3 +1,10 @@
+## [3.0.1](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.0...v3.0.1) (2026-06-01)
+
+
+### Bug Fixes
+
+* **release:** recover source-tree package publish ([f496a1d](https://github.com/claritylabs-inc/cl-sdk/commit/f496a1d5909c51fb6d8ac6a1ad7a5ab7b2d210c6))
+
 # [3.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v2.0.1...v3.0.0) (2026-06-01)
 
 
