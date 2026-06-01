@@ -33,12 +33,52 @@ export async function retrieve(
 
   const tasks: Promise<void>[] = [];
 
-  // Source-span search. In long-context mode this retrieves larger source spans
-  // from the caller's source store instead of relying on extracted graph chunks.
+  // Source-tree search is the v3 preferred evidence path. It retrieves
+  // hierarchy-expanded source nodes and exact leaf spans from the caller's
+  // source store instead of relying on extracted graph chunks.
   if (retrievalMode === "source_rag" || retrievalMode === "hybrid" || retrievalMode === "long_context") {
     tasks.push(
       (async () => {
         try {
+          const nodeResults = await sourceRetriever?.searchSourceNodes?.({
+            question: subQuestion.question,
+            limit: retrievalLimit,
+            mode: retrievalMode,
+          }) ?? [];
+
+          for (const result of nodeResults) {
+            const hierarchyText = result.hierarchy
+              .map((node) => `${node.path} ${node.title}: ${node.textExcerpt ?? node.description}`)
+              .join("\n");
+            const spanText = result.spans
+              .map((span) => `[source-span:${span.id}${span.pageStart ? ` p.${span.pageStart}` : ""}]\n${span.text}`)
+              .join("\n\n");
+            evidence.push({
+              source: "source_node",
+              sourceNodeId: result.node.id,
+              sourceSpanId: result.spans[0]?.id,
+              documentId: result.node.documentId,
+              text: [hierarchyText, spanText].filter(Boolean).join("\n\n"),
+              relevance: result.relevance,
+              retrievalMode,
+              sourceLocation: result.spans[0]?.location ?? (result.node.pageStart ? { page: result.node.pageStart } : undefined),
+              metadata: [
+                { key: "kind", value: result.node.kind },
+                { key: "path", value: result.node.path },
+                { key: "title", value: result.node.title },
+                ...(result.node.metadata
+                  ? recordToKVArray(Object.fromEntries(
+                      Object.entries(result.node.metadata)
+                        .filter(([, value]) => typeof value === "string")
+                        .map(([key, value]) => [key, value as string]),
+                    ))
+                  : []),
+              ],
+            });
+          }
+
+          if (nodeResults.length > 0) return;
+
           const sourceResults = await sourceRetriever?.searchSourceSpans({
             question: subQuestion.question,
             limit: retrievalLimit,
@@ -59,7 +99,7 @@ export async function retrieve(
             });
           }
         } catch (e) {
-          await log?.(`Source span search failed for "${subQuestion.question}": ${e}`);
+          await log?.(`Source tree search failed for "${subQuestion.question}": ${e}`);
         }
       })(),
     );

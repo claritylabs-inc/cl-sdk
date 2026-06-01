@@ -3,14 +3,16 @@ title: Source Grounding
 description: The shared evidence layer for extraction, query, application, PCE, and case workflows
 ---
 
-Source grounding is the v1 evidence layer. It gives every workflow a common way to represent where a fact came from, how to retrieve it, and whether an agent decision is backed by quoted source text.
+Source grounding is the evidence layer. In v3, source spans remain the smallest addressable units, and extraction builds a retrievable source tree above them so every workflow can reason over document hierarchy without losing exact PDF provenance.
 
 ## Core objects
 
 - `SourceSpan` is the smallest addressable source unit. It stores source kind, text, page range, optional section/form metadata, a stable hash, and optional bounding boxes.
-- `SourceChunk` groups spans into retrieval windows while keeping the original span IDs.
+- `DocumentSourceNode` is the canonical retrieval and hierarchy unit. It groups spans into document, page group, form, endorsement, section, schedule, clause, table, row, cell, and text nodes.
+- `PolicyOperationalProfile` is a source-backed projection for product-critical facts such as policy number, named insured, insurer, broker, policy period, coverage rows, limits, deductibles, premiums, and endorsement support.
+- `SourceChunk` remains a compatibility retrieval window while hosts migrate to source-node indexes.
 - `SourceSpanRef` is a lightweight reference used by extracted records and downstream workflows.
-- `SourceStore` persists spans/chunks and implements `SourceRetriever`.
+- `SourceStore` persists spans/chunks and implements `SourceRetriever`; production hosts should add `searchSourceNodes` for v3 source-tree retrieval.
 
 ## Where spans are used
 
@@ -28,7 +30,7 @@ flowchart LR
   C --> V[Validation + Review]
 ```
 
-Extraction filters spans by page range and passes focused source context into each extractor. Query and PCE use retrievers to find evidence. Application processing forwards spans into classification, field extraction, lookup, and explanation agents. Case workflows validate quoted evidence before proposals are scored or packets are generated.
+Extraction builds a deterministic source tree from spans, optionally lets a bounded organizer label/group existing nodes, and then extracts only source-cited operational facts. Query and PCE use retrievers to find source nodes, expand ancestors/siblings/children, and attach exact spans for citations. Application processing forwards spans into classification, field extraction, lookup, and explanation agents. Case workflows validate quoted evidence before proposals are scored or packets are generated.
 
 ## Minimal setup
 
@@ -54,11 +56,12 @@ const extractor = createExtractor({ generateText, generateObject, sourceStore })
 const result = await extractor.extract("base64-pdf", "policy-123", { sourceSpans });
 ```
 
-`MemorySourceStore` is a reference implementation for tests and small hosts. Production systems usually store spans in the same database as documents and index chunks in a vector or hybrid search system.
+`MemorySourceStore` is a reference implementation for tests and small hosts. Production systems usually store spans in the same database as documents, store source nodes in a hierarchy table, and index node descriptions in vector or hybrid search.
 
 ## Design rules
 
 - Keep spans stable. IDs should change only when the underlying source text changes.
+- Keep source nodes parser-grounded. LLM organization may label or group existing node IDs, but must not invent text, pages, spans, or bounding boxes.
 - Keep quote text short enough to verify, but long enough to identify the policy language.
 - Preserve page and form metadata whenever you have it.
-- Treat source spans as evidence, not truth. The workflow still needs schema validation, review, and conflict handling.
+- Treat operational profiles as materialized projections. Source nodes and source spans are the canonical evidence for policy wording.

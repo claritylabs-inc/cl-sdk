@@ -163,6 +163,8 @@ export const DocumentAgentGuidanceSchema = z.object({
 export type DocumentAgentGuidance = z.infer<typeof DocumentAgentGuidanceSchema>;
 
 export const DocumentMetadataSchema = z.object({
+  sourceTreeVersion: z.string().optional(),
+  sourceTreeCanonical: z.boolean().optional(),
   formInventory: z.array(FormReferenceSchema).optional(),
   tableOfContents: z.array(DocumentTableOfContentsEntrySchema).optional(),
   pageMap: z.array(DocumentPageMapEntrySchema).optional(),

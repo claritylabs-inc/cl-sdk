@@ -105,10 +105,13 @@ interface ExtractorConfig {
 
 ```typescript
 interface ExtractionResult {
+  sourceTree?: DocumentSourceNode[];
+  operationalProfile?: PolicyOperationalProfile;
   document: InsuranceDocument;
   chunks: DocumentChunk[];
   sourceSpans: SourceSpan[];
   sourceChunks: SourceChunk[];
+  warnings?: string[];
   tokenUsage: TokenUsage;
   usageReporting: {
     modelCalls: number;
@@ -118,6 +121,8 @@ interface ExtractionResult {
   performanceReport: PerformanceReport;
 }
 ```
+
+When source spans are provided, v3 extraction returns `sourceTree` and `operationalProfile`, and `chunks` is empty because broad structured chunks are no longer the primary evidence corpus. `document` remains a compatibility projection for hosts that still render `InsuranceDocument`.
 
 ## Source grounding types
 
@@ -151,6 +156,73 @@ interface SourceChunk {
   pageStart?: number;
   pageEnd?: number;
   metadata: Record<string, string>;
+}
+
+type DocumentSourceNodeKind =
+  | "document"
+  | "page_group"
+  | "page"
+  | "form"
+  | "endorsement"
+  | "section"
+  | "schedule"
+  | "clause"
+  | "table"
+  | "table_row"
+  | "table_cell"
+  | "text";
+
+interface DocumentSourceNode {
+  id: string;
+  documentId: string;
+  parentId?: string;
+  kind: DocumentSourceNodeKind;
+  title: string;
+  description: string;
+  textExcerpt?: string;
+  sourceSpanIds: string[];
+  pageStart?: number;
+  pageEnd?: number;
+  bbox?: SourceSpanBBox[];
+  order: number;
+  path: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface SourceBackedValue {
+  value: string;
+  normalizedValue?: string;
+  confidence?: "low" | "medium" | "high";
+  sourceNodeIds: string[];
+  sourceSpanIds: string[];
+}
+
+interface PolicyOperationalProfile {
+  documentType?: "policy" | "quote";
+  policyTypes: string[];
+  policyNumber?: SourceBackedValue;
+  namedInsured?: SourceBackedValue;
+  insurer?: SourceBackedValue;
+  broker?: SourceBackedValue;
+  effectiveDate?: SourceBackedValue;
+  expirationDate?: SourceBackedValue;
+  retroactiveDate?: SourceBackedValue;
+  premium?: SourceBackedValue;
+  coverageTypes: string[];
+  coverages: Array<{
+    name: string;
+    coverageCode?: string;
+    limit?: string;
+    deductible?: string;
+    premium?: string;
+    formNumber?: string;
+    sectionRef?: string;
+    sourceNodeIds: string[];
+    sourceSpanIds: string[];
+  }>;
+  sourceNodeIds: string[];
+  sourceSpanIds: string[];
+  warnings: string[];
 }
 ```
 

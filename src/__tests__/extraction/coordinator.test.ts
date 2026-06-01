@@ -313,7 +313,7 @@ describe("createExtractor", () => {
         documentId: "doc-1",
         sourceKind: "policy_pdf",
         pageNumber: 1,
-        text: "Policy number P-1. Building limit is $1,000,000.",
+        text: "Policy number POL-0001. Building limit is $1,000,000.",
       },
     ]);
     const sourceStore = {
@@ -330,7 +330,7 @@ describe("createExtractor", () => {
       data: {
         exclusions: [{
           name: "Building limit",
-          content: "Policy number P-1. Building limit is $1,000,000.",
+          content: "Policy number POL-0001. Building limit is $1,000,000.",
           pageNumber: 1,
         }],
       },
@@ -348,30 +348,24 @@ describe("createExtractor", () => {
     expect(sourceStore.addSourceChunks).toHaveBeenCalledWith(result.sourceChunks);
     expect(result.sourceSpans).toEqual(sourceSpans);
     expect(result.sourceChunks).toHaveLength(1);
+    expect(result.sourceTree?.some((node) => node.kind === "page")).toBe(true);
+    expect(result.operationalProfile?.policyNumber?.value).toBe("POL-0001");
     expect(safeGenerateObject).toHaveBeenNthCalledWith(
       1,
       expect.any(Function),
       expect.objectContaining({
+        taskKind: "extraction_source_tree",
         providerOptions: expect.objectContaining({
-          pdfBase64: "full-pdf-base64",
           sourceSpans,
           sourceChunks: result.sourceChunks,
         }),
       }),
       expect.any(Object),
     );
-    const memory = assembleDocument.mock.calls[assembleDocument.mock.calls.length - 1][2] as Map<string, unknown>;
-    expect(memory.get("exclusions")).toEqual({
-      exclusions: [
-        expect.objectContaining({
-          sourceSpanIds: [sourceSpans[0].id],
-          sourceTextHash: sourceSpans[0].textHash,
-        }),
-      ],
-    });
+    expect(result.document.documentMetadata?.sourceTreeCanonical).toBe(true);
   });
 
-  it("uses source spans for section indexes without section LLM calls", async () => {
+  it("uses source spans for source-tree section indexes without section LLM calls", async () => {
     safeGenerateObject
       .mockReset()
       .mockResolvedValueOnce({
@@ -416,20 +410,32 @@ describe("createExtractor", () => {
 
     const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
 
-    expect(safeGenerateObject).toHaveBeenCalledTimes(4);
-    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_form_inventory")).toBe(true);
-    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_page_map")).toBe(true);
+    expect(safeGenerateObject).toHaveBeenCalledTimes(2);
+    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_source_tree")).toBe(true);
+    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_operational_profile")).toBe(true);
+    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_form_inventory")).toBe(false);
+    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_page_map")).toBe(false);
     expect(runExtractor.mock.calls.some(([arg]) => arg.name === "sections")).toBe(false);
-    expect(result.document.sections).toEqual([
+    expect(result.sourceTree).toEqual(expect.arrayContaining([
       expect.objectContaining({
+        kind: "section",
         title: "Commercial Property Provisions",
         pageStart: 2,
         pageEnd: 2,
         sourceSpanIds: [sourceSpans[0].id],
-        sourceTextHash: sourceSpans[0].textHash,
       }),
-    ]);
-    expect(result.document.sections?.[0]).not.toHaveProperty("content");
+    ]));
+    expect(result.document.documentOutline).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        title: "Page 2",
+        children: expect.arrayContaining([
+          expect.objectContaining({
+            title: "Commercial Property Provisions",
+            sourceSpanIds: [sourceSpans[0].id],
+          }),
+        ]),
+      }),
+    ]));
   });
 
   it("accepts Docling documents without PDF slicing and derives source spans", async () => {
@@ -498,25 +504,30 @@ describe("createExtractor", () => {
     expect(getPdfPageCount).not.toHaveBeenCalled();
     expect(extractPageRange).not.toHaveBeenCalled();
     expect(result.sourceSpans).toHaveLength(2);
+    expect(result.sourceTree).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        title: "section_header",
+        sourceSpanIds: [result.sourceSpans[0].id],
+      }),
+      expect.objectContaining({
+        title: "paragraph",
+        sourceSpanIds: [result.sourceSpans[1].id],
+      }),
+    ]));
     expect(safeGenerateObject).toHaveBeenNthCalledWith(
       1,
       expect.any(Function),
       expect.objectContaining({
-        prompt: expect.stringContaining("DOCLING DOCUMENT TEXT"),
+        taskKind: "extraction_source_tree",
+        prompt: expect.stringContaining("Source nodes"),
         providerOptions: expect.objectContaining({
-          doclingText: expect.stringContaining("Commercial Property Declarations"),
           sourceSpans: result.sourceSpans,
           sourceChunks: result.sourceChunks,
         }),
       }),
       expect.any(Object),
     );
-    expect(runExtractor).toHaveBeenCalledWith(
-      expect.objectContaining({
-        pdfInput: undefined,
-        getPageRangeText: expect.any(Function),
-      }),
-    );
+    expect(runExtractor).not.toHaveBeenCalled();
   });
 
   it("uses the model output limit for long-list extractors when capabilities allow it", async () => {

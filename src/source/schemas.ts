@@ -105,3 +105,97 @@ export const SourceChunkSchema = z.object({
   metadata: z.record(z.string(), z.string()).default({}),
 });
 export type SourceChunk = z.infer<typeof SourceChunkSchema>;
+
+export const DocumentSourceNodeKindSchema = z.enum([
+  "document",
+  "page_group",
+  "page",
+  "form",
+  "endorsement",
+  "section",
+  "schedule",
+  "clause",
+  "table",
+  "table_row",
+  "table_cell",
+  "text",
+]);
+export type DocumentSourceNodeKind = z.infer<typeof DocumentSourceNodeKindSchema>;
+
+export const DocumentSourceNodeSchema = z.object({
+  id: z.string().min(1),
+  documentId: z.string().min(1),
+  parentId: z.string().optional(),
+  kind: DocumentSourceNodeKindSchema,
+  title: z.string(),
+  description: z.string(),
+  textExcerpt: z.string().optional(),
+  sourceSpanIds: z.array(z.string().min(1)),
+  pageStart: z.number().int().positive().optional(),
+  pageEnd: z.number().int().positive().optional(),
+  bbox: z.array(SourceSpanBBoxSchema).optional(),
+  order: z.number().int().nonnegative(),
+  path: z.string(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+export type DocumentSourceNode = z.infer<typeof DocumentSourceNodeSchema>;
+
+export const SourceBackedValueSchema = z.object({
+  value: z.string(),
+  normalizedValue: z.string().optional(),
+  confidence: z.enum(["low", "medium", "high"]).default("medium"),
+  sourceNodeIds: z.array(z.string().min(1)).default([]),
+  sourceSpanIds: z.array(z.string().min(1)).default([]),
+});
+export type SourceBackedValue = z.infer<typeof SourceBackedValueSchema>;
+
+export const OperationalCoverageLineSchema = z.object({
+  name: z.string(),
+  coverageCode: z.string().optional(),
+  limit: z.string().optional(),
+  deductible: z.string().optional(),
+  premium: z.string().optional(),
+  formNumber: z.string().optional(),
+  sectionRef: z.string().optional(),
+  sourceNodeIds: z.array(z.string().min(1)).default([]),
+  sourceSpanIds: z.array(z.string().min(1)).default([]),
+});
+export type OperationalCoverageLine = z.infer<typeof OperationalCoverageLineSchema>;
+
+export const OperationalPartySchema = z.object({
+  role: z.string(),
+  name: z.string(),
+  sourceNodeIds: z.array(z.string().min(1)).default([]),
+  sourceSpanIds: z.array(z.string().min(1)).default([]),
+});
+export type OperationalParty = z.infer<typeof OperationalPartySchema>;
+
+export const OperationalEndorsementSupportSchema = z.object({
+  kind: z.string(),
+  status: z.enum(["supported", "excluded", "requires_review"]),
+  summary: z.string(),
+  sourceNodeIds: z.array(z.string().min(1)).default([]),
+  sourceSpanIds: z.array(z.string().min(1)).default([]),
+});
+export type OperationalEndorsementSupport = z.infer<typeof OperationalEndorsementSupportSchema>;
+
+export const PolicyOperationalProfileSchema = z.object({
+  documentType: z.enum(["policy", "quote"]).default("policy"),
+  policyTypes: z.array(z.string()).default(["other"]),
+  policyNumber: SourceBackedValueSchema.optional(),
+  namedInsured: SourceBackedValueSchema.optional(),
+  insurer: SourceBackedValueSchema.optional(),
+  broker: SourceBackedValueSchema.optional(),
+  effectiveDate: SourceBackedValueSchema.optional(),
+  expirationDate: SourceBackedValueSchema.optional(),
+  retroactiveDate: SourceBackedValueSchema.optional(),
+  premium: SourceBackedValueSchema.optional(),
+  coverageTypes: z.array(z.string()).default([]),
+  coverages: z.array(OperationalCoverageLineSchema).default([]),
+  parties: z.array(OperationalPartySchema).default([]),
+  endorsementSupport: z.array(OperationalEndorsementSupportSchema).default([]),
+  sourceNodeIds: z.array(z.string().min(1)).default([]),
+  sourceSpanIds: z.array(z.string().min(1)).default([]),
+  warnings: z.array(z.string()).default([]),
+});
+export type PolicyOperationalProfile = z.infer<typeof PolicyOperationalProfileSchema>;

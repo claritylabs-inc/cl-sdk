@@ -12,9 +12,9 @@ npm install @claritylabs/cl-sdk pdf-lib zod
 
 ## What It Does
 
-- **Document Extraction** — Deterministic extraction pipeline with focused model calls that turns insurance PDFs or host-provided Docling documents into structured data with page-level provenance, source-backed document metadata, a hierarchy-preserving document outline, quality gates, first-class definitions and covered reasons, referential coverage resolution, cost-aware formatting, and automatic declarations-to-schema promotion (limits, deductibles, locations, broker, loss payees, premium, taxes/fees, summary)
-- **Source Grounding** — Shared source spans, hierarchical table row/cell evidence, source chunks, source stores, quoted evidence validation, and deterministic evidence ordering across extraction, query, application, PCE, and case workflows
-- **Query Agent** — Citation-backed question answering over stored documents, source spans, and inbound photos/PDFs/text with sub-question decomposition, bounded retrieval planning, attachment-only reasoning when retrieval is unnecessary, and grounding verification
+- **Document Extraction** — Source-tree extraction that turns parser-provided PDF spans into a canonical hierarchy of document, page group, form, endorsement, section, schedule, clause, table, row, cell, and text nodes. Operational policy facts are source-backed projections from that tree, not the canonical source of truth.
+- **Source Grounding** — Shared source spans, source nodes, hierarchical table row/cell evidence, source stores, quoted evidence validation, and deterministic evidence ordering across extraction, query, application, PCE, and case workflows.
+- **Query Agent** — Citation-backed question answering over stored source nodes, exact source spans, and inbound photos/PDFs/text with sub-question decomposition, bounded retrieval planning, attachment-only reasoning when retrieval is unnecessary, and grounding verification.
 - **Application Processing** — Bounded workflows handle intake with deterministic planning — field extraction, prior-answer backfill, context auto-fill, document lookup gating, topic-based question batching, reply parsing, source-backed field provenance, and PDF mapping
 - **Policy Change Endorsements** — PCE intake, evidence collection, missing-info handling, quality gates, execution mode selection, and reviewable submission packets
 - **Case Workflows** — Shared primitives for evidence-backed proposals, missing information, validation issues, stable IDs, and packet artifacts
@@ -44,15 +44,16 @@ const extractor = createExtractor({
 });
 
 const result = await extractor.extract(pdfBase64);
-console.log(result.document);     // Typed InsuranceDocument
-console.log(result.chunks);       // DocumentChunk[] for vector storage
-console.log(result.sourceSpans);  // SourceSpan[] when supplied by the host
-console.log(result.reviewReport); // Quality gate results
+console.log(result.sourceTree);          // DocumentSourceNode[] canonical hierarchy
+console.log(result.sourceSpans);         // SourceSpan[] smallest PDF evidence units
+console.log(result.operationalProfile);  // Source-backed facts for policy lists, COIs, compliance
+console.log(result.document);            // Compatibility InsuranceDocument projection
+console.log(result.chunks);              // [] on v3 source-tree extraction paths
 ```
 
 ### Optional Docling input
 
-If your host pre-processes a PDF with [Docling](https://github.com/docling-project/docling), pass the serialized `DoclingDocument` JSON instead of a PDF. CL-SDK does not install or run Python Docling; it consumes the parsed document, builds source spans, and runs the same focused structuring pipeline over Docling page text. Docling tables are represented as table, row, and cell source spans; row spans are treated as the canonical evidence for extracted table facts.
+If your host pre-processes a PDF with [Docling](https://github.com/docling-project/docling), pass the serialized `DoclingDocument` JSON instead of a PDF. CL-SDK does not install or run Python Docling; it consumes the parsed document, builds source spans, constructs the same source tree, and projects operational facts from cited nodes. Docling tables are represented as table, row, and cell source spans; row spans are treated as the canonical evidence for extracted table facts.
 
 ```typescript
 const result = await extractor.extract({
@@ -64,7 +65,7 @@ const result = await extractor.extract({
 
 ## Source Grounding
 
-Source spans are the v1 evidence layer. Build spans from PDF text, OCR, emails, attachments, or structured fields, then pass them into extraction and downstream workflows:
+Source spans are the smallest evidence layer. Build spans from PDF text, OCR, emails, attachments, or structured fields, then pass them into extraction and downstream workflows. The v3 extractor builds `DocumentSourceNode` hierarchy from those spans and returns an `operationalProfile` for product-critical facts:
 
 ```typescript
 import { buildPageSourceSpans, MemorySourceStore, createExtractor } from "@claritylabs/cl-sdk";
@@ -80,9 +81,9 @@ const extractor = createExtractor({ generateText, generateObject, sourceStore })
 const result = await extractor.extract(pdfBase64, "policy-123", { sourceSpans });
 ```
 
-When source spans are available, section and endorsement extraction returns a compact index with page ranges, short excerpts, and `sourceSpanIds`/`sourceTextHash` instead of asking the model to reproduce full policy wording. Table-derived records prefer parent row spans over isolated cells, and coverage schedule rows can be recovered deterministically when the model misses explicit table evidence. Store `result.sourceSpans`/source chunks as the canonical evidence corpus for Q&A and source viewers; use `result.chunks` for structured facts and navigation metadata.
+When source spans are available, extraction returns `sourceTree`, `sourceSpans`, `operationalProfile`, `warnings`, `tokenUsage`, and `performanceReport`. The source tree is canonical for policy wording and hierarchy. The operational profile contains policy metadata, parties, coverage lines, limits, deductibles, premiums, key dates, and endorsement-support facts, each with `sourceNodeIds` and `sourceSpanIds`.
 
-Extraction results always include `documentMetadata` and `documentOutline` in the v2 schema. `documentMetadata` carries form inventory, table-of-contents entries, page-map entries, and agent guidance about document logic; fields are empty when no reliable source structure is available. `documentOutline` preserves the source document's original order and hierarchy; SDK interpretation labels live on nodes as metadata and should not be used to reorganize the source document in host UIs. Extracted facts may include `documentNodeId` plus `sourceSpanIds` so hosts can render facts inside the source outline while still opening exact PDF evidence.
+Store `result.sourceTree` in a retrievable node index and embed node `description` values for search. Keep `result.sourceSpans` as the exact PDF highlighting layer. `result.document` and its `documentOutline` remain compatibility projections for existing host screens; do not treat broad structured policy JSON as canonical extraction truth.
 
 See the [full documentation](https://cl-sdk.claritylabs.inc/docs) for architecture, provider setup, API reference, and more.
 

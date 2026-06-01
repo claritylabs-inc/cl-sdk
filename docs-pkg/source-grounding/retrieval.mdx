@@ -1,15 +1,23 @@
 ---
 title: Source Retrieval
-description: Searching source spans and ordering evidence deterministically
+description: Searching source nodes and exact source spans deterministically
 ---
 
-Source retrieval is intentionally small. Hosts can use the built-in lexical memory store, wrap an existing vector index, or combine source spans with their document chunk store.
+Source retrieval is intentionally small. Hosts can use the built-in lexical memory store, wrap an existing vector index, or combine source nodes with exact source spans. In v3, `searchSourceNodes` is the preferred path for document-backed Q&A.
 
 ## Interface
 
 ```typescript
 interface SourceRetriever {
   searchSourceSpans(query: SourceRetrievalQuery): Promise<SourceRetrievalResult[]>;
+  searchSourceNodes?(query: SourceRetrievalQuery): Promise<SourceNodeRetrievalResult[]>;
+}
+
+interface SourceNodeRetrievalResult {
+  node: DocumentSourceNode;
+  relevance: number;
+  hierarchy: DocumentSourceNode[];
+  spans: SourceSpan[];
 }
 
 interface SourceRetrievalQuery {
@@ -25,9 +33,11 @@ interface SourceRetrievalQuery {
 `mode` is advisory. A host can interpret it as:
 
 - `graph_only`: use structured relationships and exact metadata.
-- `source_rag`: use chunk or span retrieval.
+- `source_rag`: use source-node retrieval, then exact source spans.
 - `long_context`: provide larger source windows when the provider supports them.
 - `hybrid`: combine structured filters with lexical/vector retrieval.
+
+`searchSourceNodes` should return the matched node, a bounded hierarchy packet, and exact spans. A good packet usually includes ancestors, the matched node, nearby siblings, selected children, and the source spans referenced by those nodes. This gives the reasoner enough structure to understand schedules and clauses without sending an entire policy.
 
 ## Memory store
 
@@ -47,6 +57,8 @@ const evidence = await store.searchSourceSpans({
 ```
 
 The memory store uses lexical matching and deterministic tie-breaking. It is useful for tests, local development, and as a reference implementation.
+
+For production source-tree retrieval, index `DocumentSourceNode.description` and keep `sourceSpanIds` on each node. When a node matches, hydrate its source spans from your source-span table so citations can open the exact PDF page and bounding boxes.
 
 ## Deterministic ordering
 

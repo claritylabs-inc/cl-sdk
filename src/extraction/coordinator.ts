@@ -4,7 +4,7 @@ import type { ModelBudgetConstraint, ModelCapabilities, ModelTaskKind } from "..
 import { resolveModelBudget } from "../core/model-budget";
 import type { InsuranceDocument } from "../schemas/document";
 import type { DocumentChunk } from "../storage/chunk-types";
-import type { SourceChunk, SourceSpan, SourceStore } from "../source";
+import type { DocumentSourceNode, PolicyOperationalProfile, SourceChunk, SourceSpan, SourceStore } from "../source";
 import { chunkSourceSpans, sourceSpanTextHash } from "../source";
 import { pLimit } from "../core/concurrency";
 import { safeGenerateObject } from "../core/safe-generate";
@@ -52,6 +52,7 @@ import {
 } from "./memory";
 import { looksCoveredReasonSection } from "./heuristics";
 import { groundExtractionMemoryWithSourceSpans } from "./source-grounding";
+import { runSourceTreeExtraction } from "./source-tree-extractor";
 
 /** Internal state checkpointed between extraction phases. */
 export interface ExtractionState {
@@ -98,6 +99,9 @@ export interface ExtractionResult {
   chunks: DocumentChunk[];
   sourceSpans: SourceSpan[];
   sourceChunks: SourceChunk[];
+  sourceTree?: DocumentSourceNode[];
+  operationalProfile?: PolicyOperationalProfile;
+  warnings?: string[];
   tokenUsage: TokenUsage;
   usageReporting: {
     modelCalls: number;
@@ -539,6 +543,52 @@ export function createExtractor(config: ExtractorConfig) {
       if (sourceChunks.length > 0) {
         await sourceStore.addSourceChunks(sourceChunks);
       }
+    }
+
+    if (sourceSpans.length > 0) {
+      onProgress?.("Building source-native document tree...");
+      const v3 = await runSourceTreeExtraction({
+        id,
+        sourceSpans,
+        generateObject,
+        providerOptions: activeProviderOptions,
+        resolveBudget,
+        trackUsage,
+        log,
+      });
+      const reviewReport: ExtractionReviewReport = {
+        issues: v3.warnings.map((warning) => ({
+          code: "source_tree_warning",
+          severity: "warning" as const,
+          message: warning,
+        })),
+        rounds: [],
+        artifacts: [
+          { kind: "source_tree", label: "Source Tree", itemCount: v3.sourceTree.length },
+          { kind: "source_spans", label: "Source Spans", itemCount: v3.sourceSpans.length },
+          { kind: "operational_profile", label: "Operational Profile", itemCount: v3.operationalProfile.coverages.length },
+        ],
+        reviewRoundRecords: [],
+        formInventory: [],
+        qualityGateStatus: v3.warnings.length > 0 ? "warning" : "passed",
+      };
+      if (shouldFailQualityGate(qualityGate, reviewReport.qualityGateStatus)) {
+        throw new Error("Extraction quality gate failed. See reviewReport for blocking issues.");
+      }
+      onProgress?.("Source-tree extraction complete.");
+      return {
+        document: v3.document,
+        chunks: [],
+        sourceSpans: v3.sourceSpans,
+        sourceChunks: v3.sourceChunks,
+        sourceTree: v3.sourceTree,
+        operationalProfile: v3.operationalProfile,
+        warnings: v3.warnings,
+        tokenUsage: v3.tokenUsage,
+        usageReporting: v3.usageReporting,
+        performanceReport: v3.performanceReport,
+        reviewReport,
+      };
     }
 
     // Set up checkpoint context

@@ -5,6 +5,19 @@ description: Release history for @claritylabs/cl-sdk
 
 All notable changes to `@claritylabs/cl-sdk` are documented here.
 
+## v3.0.0 -- Source-Tree Extraction
+
+### Breaking
+
+- Extraction with source spans now returns a source-tree result shape: `sourceTree`, `sourceSpans`, `operationalProfile`, `warnings`, `tokenUsage`, and `performanceReport`.
+- Broad structured extraction chunks are no longer the primary evidence corpus on source-tree paths. `result.chunks` is empty for v3 extraction, and `result.document` is a compatibility projection.
+
+### Added
+
+- Added `DocumentSourceNode`, `PolicyOperationalProfile`, and source-backed value schemas.
+- Added deterministic source-tree construction from spans plus a bounded organizer that can label/group existing nodes but cannot invent source text or locations.
+- Added source-node retrieval support through optional `SourceRetriever.searchSourceNodes`.
+
 ## v1.0.3 -- Zod 4 Metadata Compatibility
 
 Released 2026-05-09.

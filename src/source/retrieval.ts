@@ -1,4 +1,4 @@
-import type { SourceSpan } from "./schemas";
+import type { DocumentSourceNode, SourceSpan } from "./schemas";
 
 export type SourceRetrievalMode = "graph_only" | "source_rag" | "long_context" | "hybrid";
 
@@ -16,8 +16,16 @@ export interface SourceRetrievalResult {
   relevance: number;
 }
 
+export interface SourceNodeRetrievalResult {
+  node: DocumentSourceNode;
+  relevance: number;
+  hierarchy: DocumentSourceNode[];
+  spans: SourceSpan[];
+}
+
 export interface SourceRetriever {
   searchSourceSpans(query: SourceRetrievalQuery): Promise<SourceRetrievalResult[]>;
+  searchSourceNodes?(query: SourceRetrievalQuery): Promise<SourceNodeRetrievalResult[]>;
 }
 
 export interface OrderableSourceEvidence {

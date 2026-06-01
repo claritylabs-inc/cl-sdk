@@ -7,91 +7,44 @@ CL SDK is organized into eight systems: **document extraction**, **source ground
 
 ## Document extraction pipeline
 
-The core of CL SDK is an agentic pipeline that turns insurance PDFs into structured, queryable data. A coordinator classifies the document, maps each page to focused extractors, builds deterministic tasks, merges repeated extractor runs, resolves referential values, reviews for completeness and quality, and assembles the final document. Deterministic gates avoid unnecessary model calls while still preserving agentic follow-up paths for edge cases.
+The core of CL SDK is a source-tree pipeline that turns parser-provided insurance PDF spans into a canonical hierarchy plus source-backed operational facts. When source spans are available, the extractor builds deterministic document/page/table/row/cell nodes, lets a bounded organizer label or group existing nodes, extracts only cited operational facts, and returns a compatibility `InsuranceDocument` projection for existing hosts.
 
 ```mermaid
 flowchart LR
-  PDF[PDF Document] --> CL[Classify]
-  CL --> PM[Page Map]
-  PM --> PL[Plan]
-  PL --> EX[Extract + Merge]
-  EX --> SUP[Supplementary Gate]
-  SUP --> REF[Referential Resolution]
-  REF --> RV[Review]
-  RV --> AS[Assemble]
-  RV -.->|gaps found| EX
-  AS --> FMT[Format]
-  FMT --> CHK[Chunk]
-  CHK --> OUT[Document + Chunks]
+  PDF[Parser Source Spans] --> TREE[Deterministic Source Tree]
+  TREE --> ORG[Bounded Organizer]
+  ORG --> PROF[Operational Profile]
+  PROF --> PROJ[Compatibility Document]
+  TREE --> OUT[Source Tree + Source Spans]
+  PROF --> OUT
 ```
 
-### Classify
+### Source tree
 
-Determines document type (policy or quote) and identifies the lines of business present. Uses `generateObject` with structured output for reliable classification, and passes the full document through `providerOptions.pdfBase64` for PDF inputs or `providerOptions.doclingText` for host-provided Docling inputs.
+The deterministic builder converts `SourceSpan` records into `DocumentSourceNode` rows. Page spans become page nodes, LiteParse/Docling tables become table/row/cell nodes, section candidates become section/schedule/clause/endorsement nodes, and all nodes retain source span IDs, page ranges, bounding boxes, source order, and path.
 
-### Page map
+### Organizer
 
-Maps each page to one or more focused extractors before task construction. This avoids broad mixed ranges where declaration pages and schedule pages get drowned out by generic policy-form language.
+The organizer prompt may label existing nodes and group adjacent nodes into forms, endorsements, schedules, clauses, or page groups. It cannot invent text, pages, source spans, or bounding boxes. If the organizer fails, the deterministic tree is still usable.
 
-### Plan
+### Operational profile
 
-Builds extraction tasks from the model-produced page map and the selected line-of-business template.
+The operational profile extractor pulls only high-value facts needed for policy lists, compliance, Q&A, and COIs: policy number, named insured, insurer, broker, policy period, retroactive date, premiums, coverage rows, limits, deductibles, and endorsement support. Every returned value must cite `sourceNodeIds` or `sourceSpanIds`; uncited values are rejected.
 
-### Extract
+### Compatibility projection
 
-Dispatches focused extractors in parallel (concurrency-limited, default 2; override with `extractorConcurrency`). Each extractor targets a specific data domain against a page range:
-
-- **Declarations** — named insured, policy number, dates, carrier
-- **Coverage limits** — coverage names, limits, deductibles, sub-limits
-- **Definitions** — defined terms and full definition text with provenance
-- **Covered reasons** — covered causes, covered losses, inclusions, and qualifying coverage triggers
-- **Conditions** — policy conditions and provisions
-- **Endorsements** — endorsement schedules and modifications
-- **Exclusions** — exclusion language and applicability
-- **Loss history** — prior claims and loss runs
-- **Named insured** — insured parties and additional insureds
-- **Premium breakdown** — line-by-line premium details
-- **Sections** — general document sections with page provenance
-- **Supplementary** — regulatory context, contacts, fees
-- **Carrier info** — carrier details and AM Best ratings
-
-Results accumulate in an in-memory map as each extractor completes. Repeated extractor runs merge instead of overwrite.
-
-Each worker call is page-scoped. Before invoking the callback, the SDK slices the requested range and passes that PDF through `providerOptions.pdfBase64`, passes `providerOptions.images` when `convertPdfToImages` is configured, or passes page-scoped `providerOptions.doclingText` for Docling inputs. Page-scoped PDFs, rendered image ranges, Docling text ranges, and in-flight range work are cached for the duration of an extraction.
-
-Focused extractors can declare fallback behavior. Definitions and covered reasons fall back through section extraction when a focused run fails or returns no usable records, which prevents a single model no-output response from leaving those first-class fields empty.
-
-### Supplementary and referential gates
-
-Supplementary extraction is conditional. It runs only when page assignments, form inventory, existing extracted text, or review follow-up tasks indicate regulatory, claims, notice, cancellation/nonrenewal, contact, or TPA facts are likely present. Page/form signals are run as narrow page-scoped tasks with the main extractor batch.
-
-Referential coverage values use a bounded resolver: cheap local section/form matches first, then target-specific actions for declarations, schedules, sections, page-location lookup, or skip. This improves edge-case reliability without always launching extra lookup calls.
-
-### Review
-
-Deterministic quality checks always run. The LLM review loop (up to `maxReviewRounds`, default 2) checks completeness and quality against the template and extracted results when `reviewMode` allows it. `reviewMode: "auto"` skips the expensive LLM review only when deterministic checks are clean and source spans are available.
-
-### Assemble
-
-Merges all extractor results into a final `InsuranceDocument`.
-
-### Format
-
-A post-extraction formatting pass cleans up markdown in content-bearing fields only when the content is likely to need it — long text, markdown artifacts, lists/headings, excessive spacing, or table-like content. Plain prose skips the LLM formatting call. This ensures sections, definitions, covered reasons, endorsements, exclusions, and conditions render correctly in downstream UIs without paying for unnecessary no-op cleanup.
-
-### Chunk
-
-Breaks the formatted document into `DocumentChunk` objects for vector storage and retrieval.
+`result.document`, `documentMetadata`, and `documentOutline` are materialized views over the source tree and operational profile. Hosts can keep existing screens working, but retrieval and source viewers should index `sourceTree` and use `sourceSpans` for exact highlights. `result.chunks` is empty on v3 source-tree paths.
 
 ## Source grounding
 
-Source grounding is the shared evidence layer in v1. A `SourceSpan` captures a page, section, text range, and stable hash for a piece of source material. Extraction can receive spans through `extract(pdfBase64, documentId, { sourceSpans })`, or derive them from Docling provenance when `extract({ kind: "docling_document", ... })` is used; those spans are filtered by page range and sent to focused extractors as `providerOptions.sourceSpans` and `providerOptions.sourceChunks`.
+Source grounding is the shared evidence layer. A `SourceSpan` captures a page, section, text range, stable hash, and optional bounding boxes for a source unit. A `DocumentSourceNode` groups spans into hierarchy and is the primary search/index unit for Q&A and source-backed workflows.
 
 The same primitives are reused by query, application, PCE, and case workflows:
 
 - **Source spans** preserve page and section provenance for extracted facts.
-- **Source chunks** turn spans into retrievable text windows without losing the original span IDs.
-- **Source stores and retrievers** let hosts persist spans and search them alongside vector chunks.
+- **Source nodes** preserve hierarchy and provide retrievable descriptions.
+- **Source chunks** remain compatibility windows during migration.
+- **Source stores and retrievers** let hosts persist spans/nodes and search them alongside vector chunks.
 - **Quoted evidence validation** checks that agent decisions cite real source text before a workflow is considered ready for automation.
 
 ## Query agent pipeline

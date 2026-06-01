@@ -78,8 +78,9 @@ export type QueryClassifyResult = z.infer<typeof QueryClassifyResultSchema>;
 // ── Evidence (Phase 2 output) ──
 
 export const EvidenceItemSchema = z.object({
-  source: z.enum(["chunk", "document", "conversation", "attachment", "source_span"]),
+  source: z.enum(["chunk", "document", "conversation", "attachment", "source_span", "source_node"]),
   chunkId: z.string().optional(),
+  sourceNodeId: z.string().optional(),
   sourceSpanId: z.string().optional(),
   documentId: z.string().optional(),
   turnId: z.string().optional(),
@@ -117,6 +118,7 @@ export type RetrievalResult = z.infer<typeof RetrievalResultSchema>;
 export const CitationSchema = z.object({
   index: z.number().describe("Citation number [1], [2], etc."),
   chunkId: z.string().optional().describe("Source chunk ID, e.g. doc-123:coverage:2"),
+  sourceNodeId: z.string().optional().describe("Source tree node ID when available"),
   sourceSpanId: z.string().optional().describe("Precise source span ID when available"),
   documentId: z.string(),
   documentType: z.enum(["policy", "quote"]).optional(),

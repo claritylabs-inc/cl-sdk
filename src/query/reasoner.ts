@@ -33,7 +33,9 @@ export async function reason(
   const evidenceText = evidence
     .map((e, i) => {
       const sourceLabel =
-        e.source === "source_span"
+        e.source === "source_node"
+          ? `[source-node:${e.sourceNodeId} source-span:${e.sourceSpanId ?? "none"}]`
+          : e.source === "source_span"
           ? `[source-span:${e.sourceSpanId}]`
           : e.source === "chunk"
           ? `[chunk:${e.chunkId}]`

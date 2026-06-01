@@ -23,7 +23,7 @@ npm test           # Run vitest
 src/
   core/           # Provider-agnostic types, retry, concurrency, utilities
   schemas/        # Zod schemas (source of truth for all types)
-  extraction/     # Agentic extraction: coordinator, planning, focused dispatch, referential workflow, formatter, chunking, pdf
+  extraction/     # Source-tree extraction coordinator, operational profile projection, legacy fallback, pdf helpers
   query/          # Agentic query: coordinator, workflow planner, retriever, reasoner, verifier
   application/    # Agentic application processing: coordinator, workflow planner, focused agents, store
   prompts/        # Prompt modules: coordinator/, extractors/, templates/, agent/, application/, query/
@@ -31,23 +31,18 @@ src/
   tools/          # Tool definitions
 ```
 
-### Agentic Extraction Pipeline (`src/extraction/`)
+### Source-Tree Extraction Pipeline (`src/extraction/`, `src/source/`)
 
-The extraction system uses a coordinator/worker pattern with page-aware planning and merged worker outputs:
+The primary extraction path is v3 source-tree extraction when source spans are available:
 
-1. **Classify** (`coordinator.ts`): classify document type and policy types using `generateObject` + `ClassifyResultSchema`. The coordinator passes the full PDF via `providerOptions.pdfBase64`.
-2. **Page map** (`prompts/coordinator/page-map.ts`): map each page to one or more focused extractors before building tasks. This replaces broad LLM-assigned mixed page ranges.
-3. **Plan** (`coordinator.ts`): build deterministic extractor tasks from the page map. `prompts/coordinator/plan.ts` is a deprecated candidate and is no longer the active planning path.
-4. **Extract** (`extractor.ts`, `focused-dispatch.ts`): dispatch focused extractors in parallel. `runExtractor()` slices page ranges with `extractPageRange()` and passes the page-scoped PDF via `providerOptions.pdfBase64`, or `providerOptions.images` if `convertPdfToImages` is configured. Focused extractors can declare fallback behavior; definitions and covered reasons fall back through section extraction when no usable records are produced.
-5. **Merge** (`merge.ts`): repeated extractor runs merge instead of overwrite. This matters for `coverage_limits`, `endorsements`, `exclusions`, `conditions`, `sections`, and `declarations`.
-6. **Supplementary gating** (`coordinator.ts`): supplementary extraction is conditional. It runs when page assignments, form inventory, existing extracted text, or review follow-up tasks indicate regulatory, claims, notice, cancellation/nonrenewal, contact, or TPA facts are likely present.
-7. **Referential resolution** (`resolve-referential.ts`, `referential-workflow.ts`): resolve referential coverage values with cheap local section/form matches first, then bounded target-specific actions for declarations, schedules, sections, page-location lookup, or skip.
-8. **Review** (`coordinator.ts` + `prompts/coordinator/review.ts`): review completeness and quality using the full PDF, the page-map summary, the live extractor catalog, and a summary of extracted results. Review should catch generic placeholder outputs and missing declaration-grade values, and can request follow-up tasks from registered extractors.
-9. **Assemble** (`assembler.ts`): merge all extracted data into a final `InsuranceDocument`.
-10. **Format** (`formatter.ts`): cost-aware markdown cleanup for content-bearing fields. Plain prose skips the LLM formatting pass; long/noisy markdown, list, heading, spacing, or table-like content is formatted. Source-backed sections and endorsements skip this cleanup because their canonical wording lives in source spans.
-11. **Chunk** (`chunking.ts`): break the formatted document into `DocumentChunk[]` for vector storage. Structured facts become retrieval chunks, while sections and endorsements are compact navigation/index chunks only. Do not store generated full policy wording in section or endorsement chunks; Q&A and source viewers should use source spans/source chunks as the evidence corpus.
+1. **Normalize parser input**: hosts pass parser-neutral `SourceSpan[]` from LiteParse, Docling, PDF.js, OCR, or another parser. Spans carry page ranges, table row/cell metadata, parent span IDs, stable text hashes, and optional bounding boxes.
+2. **Build source tree** (`source/tree.ts`): deterministic construction creates `DocumentSourceNode[]` for document, page, page group/form/endorsement/section/schedule/clause, table, row, cell, and text levels. Nodes preserve `sourceSpanIds`, page range, bbox, order, and hierarchy path.
+3. **Organize labels/groups** (`extraction/source-tree-extractor.ts`): a small model pass may relabel existing nodes or group adjacent existing nodes. It cannot invent node IDs, text, pages, source spans, or bbox locations.
+4. **Operational profile** (`source/operational-profile.ts`): deterministic heuristics plus a bounded model pass extract only product-critical facts: policy metadata, parties, coverage lines, limits, deductibles, premiums, key dates, and endorsement support. Uncited facts are rejected.
+5. **Compatibility projection** (`source-tree-extractor.ts`): `result.document`, `documentMetadata`, and `documentOutline` are materialized views over `sourceTree` and `operationalProfile`; `result.chunks` is empty on v3 paths.
+6. **Legacy fallback** (`coordinator.ts`): if no source spans are available, the older classify/page-map/focused-extractor pipeline can still run, but new production hosts should provide source spans and treat the source tree as canonical.
 
-Entry point: `createExtractor(config)` returns `{ extract(pdfBase64, documentId?) }`.
+Entry point: `createExtractor(config)` returns `{ extract(pdfBase64, documentId?, { sourceSpans }) }`. On v3 paths, the result includes `sourceTree`, `sourceSpans`, `operationalProfile`, `warnings`, `tokenUsage`, and `performanceReport`.
 
 ### Provider Callbacks (`src/core/types.ts`)
 
@@ -62,17 +57,17 @@ Important extraction contract:
 
 - `providerOptions.pdfBase64` carries document content for classify, page-map, review, and PDF-mode extractor calls
 - `providerOptions.images` carries rendered page images for image-mode extractor calls
-- `providerOptions.sourceSpans` carries source evidence for page-scoped extraction; source-backed section and endorsement extractors should return compact metadata, excerpts, and `sourceSpanIds`, not full verbatim text
+- `providerOptions.sourceSpans` carries source evidence; source-tree organizer and operational-profile prompts may label/group or extract only from existing source node/span IDs
 - the callback must translate those fields into actual file/image parts in the provider request
 - if usage is omitted by the callback, extraction still works but `usageReporting.callsMissingUsage` will surface that gap
 - callbacks may receive `trace` metadata identifying extractor/page range or formatting batch; hosts should preserve it in model-call telemetry
 
 ### Key Patterns
 
-- **Merged extractor outputs**: do not assume a single extractor runs only once. The coordinator may dispatch follow-up tasks for the same extractor.
-- **Page-aware planning**: preserve the `page-map` phase unless intentionally replacing it with something equally precise.
+- **Parser-grounded hierarchy**: source tree nodes may be reorganized only around existing source node IDs and source span IDs.
+- **Operational profile as projection**: policy facts used by products must cite source nodes/spans and should not become the canonical source of wording.
+- **Legacy fallback isolation**: keep old focused extraction available only for no-source-span inputs; do not expand it as the primary path.
 - **Bounded agentic workflows**: prefer deterministic scaffolding with agentic decision points. Use workflow planners/gates to avoid unnecessary extractor, retrieval, lookup, or formatting calls while preserving follow-up paths for edge cases.
-- **Review quality checks**: review is not just “are keys present”; it should catch generic form-language placeholders and weak extraction quality, then request focused follow-up tasks from the registered extractor catalog.
 - **Strict schema compatibility**: `toStrictSchema()` auto-transforms Zod schemas before `generateObject` calls.
 - **Safe generate**: `safeGenerateObject()` wraps `generateObject` with retry, strictification, and optional fallbacks.
 - **Output token caps**: `resolveModelBudget()` treats task budgets as preferences/diagnostics. When model capabilities provide `maxOutputTokens`, use that model maximum as the request cap so extraction does not truncate just because a cheap task preference was too low. Only explicit hard constraints should lower the cap.
@@ -80,7 +75,7 @@ Important extraction contract:
 
 ### Query and Application Workflows
 
-- `src/query/workflow.ts` plans query actions. Retrieval is skipped when classification says document/chunk lookup is unnecessary, including attachment-only or general questions. Verification can still request targeted retrieval/reasoning retries when evidence is weak.
+- `src/query/workflow.ts` plans query actions. Retrieval is skipped when classification says document lookup is unnecessary, including attachment-only or general questions. When retrieval is needed, `SourceRetriever.searchSourceNodes` is preferred; it returns hierarchy-expanded source-node packets with exact source spans for citations.
 - `src/application/workflow.ts` plans optional application actions. Backfill, context auto-fill, document search, batching, lookup, answer parsing, explanations, and next-batch email generation are gated by current state and available stores/context.
 - `src/core/workflow.ts` contains generic action/budget helpers for future bounded workflows.
 
