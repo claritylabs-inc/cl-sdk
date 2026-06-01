@@ -46,21 +46,21 @@ const SourceTreeOrganizationSchema = z.object({
     ]).optional(),
     title: z.string().optional(),
     description: z.string().optional(),
-  })).default([]),
+  })),
   groups: z.array(z.object({
     kind: z.enum(ORGANIZABLE_KINDS),
     title: z.string(),
     description: z.string().optional(),
     childNodeIds: z.array(z.string()).min(1),
-  })).default([]),
+  })),
 });
 
 const SourceBackedValueForPromptSchema = z.object({
   value: z.string(),
   normalizedValue: z.string().optional(),
   confidence: z.enum(["low", "medium", "high"]).optional(),
-  sourceNodeIds: z.array(z.string()).default([]),
-  sourceSpanIds: z.array(z.string()).default([]),
+  sourceNodeIds: z.array(z.string()),
+  sourceSpanIds: z.array(z.string()),
 });
 
 const OperationalProfilePromptSchema = z.object({
@@ -83,8 +83,8 @@ const OperationalProfilePromptSchema = z.object({
     premium: z.string().optional(),
     formNumber: z.string().optional(),
     sectionRef: z.string().optional(),
-    sourceNodeIds: z.array(z.string()).default([]),
-    sourceSpanIds: z.array(z.string()).default([]),
+    sourceNodeIds: z.array(z.string()),
+    sourceSpanIds: z.array(z.string()),
   })).optional(),
   sourceNodeIds: z.array(z.string()).optional(),
   sourceSpanIds: z.array(z.string()).optional(),
@@ -137,8 +137,8 @@ function compactNode(node: DocumentSourceNode) {
 
 function buildOrganizationPrompt(sourceTree: DocumentSourceNode[]): string {
   const nodes = sourceTree
-    .filter((node) => node.kind !== "table_cell")
-    .slice(0, 180)
+    .filter((node) => node.kind !== "document")
+    .slice(0, 240)
     .map(compactNode);
   return `You organize an insurance document source tree.
 
@@ -146,6 +146,7 @@ Rules:
 - Use only node IDs from the provided list.
 - Do not invent text, page numbers, source spans, limits, or policy facts.
 - You may relabel existing nodes and group adjacent top-level/page nodes when they are clearly one form, endorsement, declarations set, schedule, or clause family.
+- Add concise, human-readable titles to generic text, table, row, and cell nodes when the text makes their role clear.
 - Groups must list existing childNodeIds only.
 - Keep descriptions short and useful for search.
 
@@ -268,6 +269,7 @@ function sourceTreeToOutline(sourceTree: DocumentSourceNode[]) {
     sourceSpanIds: node.sourceSpanIds,
     sourceTextHash: node.sourceSpanIds.join(":") || undefined,
     interpretationLabels: [node.kind],
+    metadata: node.metadata,
     children: (byParent.get(node.id) ?? []).map(visit),
   });
   return (byParent.get(root?.id) ?? []).map(visit);

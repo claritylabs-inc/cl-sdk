@@ -5,6 +5,15 @@ description: Release history for @claritylabs/cl-sdk
 
 All notable changes to `@claritylabs/cl-sdk` are documented here.
 
+## v3.0.2 -- Strict Source-Tree Response Schemas
+
+Released 2026-06-01.
+
+### Fixed
+
+- Removed prompt-schema defaults from source-tree organization and operational-profile response shapes so strict provider response formats accept source-backed fields such as `policyNumber`.
+- Included source-node metadata in materialized document outlines so host UIs can render table rows, columns, and header rows from the hierarchy.
+
 ## v3.0.1 -- Source-Tree Extraction
 
 Released 2026-06-01. v3.0.0 was skipped because npm rejected the reused version during publish recovery.
