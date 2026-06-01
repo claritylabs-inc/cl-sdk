@@ -1,3 +1,10 @@
+## [3.0.2](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.1...v3.0.2) (2026-06-01)
+
+
+### Bug Fixes
+
+* release source tree strict schemas ([6196663](https://github.com/claritylabs-inc/cl-sdk/commit/61966636b13e4820e6012d762806b9eb5b9f5a93))
+
 ## [3.0.1](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.0...v3.0.1) (2026-06-01)
 
 
