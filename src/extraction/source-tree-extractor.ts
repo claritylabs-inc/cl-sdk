@@ -16,6 +16,7 @@ import {
   chunkSourceSpans,
   mergeOperationalProfile,
   normalizeDocumentSourceTreePaths,
+  normalizeSourceSpans,
 } from "../source";
 
 const ORGANIZABLE_KINDS = [
@@ -478,7 +479,8 @@ export async function runSourceTreeExtraction(params: {
   trackUsage: TrackUsage;
   log?: (message: string) => Promise<void>;
 }): Promise<ExtractionV3Result> {
-  let sourceTree = buildDocumentSourceTree(params.sourceSpans, params.id);
+  const sourceSpans = normalizeSourceSpans(params.sourceSpans);
+  let sourceTree = buildDocumentSourceTree(sourceSpans, params.id);
   const warnings: string[] = [];
   let modelCalls = 0;
   let callsWithUsage = 0;
@@ -516,7 +518,7 @@ export async function runSourceTreeExtraction(params: {
           maxTokens: budget.maxTokens,
           taskKind: "extraction_source_tree",
           budgetDiagnostics: budget,
-          providerOptions: { ...params.providerOptions, sourceSpans: params.sourceSpans },
+          providerOptions: { ...params.providerOptions, sourceSpans },
         },
         {
           fallback: { labels: [], groups: [] },
@@ -538,12 +540,12 @@ export async function runSourceTreeExtraction(params: {
 
   const deterministicProfile = buildDeterministicOperationalProfile({
     sourceTree,
-    sourceSpans: params.sourceSpans,
+    sourceSpans,
   });
   let operationalProfile = deterministicProfile;
   try {
     const validNodeIds = new Set(sourceTree.map((node) => node.id));
-    const validSpanIds = new Set(params.sourceSpans.map((span) => span.id));
+    const validSpanIds = new Set(sourceSpans.map((span) => span.id));
     const budget = params.resolveBudget("extraction_operational_profile", 8192);
     const startedAt = Date.now();
     const response = await safeGenerateObject(
@@ -554,7 +556,7 @@ export async function runSourceTreeExtraction(params: {
         maxTokens: budget.maxTokens,
         taskKind: "extraction_operational_profile",
         budgetDiagnostics: budget,
-        providerOptions: { ...params.providerOptions, sourceSpans: params.sourceSpans, sourceTree },
+        providerOptions: { ...params.providerOptions, sourceSpans, sourceTree },
       },
       {
         fallback: deterministicProfile,
@@ -585,8 +587,8 @@ export async function runSourceTreeExtraction(params: {
 
   return {
     sourceTree,
-    sourceSpans: params.sourceSpans,
-    sourceChunks: chunkSourceSpans(params.sourceSpans),
+    sourceSpans,
+    sourceChunks: chunkSourceSpans(sourceSpans),
     operationalProfile,
     document,
     chunks: [],

@@ -43,6 +43,8 @@ export interface SourceChunkOptions {
   overlapChars?: number;
 }
 
+type SourceSpanWithOriginalIndex = SourceSpan & { __originalIndex: number };
+
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -209,8 +211,145 @@ export function chunkSourceSpans(spans: SourceSpan[], options: SourceChunkOption
   return chunks;
 }
 
+export function normalizeSourceSpans(spans: SourceSpan[]): SourceSpan[] {
+  const droppedParentSpanIds = new Set<string>();
+  const cleaned: SourceSpanWithOriginalIndex[] = [];
+
+  for (const [index, span] of spans.entries()) {
+    if (span.parentSpanId && droppedParentSpanIds.has(span.parentSpanId)) continue;
+    const normalized = normalizeSourceSpanText(span);
+    if (!normalized) {
+      droppedParentSpanIds.add(span.id);
+      continue;
+    }
+    cleaned.push({ ...normalized, __originalIndex: index });
+  }
+
+  return mergeTextRuns(cleaned).map(({ __originalIndex: _index, ...span }) => span);
+}
+
 function sourceUnit(span: SourceSpan): string | undefined {
   return span.sourceUnit ?? span.metadata?.sourceUnit;
+}
+
+function spanPage(span: SourceSpan): number | undefined {
+  return span.pageStart ?? span.location?.page ?? span.location?.startPage;
+}
+
+function normalizeSourceSpanText(span: SourceSpan): SourceSpan | undefined {
+  const unit = sourceUnit(span);
+  const text = normalizeWhitespace(span.text);
+  if (!text) return undefined;
+  if (isDiscardableBoilerplate(text, unit)) return undefined;
+
+  const cleanedText = cleanBoilerplateLines(text);
+  if (!cleanedText) return undefined;
+  if (cleanedText === text) return span;
+
+  return retextSpan(span, cleanedText, {
+    boilerplateRemoved: "true",
+    removedBoilerplateText: removedBoilerplateLines(text).join(" | ").slice(0, 500),
+  });
+}
+
+function isDiscardableBoilerplate(text: string, unit?: string): boolean {
+  const cleaned = normalizeWhitespace(text.replace(/\bColumn\s+\d+:\s*/gi, ""));
+  if (/^SPECIMEN POLICY\s+[-—]\s+FOR TESTING ONLY$/i.test(cleaned)) return true;
+  if (/^Page\s+\d+\s+of\s+\d+$/i.test(cleaned)) return true;
+  if (/^[A-Z]{2,}(?:-[A-Z0-9]{2,})+\s+\d{2}\s+\d{2}$/i.test(cleaned)) return true;
+  if (/^[A-Z]{2,}(?:-[A-Z0-9]{2,})+\s+\d{2}\s+\d{2}\s*\|\s*Page\s+\d+\s+of\s+\d+$/i.test(cleaned)) return true;
+  if (unit === "table_row" && /^[^|]{0,40}\|\s*Page\s+\d+\s+of\s+\d+$/i.test(cleaned)) return true;
+  return false;
+}
+
+function isBoilerplateLine(line: string): boolean {
+  const cleaned = normalizeWhitespace(line.replace(/\bColumn\s+\d+:\s*/gi, ""));
+  return isDiscardableBoilerplate(cleaned) ||
+    /^IMPORTANT NOTICE\s*[-—]\s*/i.test(cleaned) ||
+    /^THIS IS A CLAIMS-MADE AND REPORTED POLICY\.? PLEASE READ IT CAREFULLY\.?$/i.test(cleaned);
+}
+
+function removedBoilerplateLines(text: string): string[] {
+  return text
+    .split(/\s{2,}|\r?\n/)
+    .map(normalizeWhitespace)
+    .filter((line) => line && isBoilerplateLine(line));
+}
+
+function cleanBoilerplateLines(text: string): string {
+  const withoutInlineBoilerplate = text
+    .replace(/\b(?:Column\s+\d+:\s*)?[A-Z]{2,}(?:-[A-Z0-9]{2,})+\s+\d{2}\s+\d{2}\s+(?:\|\s*)?(?:Column\s+\d+:\s*)?Page\s+\d+\s+of\s+\d+\b/gi, " ")
+    .replace(/\bSPECIMEN POLICY\s+[-—]\s+FOR TESTING ONLY\b/gi, " ")
+    .replace(/\bPage\s+\d+\s+of\s+\d+\b/gi, " ");
+  const lines = withoutInlineBoilerplate.split(/\r?\n/);
+  const filtered = lines
+    .map(normalizeWhitespace)
+    .filter((line) => line && !isBoilerplateLine(line));
+  return normalizeWhitespace(filtered.join(" "));
+}
+
+function shouldMergeTextSpan(left: SourceSpanWithOriginalIndex, right: SourceSpanWithOriginalIndex): boolean {
+  if (sourceUnit(left) !== "text" || sourceUnit(right) !== "text") return false;
+  if (spanPage(left) !== spanPage(right)) return false;
+  if ((left.metadata?.elementType === "title") || (right.metadata?.elementType === "title")) return false;
+  const leftText = normalizeWhitespace(left.text);
+  const rightText = normalizeWhitespace(right.text);
+  if (!leftText || !rightText) return false;
+  if (/[:.;!?)]$/.test(leftText)) return false;
+  if (/^(?:[A-Z][A-Z0-9 &/(),.-]{8,}|Item\s+\d+|Section\s+\d+|Part\s+[A-Z]\b)/.test(rightText)) return false;
+  return /^[a-z(]/.test(rightText) ||
+    /\b(?:a|an|and|any|as|at|by|for|from|in|into|may|must|of|or|that|the|this|to|with|within|you|your)$/i.test(leftText);
+}
+
+function mergeTextRuns(spans: SourceSpanWithOriginalIndex[]): SourceSpanWithOriginalIndex[] {
+  const result: SourceSpanWithOriginalIndex[] = [];
+  let current: SourceSpanWithOriginalIndex | undefined;
+
+  for (const span of spans) {
+    if (current && shouldMergeTextSpan(current, span)) {
+      current = mergeTextSpanPair(current, span);
+      continue;
+    }
+    if (current) result.push(current);
+    current = span;
+  }
+  if (current) result.push(current);
+  return result;
+}
+
+function mergeTextSpanPair(left: SourceSpanWithOriginalIndex, right: SourceSpanWithOriginalIndex): SourceSpanWithOriginalIndex {
+  const text = normalizeWhitespace(`${left.text} ${right.text}`);
+  const merged = retextSpan(left, text, {
+    mergedSourceSpanIds: [left.metadata?.mergedSourceSpanIds, left.id, right.id, right.metadata?.mergedSourceSpanIds]
+      .filter(Boolean)
+      .join(","),
+    sourceSpanNormalization: "merged_text_run",
+  });
+  return {
+    ...merged,
+    bbox: [...(left.bbox ?? []), ...(right.bbox ?? [])],
+    pageEnd: right.pageEnd ?? left.pageEnd,
+    location: {
+      ...left.location,
+      endPage: right.location?.endPage ?? right.pageEnd ?? left.location?.endPage,
+    },
+    __originalIndex: left.__originalIndex,
+  };
+}
+
+function retextSpan(span: SourceSpan, text: string, metadata: Record<string, string>): SourceSpan {
+  const textHash = sourceSpanTextHash(text);
+  return SourceSpanSchema.parse({
+    ...span,
+    id: `${span.id.split(":").slice(0, -1).join(":")}:${textHash.slice(0, 12)}`,
+    text,
+    hash: textHash,
+    textHash,
+    metadata: {
+      ...(span.metadata ?? {}),
+      ...metadata,
+    },
+  });
 }
 
 function filterChunkableSourceSpans(spans: SourceSpan[]): SourceSpan[] {

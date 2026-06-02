@@ -3,6 +3,7 @@ import {
   buildDeterministicOperationalProfile,
   buildDocumentSourceTree,
   buildSourceSpan,
+  normalizeSourceSpans,
 } from "../../source";
 
 describe("source tree v3", () => {
@@ -75,5 +76,47 @@ describe("source tree v3", () => {
       premium: "$2,500",
       sourceSpanIds: [row.id],
     }));
+  });
+
+  it("normalizes boilerplate source spans and merges torn sentence rows", () => {
+    const warning = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: "SPECIMEN POLICY — FOR TESTING ONLY",
+      pageStart: 2,
+      pageEnd: 2,
+      sourceUnit: "text",
+    }, 0);
+    const formFooter = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: "Column 1: NWC-TES 09 17 | Column 2: Page 35 of 35",
+      pageStart: 35,
+      pageEnd: 35,
+      sourceUnit: "table_row",
+    }, 1);
+    const firstLine = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: "This Policy is a CLAIMS-MADE AND REPORTED policy. As a condition of",
+      pageStart: 2,
+      pageEnd: 2,
+      sourceUnit: "text",
+    }, 2);
+    const secondLine = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: "coverage, you must report any Claim.",
+      pageStart: 2,
+      pageEnd: 2,
+      sourceUnit: "text",
+    }, 3);
+
+    const normalized = normalizeSourceSpans([warning, formFooter, firstLine, secondLine]);
+
+    expect(normalized).toHaveLength(1);
+    expect(normalized[0].text).toBe("This Policy is a CLAIMS-MADE AND REPORTED policy. As a condition of coverage, you must report any Claim.");
+    expect(normalized[0].metadata?.mergedSourceSpanIds).toContain(firstLine.id);
+    expect(normalized[0].metadata?.mergedSourceSpanIds).toContain(secondLine.id);
   });
 });
