@@ -1,3 +1,10 @@
+## [3.0.3](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.2...v3.0.3) (2026-06-02)
+
+
+### Bug Fixes
+
+* organize full source tree during extraction ([dfe8d3e](https://github.com/claritylabs-inc/cl-sdk/commit/dfe8d3e8333becdbc62cdac191390cee7f5bed4b))
+
 ## [3.0.2](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.1...v3.0.2) (2026-06-01)
 
 
