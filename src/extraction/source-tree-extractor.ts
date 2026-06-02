@@ -27,6 +27,9 @@ const ORGANIZABLE_KINDS = [
   "clause",
 ] as const;
 
+const ORGANIZATION_TOP_LEVEL_BATCH_SIZE = 80;
+const ORGANIZATION_CHILD_CONTEXT_LIMIT = 4;
+
 const SourceTreeOrganizationSchema = z.object({
   labels: z.array(z.object({
     nodeId: z.string(),
@@ -117,12 +120,19 @@ type TrackUsage = (
   },
 ) => void;
 
+type SourceTreeOrganization = z.infer<typeof SourceTreeOrganizationSchema>;
+type OrganizationBatch = {
+  label: string;
+  topLevelNodeIds: string[];
+  nodes: DocumentSourceNode[];
+};
+
 function cleanText(value: string | undefined, fallback: string): string {
   const text = value?.replace(/\s+/g, " ").trim();
   return text || fallback;
 }
 
-function compactNode(node: DocumentSourceNode) {
+function compactNode(node: DocumentSourceNode, maxText = 700) {
   return {
     id: node.id,
     kind: node.kind,
@@ -131,24 +141,101 @@ function compactNode(node: DocumentSourceNode) {
     pageStart: node.pageStart,
     pageEnd: node.pageEnd,
     sourceSpanIds: node.sourceSpanIds.slice(0, 8),
-    text: (node.textExcerpt ?? node.description).slice(0, 700),
+    text: (node.textExcerpt ?? node.description).slice(0, maxText),
   };
 }
 
-function buildOrganizationPrompt(sourceTree: DocumentSourceNode[]): string {
-  const nodes = sourceTree
-    .filter((node) => node.kind !== "document")
-    .slice(0, 240)
-    .map(compactNode);
+function nodesByParent(sourceTree: DocumentSourceNode[]): Map<string | undefined, DocumentSourceNode[]> {
+  const byParent = new Map<string | undefined, DocumentSourceNode[]>();
+  for (const node of sourceTree) {
+    const children = byParent.get(node.parentId) ?? [];
+    children.push(node);
+    byParent.set(node.parentId, children);
+  }
+  for (const children of byParent.values()) {
+    children.sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+  }
+  return byParent;
+}
+
+function sourceTreeRootId(sourceTree: DocumentSourceNode[]): string | undefined {
+  return sourceTree.find((node) => node.kind === "document")?.id;
+}
+
+function organizationBatches(sourceTree: DocumentSourceNode[]): OrganizationBatch[] {
+  const byParent = nodesByParent(sourceTree);
+  const rootId = sourceTreeRootId(sourceTree);
+  const topLevelNodes = (byParent.get(rootId) ?? [])
+    .filter((node) => node.kind !== "document");
+
+  if (topLevelNodes.length === 0) {
+    const nodes = sourceTree.filter((node) => node.kind !== "document").slice(0, 240);
+    return [{
+      label: "fallback node prefix because no document root children were found",
+      topLevelNodeIds: nodes.map((node) => node.id),
+      nodes,
+    }];
+  }
+
+  const batches: OrganizationBatch[] = [];
+  for (let index = 0; index < topLevelNodes.length; index += ORGANIZATION_TOP_LEVEL_BATCH_SIZE) {
+    const topLevelBatch = topLevelNodes.slice(index, index + ORGANIZATION_TOP_LEVEL_BATCH_SIZE);
+    const candidates = new Map<string, DocumentSourceNode>();
+    for (const node of topLevelBatch) {
+      candidates.set(node.id, node);
+      const childContext = (byParent.get(node.id) ?? [])
+        .filter((child) => child.kind !== "text" && child.kind !== "table_cell")
+        .slice(0, ORGANIZATION_CHILD_CONTEXT_LIMIT);
+      for (const child of childContext) {
+        candidates.set(child.id, child);
+      }
+    }
+    batches.push({
+      label: `top-level nodes ${index + 1}-${index + topLevelBatch.length} of ${topLevelNodes.length}`,
+      topLevelNodeIds: topLevelBatch.map((node) => node.id),
+      nodes: [...candidates.values()],
+    });
+  }
+  return batches;
+}
+
+function mergeOrganizationResults(results: SourceTreeOrganization[]): SourceTreeOrganization {
+  const labels = new Map<string, SourceTreeOrganization["labels"][number]>();
+  const groups = new Map<string, SourceTreeOrganization["groups"][number]>();
+
+  for (const result of results) {
+    for (const label of result.labels) {
+      labels.set(label.nodeId, { ...labels.get(label.nodeId), ...label });
+    }
+    for (const group of result.groups) {
+      const key = `${group.kind}:${group.childNodeIds.join("|")}`;
+      groups.set(key, group);
+    }
+  }
+
+  return {
+    labels: [...labels.values()],
+    groups: [...groups.values()],
+  };
+}
+
+function buildOrganizationPrompt(batch: OrganizationBatch): string {
+  const nodes = batch.nodes.map((node) => compactNode(node, node.kind === "page" ? 900 : 320));
   return `You organize an insurance document source tree.
+
+Scope:
+- ${batch.label}
+- The provided list is a bounded extraction-time batch. It is not necessarily the whole document.
+- Top-level page/form candidates in this batch: ${JSON.stringify(batch.topLevelNodeIds)}
 
 Rules:
 - Use only node IDs from the provided list.
 - Do not invent text, page numbers, source spans, limits, or policy facts.
-- You may relabel existing nodes and group adjacent top-level/page nodes when they are clearly one form, endorsement, declarations set, schedule, or clause family.
+- You may relabel existing nodes and group adjacent top-level/page nodes from this batch when they are clearly one form, endorsement, declarations set, schedule, or clause family.
 - Add concise, human-readable titles to generic text, table, row, and cell nodes when the text makes their role clear.
 - Groups must list existing childNodeIds only.
 - Keep descriptions short and useful for search.
+- Prefer the document's own form titles, endorsement titles, schedules, declarations headings, and page order over keyword-only guessing.
 
 Source nodes:
 ${JSON.stringify(nodes, null, 2)}
@@ -192,10 +279,11 @@ function groupNodeId(documentId: string, group: { kind: string; title: string; c
   ].join(":");
 }
 
-function applyOrganization(sourceTree: DocumentSourceNode[], organization: z.infer<typeof SourceTreeOrganizationSchema>): DocumentSourceNode[] {
+function applyOrganization(sourceTree: DocumentSourceNode[], organization: SourceTreeOrganization): DocumentSourceNode[] {
   const byId = new Map(sourceTree.map((node) => [node.id, node]));
+  const labels = new Map(organization.labels.map((label) => [label.nodeId, label]));
   let nextTree = sourceTree.map((node) => {
-    const label = organization.labels.find((item) => item.nodeId === node.id);
+    const label = labels.get(node.id);
     if (!label) return node;
     return {
       ...node,
@@ -205,7 +293,7 @@ function applyOrganization(sourceTree: DocumentSourceNode[], organization: z.inf
     };
   });
 
-  for (const group of organization.groups.slice(0, 40)) {
+  for (const group of organization.groups) {
     const children = group.childNodeIds
       .map((id) => byId.get(id))
       .filter((node): node is DocumentSourceNode => Boolean(node));
@@ -415,30 +503,35 @@ export async function runSourceTreeExtraction(params: {
   };
 
   try {
-    const budget = params.resolveBudget("extraction_source_tree", 4096);
-    const startedAt = Date.now();
-    const response = await safeGenerateObject(
-      params.generateObject,
-      {
-        prompt: buildOrganizationPrompt(sourceTree),
-        schema: SourceTreeOrganizationSchema,
-        maxTokens: budget.maxTokens,
+    const organizations: SourceTreeOrganization[] = [];
+    const batches = organizationBatches(sourceTree);
+    for (const [batchIndex, batch] of batches.entries()) {
+      const budget = params.resolveBudget("extraction_source_tree", 4096);
+      const startedAt = Date.now();
+      const response = await safeGenerateObject(
+        params.generateObject,
+        {
+          prompt: buildOrganizationPrompt(batch),
+          schema: SourceTreeOrganizationSchema,
+          maxTokens: budget.maxTokens,
+          taskKind: "extraction_source_tree",
+          budgetDiagnostics: budget,
+          providerOptions: { ...params.providerOptions, sourceSpans: params.sourceSpans },
+        },
+        {
+          fallback: { labels: [], groups: [] },
+          log: params.log,
+        },
+      );
+      localTrack(response.usage, {
         taskKind: "extraction_source_tree",
-        budgetDiagnostics: budget,
-        providerOptions: { ...params.providerOptions, sourceSpans: params.sourceSpans },
-      },
-      {
-        fallback: { labels: [], groups: [] },
-        log: params.log,
-      },
-    );
-    localTrack(response.usage, {
-      taskKind: "extraction_source_tree",
-      label: "source_tree_organizer",
-      maxTokens: budget.maxTokens,
-      durationMs: Date.now() - startedAt,
-    });
-    sourceTree = applyOrganization(sourceTree, response.object as z.infer<typeof SourceTreeOrganizationSchema>);
+        label: batches.length > 1 ? `source_tree_organizer_${batchIndex + 1}` : "source_tree_organizer",
+        maxTokens: budget.maxTokens,
+        durationMs: Date.now() - startedAt,
+      });
+      organizations.push(response.object as SourceTreeOrganization);
+    }
+    sourceTree = applyOrganization(sourceTree, mergeOrganizationResults(organizations));
   } catch (error) {
     warnings.push(`Source-tree organizer failed; deterministic tree used (${error instanceof Error ? error.message : String(error)})`);
   }

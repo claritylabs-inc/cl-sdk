@@ -365,6 +365,41 @@ describe("createExtractor", () => {
     expect(result.document.documentMetadata?.sourceTreeCanonical).toBe(true);
   });
 
+  it("shows every top-level page to the source-tree organizer instead of a prefix of descendants", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValueOnce({
+        object: { labels: [], groups: [] },
+      })
+      .mockResolvedValueOnce({
+        object: { documentType: "policy", policyTypes: ["cyber"], coverageTypes: ["cyber"] },
+      });
+    const sourceSpans = buildPageSourceSpans(
+      Array.from({ length: 35 }, (_, index) => {
+        const pageNumber = index + 1;
+        return {
+          documentId: "doc-1",
+          sourceKind: "policy_pdf",
+          pageNumber,
+          text: `Page ${pageNumber} policy form content. ${pageNumber === 35 ? "Final endorsement schedule." : "Standard wording."}`,
+        };
+      }),
+    );
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+      reviewMode: "skip",
+    });
+
+    await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
+
+    const sourceTreeCall = safeGenerateObject.mock.calls.find(([, params]) => params.taskKind === "extraction_source_tree");
+    const prompt = sourceTreeCall?.[1].prompt as string;
+    expect(prompt).toContain("top-level nodes 1-35 of 35");
+    expect(prompt).toContain("Page 35");
+    expect(prompt).toContain("Final endorsement schedule.");
+  });
+
   it("uses source spans for source-tree section indexes without section LLM calls", async () => {
     safeGenerateObject
       .mockReset()
