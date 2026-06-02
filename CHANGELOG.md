@@ -1,3 +1,10 @@
+## [3.0.4](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.3...v3.0.4) (2026-06-02)
+
+
+### Bug Fixes
+
+* normalize source spans before extraction ([644cddb](https://github.com/claritylabs-inc/cl-sdk/commit/644cddb6b83283359d4f932a1e2e25d1ba3a2d89))
+
 ## [3.0.3](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.2...v3.0.3) (2026-06-02)
 
 
