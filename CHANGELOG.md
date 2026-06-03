@@ -1,3 +1,10 @@
+## [3.0.7](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.6...v3.0.7) (2026-06-03)
+
+
+### Bug Fixes
+
+* **extraction:** group semantic source hierarchy ([4975a51](https://github.com/claritylabs-inc/cl-sdk/commit/4975a518f4a57e0401820cdd32078b123b45fe6b))
+
 ## [3.0.6](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.5...v3.0.6) (2026-06-03)
 
 
