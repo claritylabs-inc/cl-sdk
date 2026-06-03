@@ -176,6 +176,21 @@ function sourceNodeText(node: DocumentSourceNode): string {
   return cleanText([node.title, node.description, node.textExcerpt].filter(Boolean).join(" "), "");
 }
 
+function looksLikeEndorsementStart(node: DocumentSourceNode): boolean {
+  const title = cleanText(node.title, "");
+  const body = cleanText([node.textExcerpt, node.description].filter(Boolean).join(" "), "");
+  const start = body.slice(0, 260);
+  if (/\bthis endorsement changes the policy\b/i.test(start) && endorsementReference(start)) return true;
+  if (/^(?:[A-Z]{2,}-)?END\s+0*[0-9]{1,4}\b/i.test(start)) return true;
+  if (/^endorsement\s+(?:no\.?|number|#)\s*[A-Z0-9][A-Z0-9.-]*\b/i.test(start)) return true;
+  return /^endorsement\s+(?:no\.?|number|#)\s*[A-Z0-9][A-Z0-9.-]*\b/i.test(title) &&
+    /\bthis endorsement changes the policy\b/i.test(body);
+}
+
+function endorsementStartTitle(node: DocumentSourceNode): string | undefined {
+  return looksLikeEndorsementStart(node) ? endorsementTitle(sourceNodeText(node)) : undefined;
+}
+
 function semanticGroupNodeId(documentId: string, kind: string, title: string, childNodeIds: string[]): string {
   return [
     documentId.replace(/[^a-zA-Z0-9_.:-]/g, "_"),
@@ -262,8 +277,7 @@ function groupAdjacentChildren(params: {
 function applySemanticPageGrouping(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
   const relabeled = sourceTree.map((node) => {
     if (node.kind === "document" || node.kind === "page_group") return node;
-    const text = sourceNodeText(node);
-    const endorsement = endorsementTitle(text);
+    const endorsement = endorsementStartTitle(node);
     if (endorsement && node.kind === "page") {
       return {
         ...node,
@@ -303,7 +317,7 @@ function applySemanticPageGrouping(sourceTree: DocumentSourceNode[]): DocumentSo
     const declarationIds: string[] = [];
     for (let index = declarationsStartIndex; index < children.length; index += 1) {
       const child = children[index];
-      if (index > declarationsStartIndex && (looksLikePolicyFormStart(child) || endorsementTitle(sourceNodeText(child)))) break;
+      if (index > declarationsStartIndex && (looksLikePolicyFormStart(child) || looksLikeEndorsementStart(child))) break;
       if (!looksLikeDeclarationsContinuation(child)) break;
       declarationIds.push(child.id);
     }
@@ -323,7 +337,7 @@ function applySemanticPageGrouping(sourceTree: DocumentSourceNode[]): DocumentSo
     const policyIds: string[] = [];
     for (let index = policyStartIndex; index < children.length; index += 1) {
       const child = children[index];
-      if (index > policyStartIndex && endorsementTitle(sourceNodeText(child))) break;
+      if (index > policyStartIndex && looksLikeEndorsementStart(child)) break;
       if (!looksLikePolicyFormContinuation(child)) break;
       policyIds.push(child.id);
     }
@@ -370,8 +384,19 @@ function endorsementGroupNodeId(documentId: string, parentId: string | undefined
 
 function applyEndorsementGrouping(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
   const relabeledTree = sourceTree.map((node) => {
-    if (node.kind === "document" || isEndorsementGroup(node) || node.kind === "endorsement") return node;
-    const title = endorsementTitle([node.title, node.description, node.textExcerpt].filter(Boolean).join(" "));
+    if (node.kind === "document" || isEndorsementGroup(node)) return node;
+    const title = endorsementStartTitle(node);
+    if (!title && node.kind === "endorsement") {
+      return {
+        ...node,
+        kind: "page" as const,
+        title: node.pageStart ? `Page ${node.pageStart}` : cleanText(node.title, "Page"),
+        metadata: {
+          ...node.metadata,
+          organizerRepair: "demote_incidental_endorsement_reference",
+        },
+      };
+    }
     if (!title) return node;
     return {
       ...node,
@@ -412,7 +437,7 @@ function applyEndorsementGrouping(sourceTree: DocumentSourceNode[]): DocumentSou
 
   nextTree = nextTree.map((node) => {
     if (!endorsementGroupIds.has(node.parentId ?? "")) return node;
-    const title = endorsementTitle([node.title, node.description, node.textExcerpt].filter(Boolean).join(" "));
+    const title = endorsementStartTitle(node);
     if (!title) return node;
     return {
       ...node,

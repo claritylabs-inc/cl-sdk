@@ -510,7 +510,7 @@ describe("createExtractor", () => {
       {
         documentId: "doc-1",
         pageNumber: 7,
-        text: "Coverage Part Each Claim Limit Aggregate Limit Retroactive Date AI/ML Output Sub-Limit $1,000,000 $2,000,000 Item 7. Self-Insured Retention.",
+        text: "Coverage Part Each Claim Limit Aggregate Limit Retroactive Date AI/ML Output Sub-Limit $1,000,000 $2,000,000 subject to Endorsement No. 4. Item 7. Self-Insured Retention.",
       },
       {
         documentId: "doc-1",
@@ -530,7 +530,7 @@ describe("createExtractor", () => {
       {
         documentId: "doc-1",
         pageNumber: 12,
-        text: "Claim means a written demand for monetary or non-monetary relief. Insured means the Named Insured.",
+        text: "Claim means a written demand for monetary or non-monetary relief. Insured means the Named Insured. Additional exclusions may be modified by Endorsement No. 2.",
       },
       {
         documentId: "doc-1",
@@ -566,6 +566,8 @@ describe("createExtractor", () => {
 
     const endorsementGroup = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Endorsements");
     expect(endorsementGroup).toEqual(expect.objectContaining({ pageStart: 21, pageEnd: 26 }));
+    expect(result.sourceTree?.filter((node) => node.parentId === endorsementGroup?.id).map((node) => node.pageStart))
+      .not.toEqual(expect.arrayContaining([7, 12]));
     expect(result.sourceTree
       ?.filter((node) => node.parentId === endorsementGroup?.id)
       .map((node) => ({ kind: node.kind, title: node.title, pageStart: node.pageStart }))).toEqual([
