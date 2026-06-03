@@ -200,6 +200,13 @@ function endorsementStartTitle(node: DocumentSourceNode): string | undefined {
   return looksLikeEndorsementStart(node) ? endorsementTitle(sourceNodeText(node)) : undefined;
 }
 
+function endorsementDescription(title: string, node: DocumentSourceNode): string {
+  return cleanText(
+    [title, "endorsement", node.pageStart ? `page ${node.pageStart}` : undefined].filter(Boolean).join(" | "),
+    title,
+  );
+}
+
 function semanticGroupNodeId(documentId: string, kind: string, title: string, childNodeIds: string[]): string {
   return [
     documentId.replace(/[^a-zA-Z0-9_.:-]/g, "_"),
@@ -292,7 +299,7 @@ function applySemanticPageGrouping(sourceTree: DocumentSourceNode[]): DocumentSo
         ...node,
         kind: "endorsement" as const,
         title: endorsement,
-        description: cleanText([endorsement, "endorsement", node.pageStart ? `page ${node.pageStart}` : undefined, node.textExcerpt].filter(Boolean).join(" | "), endorsement),
+        description: endorsementDescription(endorsement, node),
         metadata: { ...node.metadata, organizerRepair: "semantic_page_grouping" },
       };
     }
@@ -566,10 +573,7 @@ function applyEndorsementGrouping(sourceTree: DocumentSourceNode[]): DocumentSou
       ...node,
       kind: "endorsement" as const,
       title,
-      description: cleanText(
-        [title, "endorsement", node.pageStart ? `page ${node.pageStart}` : undefined, node.textExcerpt].filter(Boolean).join(" | "),
-        title,
-      ),
+      description: endorsementDescription(title, node),
       metadata: {
         ...node.metadata,
         organizerRepair: "normalize_endorsement_grouping",
@@ -607,10 +611,7 @@ function applyEndorsementGrouping(sourceTree: DocumentSourceNode[]): DocumentSou
       ...node,
       kind: "endorsement",
       title,
-      description: cleanText(
-        [title, "endorsement", node.pageStart ? `page ${node.pageStart}` : undefined, node.textExcerpt].filter(Boolean).join(" | "),
-        title,
-      ),
+      description: endorsementDescription(title, node),
       metadata: {
         ...node.metadata,
         organizerRepair: "normalize_endorsement_grouping",
@@ -1108,7 +1109,7 @@ export async function runSourceTreeExtraction(params: {
         maxTokens: budget.maxTokens,
         taskKind: "extraction_operational_profile",
         budgetDiagnostics: budget,
-        providerOptions: { ...params.providerOptions, sourceSpans, sourceTree },
+        providerOptions: params.providerOptions,
       },
       {
         fallback: deterministicProfile,
