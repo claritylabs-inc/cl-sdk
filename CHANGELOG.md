@@ -1,3 +1,10 @@
+## [3.0.10](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.9...v3.0.10) (2026-06-03)
+
+
+### Bug Fixes
+
+* **extraction:** avoid duplicating source tree in model options ([f9cfee1](https://github.com/claritylabs-inc/cl-sdk/commit/f9cfee1249d15b46c9dbd351bd9bd8aa13557302))
+
 ## [3.0.9](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.8...v3.0.9) (2026-06-03)
 
 
