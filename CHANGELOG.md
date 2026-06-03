@@ -1,3 +1,10 @@
+## [3.0.8](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.7...v3.0.8) (2026-06-03)
+
+
+### Bug Fixes
+
+* **extraction:** avoid incidental endorsement grouping ([866a3ba](https://github.com/claritylabs-inc/cl-sdk/commit/866a3ba046f89ce6944e8958ca04187a526e4c93))
+
 ## [3.0.7](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.6...v3.0.7) (2026-06-03)
 
 
