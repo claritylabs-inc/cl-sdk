@@ -1,3 +1,10 @@
+## [3.0.5](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.4...v3.0.5) (2026-06-03)
+
+
+### Bug Fixes
+
+* prevent multi-endorsement source tree rollups ([f927756](https://github.com/claritylabs-inc/cl-sdk/commit/f9277568ba21a700990f3e2e07eb4187ad552cd6))
+
 ## [3.0.4](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.3...v3.0.4) (2026-06-02)
 
 
