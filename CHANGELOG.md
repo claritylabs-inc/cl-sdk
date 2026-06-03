@@ -1,3 +1,10 @@
+## [3.0.6](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.5...v3.0.6) (2026-06-03)
+
+
+### Bug Fixes
+
+* group endorsements in source trees ([71c16a6](https://github.com/claritylabs-inc/cl-sdk/commit/71c16a6b273bab67166ea338dde04ebdef208d62))
+
 ## [3.0.5](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.4...v3.0.5) (2026-06-03)
 
 
