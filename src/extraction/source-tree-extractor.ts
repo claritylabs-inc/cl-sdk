@@ -151,17 +151,194 @@ function simplifyOrganizerTitle(value: string | undefined, fallback: string, kin
 }
 
 function endorsementReference(value: string | undefined): string | undefined {
-  return value
-    ?.match(/\bendorsement\s+(?:no\.?|number|#)?\s*([A-Z0-9][A-Z0-9.-]*)\b/i)?.[1]
+  const text = cleanText(value, "");
+  const explicit = text
+    .match(/\bendorsement\s+(?:no\.?|number|#)?\s*([A-Z0-9][A-Z0-9.-]*)\b/i)?.[1]
+    ?.toUpperCase();
+  if (explicit) return explicit;
+  return text
+    .match(/\b(?:[A-Z]{2,}-)?END\s+0*([0-9]{1,4})\b/i)?.[1]
     ?.toUpperCase();
 }
 
 function endorsementTitle(value: string | undefined): string | undefined {
   const text = cleanText(value, "");
-  const number = text
+  const explicit = text
     .match(/\bendorsement\s+(?:no\.?|number|#)\s*([A-Z0-9][A-Z0-9.-]*)\b/i)?.[1]
     ?.toUpperCase();
+  const number = explicit ?? text
+    .match(/\b(?:[A-Z]{2,}-)?END\s+0*([0-9]{1,4})\b/i)?.[1]
+    ?.toUpperCase();
   return number ? `Endorsement No. ${number}` : undefined;
+}
+
+function sourceNodeText(node: DocumentSourceNode): string {
+  return cleanText([node.title, node.description, node.textExcerpt].filter(Boolean).join(" "), "");
+}
+
+function semanticGroupNodeId(documentId: string, kind: string, title: string, childNodeIds: string[]): string {
+  return [
+    documentId.replace(/[^a-zA-Z0-9_.:-]/g, "_"),
+    "source_node",
+    kind,
+    title.replace(/[^a-zA-Z0-9_.:-]/g, "_").toLowerCase().slice(0, 48),
+    childNodeIds.join("_").replace(/[^a-zA-Z0-9_.:-]/g, "_").slice(0, 80),
+  ].join(":");
+}
+
+function looksLikeDeclarationsStart(node: DocumentSourceNode): boolean {
+  return /\bdeclarations?\s+(page|schedule)\b/i.test(sourceNodeText(node));
+}
+
+function looksLikeDeclarationsContinuation(node: DocumentSourceNode): boolean {
+  const text = sourceNodeText(node);
+  return looksLikeDeclarationsStart(node) ||
+    /\b(item\s+\d+\.|coverage part|each claim limit|aggregate limit|retroactive date|self-insured retention|premium|payment plan|producer|broker|forms? and endorsements?|extended reporting period|discovery period)\b/i.test(text);
+}
+
+function looksLikePolicyFormStart(node: DocumentSourceNode): boolean {
+  const text = sourceNodeText(node);
+  return /\bpolicy form\b/i.test(node.title) ||
+    (/\btechnology errors?\s*&?\s*omissions\b/i.test(text) && /\bplease read this entire policy carefully\b/i.test(text)) ||
+    /\bform\s+[A-Z]{2,}-[A-Z0-9-]+\s+\d{2}\s+\d{2}\b/i.test(text);
+}
+
+function looksLikePolicyFormContinuation(node: DocumentSourceNode): boolean {
+  const text = sourceNodeText(node);
+  if (looksLikePolicyFormStart(node)) return true;
+  return /\b(insuring agreement|definitions?|exclusions?|conditions?|claim means|insured means|wrongful act means|limits of liability|notice of claim|cancellation by|action against the company)\b/i.test(text);
+}
+
+function groupAdjacentChildren(params: {
+  sourceTree: DocumentSourceNode[];
+  children: DocumentSourceNode[];
+  childIds: string[];
+  kind: DocumentSourceNodeKind;
+  title: string;
+  description: string;
+  organizer: string;
+}): DocumentSourceNode[] {
+  if (params.childIds.length < 2) return params.sourceTree;
+  const children = params.childIds
+    .map((id) => params.children.find((child) => child.id === id))
+    .filter((child): child is DocumentSourceNode => Boolean(child));
+  if (children.length < 2) return params.sourceTree;
+  const parentId = children[0].parentId;
+  if (!children.every((child) => child.parentId === parentId)) return params.sourceTree;
+  const documentId = children[0].documentId;
+  const id = semanticGroupNodeId(documentId, params.kind, params.title, children.map((child) => child.id));
+  if (params.sourceTree.some((node) => node.id === id)) return params.sourceTree;
+  const pageStarts = children.map((child) => child.pageStart).filter((page): page is number => typeof page === "number");
+  const pageEnds = children.map((child) => child.pageEnd ?? child.pageStart).filter((page): page is number => typeof page === "number");
+  const sourceSpanIds = [...new Set(children.flatMap((child) => child.sourceSpanIds))];
+  const order = Math.min(...children.map((child) => child.order));
+  const groupNode: DocumentSourceNode = {
+    id,
+    documentId,
+    parentId,
+    kind: params.kind,
+    title: params.title,
+    description: params.description,
+    textExcerpt: children.map((child) => child.textExcerpt ?? child.description).filter(Boolean).join("\n\n").slice(0, 1600),
+    sourceSpanIds,
+    pageStart: pageStarts.length ? Math.min(...pageStarts) : undefined,
+    pageEnd: pageEnds.length ? Math.max(...pageEnds) : undefined,
+    bbox: children.flatMap((child) => child.bbox ?? []).slice(0, 12),
+    order,
+    path: "",
+    metadata: { sourceTreeVersion: "v3", organizer: params.organizer },
+  };
+  const wanted = new Set(children.map((child) => child.id));
+  return [
+    ...params.sourceTree.map((node) =>
+      wanted.has(node.id)
+        ? { ...node, parentId: id, order: node.order + 0.001 }
+        : node,
+    ),
+    groupNode,
+  ];
+}
+
+function applySemanticPageGrouping(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
+  const relabeled = sourceTree.map((node) => {
+    if (node.kind === "document" || node.kind === "page_group") return node;
+    const text = sourceNodeText(node);
+    const endorsement = endorsementTitle(text);
+    if (endorsement && node.kind === "page") {
+      return {
+        ...node,
+        kind: "endorsement" as const,
+        title: endorsement,
+        description: cleanText([endorsement, "endorsement", node.pageStart ? `page ${node.pageStart}` : undefined, node.textExcerpt].filter(Boolean).join(" | "), endorsement),
+        metadata: { ...node.metadata, organizerRepair: "semantic_page_grouping" },
+      };
+    }
+    if (node.kind === "page" && looksLikeDeclarationsStart(node)) {
+      return {
+        ...node,
+        title: "Declarations",
+        description: cleanText([node.description, "Declarations"].join(" "), "Declarations"),
+        metadata: { ...node.metadata, organizerRepair: "semantic_page_grouping" },
+      };
+    }
+    if (node.kind === "page" && looksLikePolicyFormStart(node)) {
+      return {
+        ...node,
+        title: "Policy Form",
+        description: cleanText([node.description, "Policy Form"].join(" "), "Policy Form"),
+        metadata: { ...node.metadata, organizerRepair: "semantic_page_grouping" },
+      };
+    }
+    return node;
+  });
+
+  const rootId = sourceTreeRootId(relabeled);
+  const children = (nodesByParent(relabeled).get(rootId) ?? [])
+    .filter((node) => node.kind !== "document")
+    .sort((left, right) => left.order - right.order);
+  let nextTree = relabeled;
+
+  const declarationsStartIndex = children.findIndex(looksLikeDeclarationsStart);
+  if (declarationsStartIndex >= 0) {
+    const declarationIds: string[] = [];
+    for (let index = declarationsStartIndex; index < children.length; index += 1) {
+      const child = children[index];
+      if (index > declarationsStartIndex && (looksLikePolicyFormStart(child) || endorsementTitle(sourceNodeText(child)))) break;
+      if (!looksLikeDeclarationsContinuation(child)) break;
+      declarationIds.push(child.id);
+    }
+    nextTree = groupAdjacentChildren({
+      sourceTree: nextTree,
+      children,
+      childIds: declarationIds,
+      kind: "page_group",
+      title: "Declarations",
+      description: "Declarations pages and schedules grouped by source order",
+      organizer: "semantic_declarations_grouping",
+    });
+  }
+
+  const policyStartIndex = children.findIndex(looksLikePolicyFormStart);
+  if (policyStartIndex >= 0) {
+    const policyIds: string[] = [];
+    for (let index = policyStartIndex; index < children.length; index += 1) {
+      const child = children[index];
+      if (index > policyStartIndex && endorsementTitle(sourceNodeText(child))) break;
+      if (!looksLikePolicyFormContinuation(child)) break;
+      policyIds.push(child.id);
+    }
+    nextTree = groupAdjacentChildren({
+      sourceTree: nextTree,
+      children,
+      childIds: policyIds,
+      kind: "form",
+      title: "Policy Form",
+      description: "Policy form pages grouped by source order",
+      organizer: "semantic_policy_form_grouping",
+    });
+  }
+
+  return applyEndorsementGrouping(normalizeDocumentSourceTreePaths(nextTree));
 }
 
 function rejectsOrganizerGroup(group: SourceTreeOrganization["groups"][number], children: DocumentSourceNode[]): boolean {
@@ -709,6 +886,7 @@ export async function runSourceTreeExtraction(params: {
   } catch (error) {
     warnings.push(`Source-tree organizer failed; deterministic tree used (${error instanceof Error ? error.message : String(error)})`);
   }
+  sourceTree = applySemanticPageGrouping(sourceTree);
 
   const deterministicProfile = buildDeterministicOperationalProfile({
     sourceTree,
@@ -750,8 +928,6 @@ export async function runSourceTreeExtraction(params: {
   } catch (error) {
     warnings.push(`Operational profile model pass failed; deterministic profile used (${error instanceof Error ? error.message : String(error)})`);
   }
-
-  sourceTree = applyEndorsementGrouping(sourceTree);
 
   const document = materializeDocument({
     id: params.id,

@@ -492,6 +492,89 @@ describe("createExtractor", () => {
     ]);
   });
 
+  it("deterministically groups Northwoods-like declarations, policy form pages, and endorsements", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValueOnce({
+        object: { labels: [], groups: [] },
+      })
+      .mockResolvedValueOnce({
+        object: { documentType: "policy", policyTypes: ["cyber"], coverageTypes: ["cyber"] },
+      });
+    const sourceSpans = buildPageSourceSpans([
+      {
+        documentId: "doc-1",
+        pageNumber: 6,
+        text: "DECLARATIONS PAGE TECHNOLOGY ERRORS & OMISSIONS AND CYBER LIABILITY INSURANCE POLICY Item 1. Named Insured Cove Technologies Inc.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 7,
+        text: "Coverage Part Each Claim Limit Aggregate Limit Retroactive Date AI/ML Output Sub-Limit $1,000,000 $2,000,000 Item 7. Self-Insured Retention.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 8,
+        text: "A Bilateral Discovery Period of 60 days is automatically available. Item 13. Forms and Endorsements at inception.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 10,
+        text: "TECHNOLOGY ERRORS & OMISSIONS AND CYBER LIABILITY INSURANCE POLICY Form NWC-TEC 04 25 PLEASE READ THIS ENTIRE POLICY CAREFULLY.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 11,
+        text: "INSURING AGREEMENT Defense Outside Limits Until Supplementary Defense Cap Is Exhausted.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 12,
+        text: "Claim means a written demand for monetary or non-monetary relief. Insured means the Named Insured.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 21,
+        text: "NWC-END 001 04 25 NORTHWOODS CONTINENTAL INSURANCE COMPANY THIS ENDORSEMENT CHANGES THE POLICY. Network Security and Privacy Liability.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 23,
+        text: "NWC-END 002 04 25 NORTHWOODS CONTINENTAL INSURANCE COMPANY THIS ENDORSEMENT CHANGES THE POLICY. Cyber Extortion Expense Coverage.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 26,
+        text: "NWC-END 004 04 25 NORTHWOODS CONTINENTAL INSURANCE COMPANY THIS ENDORSEMENT CHANGES THE POLICY. AI/ML Output Sub-Limit.",
+      },
+    ]);
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+      reviewMode: "skip",
+    });
+
+    const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
+
+    const declarations = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Declarations");
+    expect(declarations).toEqual(expect.objectContaining({ pageStart: 6, pageEnd: 8 }));
+    expect(result.sourceTree?.filter((node) => node.parentId === declarations?.id).map((node) => node.pageStart)).toEqual([6, 7, 8]);
+
+    const policyForm = result.sourceTree?.find((node) => node.kind === "form" && node.title === "Policy Form");
+    expect(policyForm).toEqual(expect.objectContaining({ pageStart: 10, pageEnd: 12 }));
+    expect(result.sourceTree?.filter((node) => node.parentId === policyForm?.id).map((node) => node.pageStart)).toEqual([10, 11, 12]);
+
+    const endorsementGroup = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Endorsements");
+    expect(endorsementGroup).toEqual(expect.objectContaining({ pageStart: 21, pageEnd: 26 }));
+    expect(result.sourceTree
+      ?.filter((node) => node.parentId === endorsementGroup?.id)
+      .map((node) => ({ kind: node.kind, title: node.title, pageStart: node.pageStart }))).toEqual([
+        { kind: "endorsement", title: "Endorsement No. 1", pageStart: 21 },
+        { kind: "endorsement", title: "Endorsement No. 2", pageStart: 23 },
+        { kind: "endorsement", title: "Endorsement No. 4", pageStart: 26 },
+      ]);
+  });
+
   it("uses source spans for source-tree section indexes without section LLM calls", async () => {
     safeGenerateObject
       .mockReset()
