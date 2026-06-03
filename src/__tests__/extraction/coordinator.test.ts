@@ -539,8 +539,18 @@ describe("createExtractor", () => {
       },
       {
         documentId: "doc-1",
+        pageNumber: 22,
+        text: "Additional exclusions and conditions under Endorsement No. 1.",
+      },
+      {
+        documentId: "doc-1",
         pageNumber: 23,
         text: "NWC-END 002 04 25 NORTHWOODS CONTINENTAL INSURANCE COMPANY THIS ENDORSEMENT CHANGES THE POLICY. Cyber Extortion Expense Coverage.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 24,
+        text: "Regulatory defense and fines provisions continued under Endorsement No. 2.",
       },
       {
         documentId: "doc-1",
@@ -570,11 +580,14 @@ describe("createExtractor", () => {
       .not.toEqual(expect.arrayContaining([7, 12]));
     expect(result.sourceTree
       ?.filter((node) => node.parentId === endorsementGroup?.id)
-      .map((node) => ({ kind: node.kind, title: node.title, pageStart: node.pageStart }))).toEqual([
-        { kind: "endorsement", title: "Endorsement No. 1", pageStart: 21 },
-        { kind: "endorsement", title: "Endorsement No. 2", pageStart: 23 },
-        { kind: "endorsement", title: "Endorsement No. 4", pageStart: 26 },
+      .map((node) => ({ kind: node.kind, title: node.title, pageStart: node.pageStart, pageEnd: node.pageEnd }))).toEqual([
+        { kind: "endorsement", title: "Endorsement No. 1", pageStart: 21, pageEnd: 22 },
+        { kind: "endorsement", title: "Endorsement No. 2", pageStart: 23, pageEnd: 24 },
+        { kind: "endorsement", title: "Endorsement No. 4", pageStart: 26, pageEnd: 26 },
       ]);
+    const firstEndorsement = result.sourceTree?.find((node) => node.parentId === endorsementGroup?.id && node.title === "Endorsement No. 1");
+    expect(result.sourceTree?.filter((node) => node.parentId === firstEndorsement?.id).map((node) => node.pageStart))
+      .toEqual(expect.arrayContaining([22]));
   });
 
   it("uses source spans for source-tree section indexes without section LLM calls", async () => {

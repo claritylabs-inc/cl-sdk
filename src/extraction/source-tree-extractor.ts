@@ -187,6 +187,15 @@ function looksLikeEndorsementStart(node: DocumentSourceNode): boolean {
     /\bthis endorsement changes the policy\b/i.test(body);
 }
 
+function looksLikeEndorsementContinuation(node: DocumentSourceNode): boolean {
+  if (looksLikeEndorsementStart(node)) return false;
+  const title = cleanText(node.title, "");
+  const text = sourceNodeText(node);
+  return /\bendorsement\b/i.test(text) ||
+    /\bcontinuation\b/i.test(title) ||
+    /\ball\s+other\s+terms\s+and\s+conditions\b/i.test(text);
+}
+
 function endorsementStartTitle(node: DocumentSourceNode): string | undefined {
   return looksLikeEndorsementStart(node) ? endorsementTitle(sourceNodeText(node)) : undefined;
 }
@@ -382,6 +391,161 @@ function endorsementGroupNodeId(documentId: string, parentId: string | undefined
   ].join(":");
 }
 
+function isPolicyFormNode(node: DocumentSourceNode): boolean {
+  return node.title === "Policy Form" && (node.kind === "form" || node.kind === "page_group");
+}
+
+function isDeclarationsNode(node: DocumentSourceNode): boolean {
+  return node.kind === "page_group" && node.title === "Declarations";
+}
+
+function normalizePolicyFormStructure(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
+  let nextTree = sourceTree;
+  const byParent = nodesByParent(nextTree);
+  const nodesToRemove = new Set<string>();
+
+  for (const form of nextTree.filter((node) => node.kind === "form" && node.title === "Policy Form")) {
+    const children = byParent.get(form.id) ?? [];
+    const declarationsChildren = children.filter(isDeclarationsNode);
+    const nestedPolicyForm = children.find((child) => child.id !== form.id && isPolicyFormNode(child));
+
+    if (declarationsChildren.length === 0 && !nestedPolicyForm) continue;
+
+    const declarationIds = new Set(declarationsChildren.map((child) => child.id));
+    nextTree = nextTree.map((node) => {
+      if (declarationIds.has(node.id)) {
+        return {
+          ...node,
+          parentId: form.parentId,
+          metadata: {
+            ...node.metadata,
+            organizerRepair: "promote_declarations_from_policy_form",
+          },
+        };
+      }
+      if (nestedPolicyForm && node.parentId === nestedPolicyForm.id) {
+        return {
+          ...node,
+          parentId: form.id,
+          metadata: {
+            ...node.metadata,
+            organizerRepair: "collapse_nested_policy_form",
+          },
+        };
+      }
+      return node;
+    });
+
+    if (nestedPolicyForm) nodesToRemove.add(nestedPolicyForm.id);
+  }
+
+  if (nodesToRemove.size > 0) {
+    nextTree = nextTree.filter((node) => !nodesToRemove.has(node.id));
+  }
+
+  return nextTree;
+}
+
+function nestEndorsementContinuationPages(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
+  const byParent = nodesByParent(sourceTree);
+  const continuationParentById = new Map<string, string>();
+
+  for (const group of sourceTree.filter(isEndorsementGroup)) {
+    const children = byParent.get(group.id) ?? [];
+    let currentEndorsement: DocumentSourceNode | undefined;
+
+    for (const child of children) {
+      if (child.kind === "endorsement" && endorsementStartTitle(child)) {
+        currentEndorsement = child;
+        continue;
+      }
+
+      if (!currentEndorsement || child.kind !== "page") continue;
+      continuationParentById.set(child.id, currentEndorsement.id);
+    }
+  }
+
+  if (continuationParentById.size === 0) return sourceTree;
+
+  return sourceTree.map((node) => {
+    const parentId = continuationParentById.get(node.id);
+    if (!parentId) return node;
+    return {
+      ...node,
+      parentId,
+      metadata: {
+        ...node.metadata,
+        organizerRepair: "nest_endorsement_continuation",
+      },
+    };
+  });
+}
+
+function nodeDepth(node: DocumentSourceNode): number {
+  return node.path ? node.path.split("/").filter(Boolean).length : 0;
+}
+
+function shouldUseOwnEvidenceForContainer(node: DocumentSourceNode): boolean {
+  return node.kind === "endorsement" || node.kind === "page" || node.kind === "table" || node.kind === "table_row" || node.kind === "table_cell" || node.kind === "text";
+}
+
+function normalizeContainerEvidenceFromChildren(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
+  const byParent = nodesByParent(sourceTree);
+  const byId = new Map(sourceTree.map((node) => [node.id, node]));
+  const sorted = [...sourceTree].sort((left, right) => nodeDepth(right) - nodeDepth(left));
+
+  for (const originalNode of sorted) {
+    const children = (byParent.get(originalNode.id) ?? [])
+      .map((child) => byId.get(child.id))
+      .filter((child): child is DocumentSourceNode => Boolean(child));
+    if (children.length === 0) continue;
+
+    const currentNode = byId.get(originalNode.id) ?? originalNode;
+    const evidenceNodes = shouldUseOwnEvidenceForContainer(currentNode)
+      ? [currentNode, ...children]
+      : children;
+    const pageStarts = evidenceNodes
+      .map((node) => node.pageStart)
+      .filter((page): page is number => typeof page === "number");
+    const pageEnds = evidenceNodes
+      .map((node) => node.pageEnd ?? node.pageStart)
+      .filter((page): page is number => typeof page === "number");
+    const sourceSpanIds = [...new Set(evidenceNodes.flatMap((node) => node.sourceSpanIds))];
+    const bbox = evidenceNodes.flatMap((node) => node.bbox ?? []).slice(0, 12);
+    const childText = children
+      .map((child) => child.textExcerpt ?? child.description)
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, 1600);
+
+    byId.set(currentNode.id, {
+      ...currentNode,
+      sourceSpanIds,
+      pageStart: pageStarts.length ? Math.min(...pageStarts) : currentNode.pageStart,
+      pageEnd: pageEnds.length ? Math.max(...pageEnds) : currentNode.pageEnd,
+      bbox,
+      order: Math.min(currentNode.order, ...children.map((child) => child.order)),
+      textExcerpt: shouldUseOwnEvidenceForContainer(currentNode)
+        ? currentNode.textExcerpt
+        : childText || currentNode.textExcerpt,
+    });
+  }
+
+  return sourceTree.map((node) => byId.get(node.id) ?? node);
+}
+
+function normalizeSemanticHierarchy(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
+  return normalizeDocumentSourceTreePaths(
+    normalizeContainerEvidenceFromChildren(
+      nestEndorsementContinuationPages(
+        normalizePolicyFormStructure(
+          normalizeDocumentSourceTreePaths(sourceTree),
+        ),
+      ),
+    ),
+  );
+}
+
 function applyEndorsementGrouping(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
   const relabeledTree = sourceTree.map((node) => {
     if (node.kind === "document" || isEndorsementGroup(node)) return node;
@@ -458,9 +622,21 @@ function applyEndorsementGrouping(sourceTree: DocumentSourceNode[]): DocumentSou
     if (endorsementGroupIds.has(parentId ?? "")) continue;
     const endorsementChildren = children.filter((child) => child.kind === "endorsement" && !isEndorsementGroup(child));
     if (endorsementChildren.length < 2) continue;
+    const endorsementGroupChildren: DocumentSourceNode[] = [];
+    let hasSeenEndorsementStart = false;
+    for (const child of children) {
+      if (child.kind === "endorsement" && !isEndorsementGroup(child)) {
+        hasSeenEndorsementStart = true;
+        endorsementGroupChildren.push(child);
+        continue;
+      }
+      if (hasSeenEndorsementStart && child.kind === "page" && looksLikeEndorsementContinuation(child)) {
+        endorsementGroupChildren.push(child);
+      }
+    }
     const documentId = endorsementChildren[0].documentId;
-    const pageStarts = endorsementChildren.map((child) => child.pageStart).filter((page): page is number => typeof page === "number");
-    const pageEnds = endorsementChildren.map((child) => child.pageEnd ?? child.pageStart).filter((page): page is number => typeof page === "number");
+    const pageStarts = endorsementGroupChildren.map((child) => child.pageStart).filter((page): page is number => typeof page === "number");
+    const pageEnds = endorsementGroupChildren.map((child) => child.pageEnd ?? child.pageStart).filter((page): page is number => typeof page === "number");
     const order = Math.min(...endorsementChildren.map((child) => child.order));
     const existingGroup = groupsByParent.get(parentId);
     const groupId = existingGroup?.id ?? endorsementGroupNodeId(documentId, parentId);
@@ -475,12 +651,12 @@ function applyEndorsementGrouping(sourceTree: DocumentSourceNode[]): DocumentSou
       sourceSpanIds: [],
       pageStart: pageStarts.length ? Math.min(...pageStarts) : undefined,
       pageEnd: pageEnds.length ? Math.max(...pageEnds) : undefined,
-      bbox: endorsementChildren.flatMap((child) => child.bbox ?? []).slice(0, 12),
+      bbox: endorsementGroupChildren.flatMap((child) => child.bbox ?? []).slice(0, 12),
       order,
       path: "",
       metadata: { sourceTreeVersion: "v3", organizer: "endorsement_grouping" },
     };
-    const childSpanIds = [...new Set(endorsementChildren.flatMap((child) => child.sourceSpanIds))];
+    const childSpanIds = [...new Set(endorsementGroupChildren.flatMap((child) => child.sourceSpanIds))];
     const normalizedGroup = {
       ...groupNode,
       sourceSpanIds: groupNode.sourceSpanIds.length ? groupNode.sourceSpanIds : childSpanIds,
@@ -491,14 +667,15 @@ function applyEndorsementGrouping(sourceTree: DocumentSourceNode[]): DocumentSou
     groupsByParent.set(parentId, normalizedGroup);
     if (!existingGroup) nextTree.push(normalizedGroup);
     else nextTree = nextTree.map((node) => node.id === normalizedGroup.id ? normalizedGroup : node);
+    const endorsementGroupChildIds = new Set(endorsementGroupChildren.map((child) => child.id));
     nextTree = nextTree.map((node) =>
-      endorsementChildren.some((child) => child.id === node.id)
+      endorsementGroupChildIds.has(node.id)
         ? { ...node, parentId: groupId, order: node.order + 0.001 }
         : node,
     );
   }
 
-  return normalizeDocumentSourceTreePaths(nextTree);
+  return normalizeSemanticHierarchy(nextTree);
 }
 
 function compactNode(node: DocumentSourceNode, maxText = 700) {
