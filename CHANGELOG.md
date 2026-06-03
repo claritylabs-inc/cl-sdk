@@ -1,3 +1,10 @@
+## [3.0.9](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.8...v3.0.9) (2026-06-03)
+
+
+### Bug Fixes
+
+* **extraction:** normalize semantic source hierarchy ([5db477a](https://github.com/claritylabs-inc/cl-sdk/commit/5db477a0f60a5c856e5ca73e47cd9cddf5d8481a))
+
 ## [3.0.8](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.7...v3.0.8) (2026-06-03)
 
 
