@@ -133,6 +133,40 @@ function cleanText(value: string | undefined, fallback: string): string {
   return text || fallback;
 }
 
+function simplifyOrganizerTitle(value: string | undefined, fallback: string, kind?: DocumentSourceNodeKind): string {
+  const title = cleanText(value, fallback);
+  if (/^declarations\b/i.test(title)) return "Declarations";
+  if (/^policy\s+form\b/i.test(title)) return "Policy Form";
+  if (/^definitions\b/i.test(title)) return "Definitions";
+
+  const endorsementNumber = title.match(/^endorsement\s+(?:no\.?|number|#)?\s*([A-Z0-9][A-Z0-9.-]*)\b/i)?.[1];
+  if (endorsementNumber) return `Endorsement No. ${endorsementNumber}`;
+
+  if (kind === "endorsement" && /^endorsements?\s+\d+\s*[–-]\s*\d+\b/i.test(title)) {
+    return title.replace(/[–—]/g, "-").replace(/\s*\(.*/, "").trim();
+  }
+
+  return title;
+}
+
+function endorsementReference(value: string | undefined): string | undefined {
+  return value
+    ?.match(/\bendorsement\s+(?:no\.?|number|#)?\s*([A-Z0-9][A-Z0-9.-]*)\b/i)?.[1]
+    ?.toUpperCase();
+}
+
+function rejectsOrganizerGroup(group: SourceTreeOrganization["groups"][number], children: DocumentSourceNode[]): boolean {
+  if (group.kind !== "endorsement") return false;
+  if (/^endorsements?\s+\d+\s*[–-]\s*\d+\b/i.test(group.title)) return true;
+
+  const childNumbers = new Set(
+    children
+      .map((child) => endorsementReference([child.title, child.description, child.textExcerpt].filter(Boolean).join(" ")))
+      .filter((value): value is string => Boolean(value)),
+  );
+  return childNumbers.size > 1;
+}
+
 function compactNode(node: DocumentSourceNode, maxText = 700) {
   return {
     id: node.id,
@@ -232,8 +266,10 @@ Scope:
 Rules:
 - Use only node IDs from the provided list.
 - Do not invent text, page numbers, source spans, limits, or policy facts.
-- You may relabel existing nodes and group adjacent top-level/page nodes from this batch when they are clearly one form, endorsement, declarations set, schedule, or clause family.
+- You may relabel existing nodes and group adjacent top-level/page nodes from this batch only when they are clearly one continuous form, one declarations set, one schedule, or one clause family.
+- Do not group separately numbered endorsements into one parent. Never create rollup titles such as "Endorsements 1-3 (...)".
 - Add concise, human-readable titles to generic text, table, row, and cell nodes when the text makes their role clear.
+- Keep organizer titles terse. Use the printed heading or a compact canonical title such as "Declarations", "Policy Form", "Definitions", or "Endorsement No. 3"; do not add parenthetical summaries.
 - Groups must list existing childNodeIds only.
 - Keep descriptions short and useful for search.
 - Prefer the document's own form titles, endorsement titles, schedules, declarations headings, and page order over keyword-only guessing.
@@ -289,7 +325,7 @@ function applyOrganization(sourceTree: DocumentSourceNode[], organization: Sourc
     return {
       ...node,
       kind: label.kind ?? node.kind,
-      title: cleanText(label.title, node.title),
+      title: simplifyOrganizerTitle(label.title, node.title, label.kind ?? node.kind),
       description: cleanText(label.description, node.description),
     };
   });
@@ -299,10 +335,13 @@ function applyOrganization(sourceTree: DocumentSourceNode[], organization: Sourc
       .map((id) => byId.get(id))
       .filter((node): node is DocumentSourceNode => Boolean(node));
     if (children.length === 0) continue;
+    if (rejectsOrganizerGroup(group, children)) continue;
     const parentId = children[0].parentId;
     if (!children.every((child) => child.parentId === parentId)) continue;
     const documentId = children[0].documentId;
-    const id = groupNodeId(documentId, group);
+    const title = simplifyOrganizerTitle(group.title, group.title, group.kind as DocumentSourceNodeKind);
+    const description = cleanText(group.description, title);
+    const id = groupNodeId(documentId, { ...group, title });
     if (byId.has(id)) continue;
     const sourceSpanIds = [...new Set(children.flatMap((child) => child.sourceSpanIds))];
     const pageStarts = children.map((child) => child.pageStart).filter((page): page is number => typeof page === "number");
@@ -313,8 +352,8 @@ function applyOrganization(sourceTree: DocumentSourceNode[], organization: Sourc
       documentId,
       parentId,
       kind: group.kind as DocumentSourceNodeKind,
-      title: group.title,
-      description: group.description ?? group.title,
+      title,
+      description,
       textExcerpt: children.map((child) => child.textExcerpt ?? child.description).filter(Boolean).join("\n\n").slice(0, 1600),
       sourceSpanIds,
       pageStart: pageStarts.length ? Math.min(...pageStarts) : undefined,

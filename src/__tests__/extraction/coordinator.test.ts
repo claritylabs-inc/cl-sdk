@@ -400,6 +400,87 @@ describe("createExtractor", () => {
     expect(prompt).toContain("Final endorsement schedule.");
   });
 
+  it("rejects multi-endorsement organizer groups and keeps broad labels terse", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockImplementation(async (_generateObject, params) => {
+        if (params.taskKind === "extraction_source_tree") {
+          const topLevelNodeIds = JSON.parse(
+            (params.prompt as string).match(/Top-level page\/form candidates in this batch: (.+)/)?.[1] ?? "[]",
+          ) as string[];
+          return {
+            object: {
+              labels: [
+                {
+                  nodeId: topLevelNodeIds[0],
+                  kind: "schedule",
+                  title: "Declarations (Technology E&O & Cyber Liability)",
+                },
+                {
+                  nodeId: topLevelNodeIds[1],
+                  kind: "form",
+                  title: "Policy Form — Technology Errors & Omissions / Cyber Liability",
+                },
+              ],
+              groups: [
+                {
+                  kind: "endorsement",
+                  title: "Endorsements 1–2 (Network Security/Privacy; Bricking/Cyber Extortion)",
+                  childNodeIds: topLevelNodeIds.slice(2, 4),
+                },
+              ],
+            },
+          };
+        }
+        return {
+          object: { documentType: "policy", policyTypes: ["cyber"], coverageTypes: ["cyber"] },
+        };
+      });
+
+    const sourceSpans = buildPageSourceSpans([
+      {
+        documentId: "doc-1",
+        pageNumber: 1,
+        text: "Declarations. Technology errors and omissions and cyber liability.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 2,
+        text: "Policy Form. Technology errors and omissions / cyber liability coverage form.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 3,
+        text: "Endorsement No. 1. Network Security and Privacy Liability Coverage.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 4,
+        text: "Endorsement No. 2. Cyber Extortion Expense Coverage.",
+      },
+    ]);
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+      reviewMode: "skip",
+    });
+
+    const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
+
+    expect(result.sourceTree).toEqual(expect.arrayContaining([
+      expect.objectContaining({ pageStart: 1, title: "Declarations" }),
+      expect.objectContaining({ pageStart: 2, title: "Policy Form" }),
+    ]));
+    expect(result.sourceTree).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "endorsement",
+        title: expect.stringMatching(/^Endorsements\s+\d+[–-]\d+/),
+        metadata: expect.objectContaining({ organizer: "llm_group" }),
+      }),
+    ]));
+    expect(result.sourceTree?.filter((node) => node.parentId?.includes(":source_node:endorsement:"))).toHaveLength(0);
+  });
+
   it("uses source spans for source-tree section indexes without section LLM calls", async () => {
     safeGenerateObject
       .mockReset()

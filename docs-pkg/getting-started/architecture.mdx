@@ -25,7 +25,7 @@ The deterministic builder converts `SourceSpan` records into `DocumentSourceNode
 
 ### Organizer
 
-The organizer prompt may label existing nodes and group adjacent nodes into forms, endorsements, schedules, clauses, or page groups. It sees all top-level page/form candidates rather than a prefix of low-level descendants, with only bounded direct-child context for naming. It cannot invent text, pages, source spans, or bounding boxes. If the organizer fails, the deterministic tree is still usable.
+The organizer prompt may label existing nodes and group adjacent nodes into continuous forms, schedules, clauses, page groups, or declaration sets. It must not roll up separately numbered endorsements into one synthesized parent. Titles stay terse and source-heading-derived, such as `Declarations`, `Policy Form`, `Definitions`, or `Endorsement No. 3`, without parenthetical summaries. It sees all top-level page/form candidates rather than a prefix of low-level descendants, with only bounded direct-child context for naming. It cannot invent text, pages, source spans, or bounding boxes. If the organizer fails, the deterministic tree is still usable.
 
 ### Operational profile
 

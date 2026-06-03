@@ -30,7 +30,7 @@ flowchart LR
   C --> V[Validation + Review]
 ```
 
-Extraction builds a deterministic source tree from spans, then runs an extraction-time organizer over every top-level page/form node with bounded child context so the model can label and group the actual document hierarchy without inventing pages, text, or locations. It then extracts only source-cited operational facts. Query and PCE use retrievers to find source nodes, expand ancestors/siblings/children, and attach exact spans for citations. Application processing forwards spans into classification, field extraction, lookup, and explanation agents. Case workflows validate quoted evidence before proposals are scored or packets are generated.
+Extraction builds a deterministic source tree from spans, then runs an extraction-time organizer over every top-level page/form node with bounded child context so the model can label and group the actual document hierarchy without inventing pages, text, or locations. The organizer may group continuous document units, but it must not combine separately numbered endorsements under synthesized rollup titles, and broad titles are kept terse. It then extracts only source-cited operational facts. Query and PCE use retrievers to find source nodes, expand ancestors/siblings/children, and attach exact spans for citations. Application processing forwards spans into classification, field extraction, lookup, and explanation agents. Case workflows validate quoted evidence before proposals are scored or packets are generated.
 
 ## Minimal setup
 
