@@ -400,7 +400,7 @@ describe("createExtractor", () => {
     expect(prompt).toContain("Final endorsement schedule.");
   });
 
-  it("rejects multi-endorsement organizer groups and keeps broad labels terse", async () => {
+  it("groups endorsements under a generic parent while rejecting range rollup titles", async () => {
     safeGenerateObject
       .mockReset()
       .mockImplementation(async (_generateObject, params) => {
@@ -424,7 +424,7 @@ describe("createExtractor", () => {
               ],
               groups: [
                 {
-                  kind: "endorsement",
+                  kind: "page_group",
                   title: "Endorsements 1–2 (Network Security/Privacy; Bricking/Cyber Extortion)",
                   childNodeIds: topLevelNodeIds.slice(2, 4),
                 },
@@ -473,12 +473,23 @@ describe("createExtractor", () => {
     ]));
     expect(result.sourceTree).not.toEqual(expect.arrayContaining([
       expect.objectContaining({
-        kind: "endorsement",
+        kind: "page_group",
         title: expect.stringMatching(/^Endorsements\s+\d+[–-]\d+/),
         metadata: expect.objectContaining({ organizer: "llm_group" }),
       }),
     ]));
-    expect(result.sourceTree?.filter((node) => node.parentId?.includes(":source_node:endorsement:"))).toHaveLength(0);
+    const endorsementGroup = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Endorsements");
+    expect(endorsementGroup).toEqual(expect.objectContaining({
+      pageStart: 3,
+      pageEnd: 4,
+    }));
+    const childEndorsements = result.sourceTree
+      ?.filter((node) => node.parentId === endorsementGroup?.id)
+      .map((node) => ({ kind: node.kind, title: node.title, pageStart: node.pageStart }));
+    expect(childEndorsements).toEqual([
+      { kind: "endorsement", title: "Endorsement No. 1", pageStart: 3 },
+      { kind: "endorsement", title: "Endorsement No. 2", pageStart: 4 },
+    ]);
   });
 
   it("uses source spans for source-tree section indexes without section LLM calls", async () => {

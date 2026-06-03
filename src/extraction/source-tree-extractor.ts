@@ -138,6 +138,7 @@ function simplifyOrganizerTitle(value: string | undefined, fallback: string, kin
   if (/^declarations\b/i.test(title)) return "Declarations";
   if (/^policy\s+form\b/i.test(title)) return "Policy Form";
   if (/^definitions\b/i.test(title)) return "Definitions";
+  if (kind === "page_group" && /^endorsements?\b/i.test(title)) return "Endorsements";
 
   const endorsementNumber = title.match(/^endorsement\s+(?:no\.?|number|#)?\s*([A-Z0-9][A-Z0-9.-]*)\b/i)?.[1];
   if (endorsementNumber) return `Endorsement No. ${endorsementNumber}`;
@@ -155,7 +156,16 @@ function endorsementReference(value: string | undefined): string | undefined {
     ?.toUpperCase();
 }
 
+function endorsementTitle(value: string | undefined): string | undefined {
+  const text = cleanText(value, "");
+  const number = text
+    .match(/\bendorsement\s+(?:no\.?|number|#)\s*([A-Z0-9][A-Z0-9.-]*)\b/i)?.[1]
+    ?.toUpperCase();
+  return number ? `Endorsement No. ${number}` : undefined;
+}
+
 function rejectsOrganizerGroup(group: SourceTreeOrganization["groups"][number], children: DocumentSourceNode[]): boolean {
+  if (/^endorsements?\b/i.test(group.title) && group.kind !== "page_group") return true;
   if (group.kind !== "endorsement") return false;
   if (/^endorsements?\s+\d+\s*[–-]\s*\d+\b/i.test(group.title)) return true;
 
@@ -165,6 +175,128 @@ function rejectsOrganizerGroup(group: SourceTreeOrganization["groups"][number], 
       .filter((value): value is string => Boolean(value)),
   );
   return childNumbers.size > 1;
+}
+
+function isEndorsementGroup(node: DocumentSourceNode): boolean {
+  return node.kind === "page_group" && /^endorsements?\b/i.test(node.title);
+}
+
+function endorsementGroupNodeId(documentId: string, parentId: string | undefined): string {
+  return [
+    documentId.replace(/[^a-zA-Z0-9_.:-]/g, "_"),
+    "source_node",
+    "page_group",
+    "endorsements",
+    parentId?.replace(/[^a-zA-Z0-9_.:-]/g, "_").slice(0, 48) ?? "root",
+  ].join(":");
+}
+
+function applyEndorsementGrouping(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
+  const relabeledTree = sourceTree.map((node) => {
+    if (node.kind === "document" || isEndorsementGroup(node) || node.kind === "endorsement") return node;
+    const title = endorsementTitle([node.title, node.description, node.textExcerpt].filter(Boolean).join(" "));
+    if (!title) return node;
+    return {
+      ...node,
+      kind: "endorsement" as const,
+      title,
+      description: cleanText(
+        [title, "endorsement", node.pageStart ? `page ${node.pageStart}` : undefined, node.textExcerpt].filter(Boolean).join(" | "),
+        title,
+      ),
+      metadata: {
+        ...node.metadata,
+        organizerRepair: "normalize_endorsement_grouping",
+      },
+    };
+  });
+  const byParent = nodesByParent(relabeledTree);
+  const groupsByParent = new Map<string | undefined, DocumentSourceNode>();
+  const endorsementGroupIds = new Set(
+    relabeledTree.filter(isEndorsementGroup).map((node) => node.id),
+  );
+  let nextTree = relabeledTree.map((node) => {
+    if (!isEndorsementGroup(node)) return node;
+    const normalized = {
+      ...node,
+      kind: "page_group" as const,
+      title: "Endorsements",
+      description: cleanText(node.description, "Endorsement forms grouped by source order"),
+      metadata: {
+        ...node.metadata,
+        sourceTreeVersion: "v3",
+        organizer: node.metadata?.organizer ?? "endorsement_grouping",
+      },
+    };
+    groupsByParent.set(node.parentId, normalized);
+    endorsementGroupIds.add(node.id);
+    return normalized;
+  });
+
+  nextTree = nextTree.map((node) => {
+    if (!endorsementGroupIds.has(node.parentId ?? "")) return node;
+    const title = endorsementTitle([node.title, node.description, node.textExcerpt].filter(Boolean).join(" "));
+    if (!title) return node;
+    return {
+      ...node,
+      kind: "endorsement",
+      title,
+      description: cleanText(
+        [title, "endorsement", node.pageStart ? `page ${node.pageStart}` : undefined, node.textExcerpt].filter(Boolean).join(" | "),
+        title,
+      ),
+      metadata: {
+        ...node.metadata,
+        organizerRepair: "normalize_endorsement_grouping",
+      },
+    };
+  });
+
+  for (const [parentId, children] of byParent) {
+    if (endorsementGroupIds.has(parentId ?? "")) continue;
+    const endorsementChildren = children.filter((child) => child.kind === "endorsement" && !isEndorsementGroup(child));
+    if (endorsementChildren.length < 2) continue;
+    const documentId = endorsementChildren[0].documentId;
+    const pageStarts = endorsementChildren.map((child) => child.pageStart).filter((page): page is number => typeof page === "number");
+    const pageEnds = endorsementChildren.map((child) => child.pageEnd ?? child.pageStart).filter((page): page is number => typeof page === "number");
+    const order = Math.min(...endorsementChildren.map((child) => child.order));
+    const existingGroup = groupsByParent.get(parentId);
+    const groupId = existingGroup?.id ?? endorsementGroupNodeId(documentId, parentId);
+    const groupNode: DocumentSourceNode = existingGroup ?? {
+      id: groupId,
+      documentId,
+      parentId,
+      kind: "page_group",
+      title: "Endorsements",
+      description: "Endorsement forms grouped by source order",
+      textExcerpt: undefined,
+      sourceSpanIds: [],
+      pageStart: pageStarts.length ? Math.min(...pageStarts) : undefined,
+      pageEnd: pageEnds.length ? Math.max(...pageEnds) : undefined,
+      bbox: endorsementChildren.flatMap((child) => child.bbox ?? []).slice(0, 12),
+      order,
+      path: "",
+      metadata: { sourceTreeVersion: "v3", organizer: "endorsement_grouping" },
+    };
+    const childSpanIds = [...new Set(endorsementChildren.flatMap((child) => child.sourceSpanIds))];
+    const normalizedGroup = {
+      ...groupNode,
+      sourceSpanIds: groupNode.sourceSpanIds.length ? groupNode.sourceSpanIds : childSpanIds,
+      pageStart: groupNode.pageStart ?? (pageStarts.length ? Math.min(...pageStarts) : undefined),
+      pageEnd: groupNode.pageEnd ?? (pageEnds.length ? Math.max(...pageEnds) : undefined),
+      order,
+    };
+    groupsByParent.set(parentId, normalizedGroup);
+    if (!existingGroup) nextTree.push(normalizedGroup);
+    else nextTree = nextTree.map((node) => node.id === normalizedGroup.id ? normalizedGroup : node);
+    nextTree = nextTree.map((node) =>
+      endorsementChildren.some((child) => child.id === node.id)
+        ? { ...node, parentId: groupId, order: node.order + 0.001 }
+        : node,
+    );
+  }
+
+  return normalizeDocumentSourceTreePaths(nextTree);
 }
 
 function compactNode(node: DocumentSourceNode, maxText = 700) {
@@ -267,7 +399,8 @@ Rules:
 - Use only node IDs from the provided list.
 - Do not invent text, page numbers, source spans, limits, or policy facts.
 - You may relabel existing nodes and group adjacent top-level/page nodes from this batch only when they are clearly one continuous form, one declarations set, one schedule, or one clause family.
-- Do not group separately numbered endorsements into one parent. Never create rollup titles such as "Endorsements 1-3 (...)".
+- Group adjacent separately numbered endorsements under a single generic "Endorsements" page_group parent, with each individual endorsement preserved as its own child node.
+- Never create rollup titles such as "Endorsements 1-3 (...)" or merge multiple endorsements into one endorsement node.
 - Add concise, human-readable titles to generic text, table, row, and cell nodes when the text makes their role clear.
 - Keep organizer titles terse. Use the printed heading or a compact canonical title such as "Declarations", "Policy Form", "Definitions", or "Endorsement No. 3"; do not add parenthetical summaries.
 - Groups must list existing childNodeIds only.
@@ -374,7 +507,7 @@ function applyOrganization(sourceTree: DocumentSourceNode[], organization: Sourc
     byId.set(id, node);
   }
 
-  return normalizeDocumentSourceTreePaths(nextTree);
+  return applyEndorsementGrouping(normalizeDocumentSourceTreePaths(nextTree));
 }
 
 function sourceTreeToOutline(sourceTree: DocumentSourceNode[]) {
@@ -617,6 +750,8 @@ export async function runSourceTreeExtraction(params: {
   } catch (error) {
     warnings.push(`Operational profile model pass failed; deterministic profile used (${error instanceof Error ? error.message : String(error)})`);
   }
+
+  sourceTree = applyEndorsementGrouping(sourceTree);
 
   const document = materializeDocument({
     id: params.id,
