@@ -644,6 +644,10 @@ describe("createExtractor", () => {
     const notices = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Notices and Jacket");
     expect(notices?.description).toContain("pages 5, 9");
     expect(result.sourceTree?.filter((node) => node.parentId === notices?.id).map((node) => node.pageStart)).toEqual([5, 9]);
+    expect(result.sourceTree?.filter((node) => node.parentId === notices?.id).map((node) => node.title)).toEqual([
+      "TERRORISM RISK INSURANCE ACT (TRIA) DISCLOSURE AND REJECTION",
+      "Trade or Economic Sanctions Limitation",
+    ]);
 
     const declarations = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Declarations");
     expect(declarations).toEqual(expect.objectContaining({ pageStart: 6, pageEnd: 8 }));

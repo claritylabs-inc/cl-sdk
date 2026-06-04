@@ -324,6 +324,7 @@ function pageTitleFromText(text: string, fallback: string): string {
   const endorsement = normalized.match(/\bENDORSEMENT\s+(?:NO\.?|NUMBER|#)\s*[A-Z0-9][A-Z0-9.-]*\b/i)?.[0];
   if (endorsement) return cleanText(endorsement, fallback);
   const firstSentence = normalized.split(/(?<=\.)\s+/)[0];
+  if (/^page\s+\d+\b/i.test(firstSentence)) return fallback;
   if (firstSentence && firstSentence.length <= 120) return firstSentence.replace(/[.]$/, "");
   return fallback;
 }
@@ -674,33 +675,44 @@ function reparentNodes(
 function applySemanticPageGrouping(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
   const relabeled = sourceTree.map((node) => {
     if (node.kind === "document" || node.kind === "page_group") return node;
-    const endorsement = endorsementStartTitle(node);
-    if (endorsement && node.kind === "page") {
+    let nextNode = node;
+    if (node.kind === "page" && /^page\s+\d+$/i.test(node.title)) {
+      const title = pageTitleFromText(sourceNodeText(node), node.title);
+      if (title !== node.title) {
+        nextNode = {
+          ...node,
+          title: simplifyOrganizerTitle(title, title, node.kind),
+          metadata: { ...node.metadata, organizerRepair: "semantic_page_title" },
+        };
+      }
+    }
+    const endorsement = endorsementStartTitle(nextNode);
+    if (endorsement && nextNode.kind === "page") {
       return {
-        ...node,
+        ...nextNode,
         kind: "endorsement" as const,
         title: endorsement,
-        description: endorsementDescription(endorsement, node),
-        metadata: { ...node.metadata, organizerRepair: "semantic_page_grouping" },
+        description: endorsementDescription(endorsement, nextNode),
+        metadata: { ...nextNode.metadata, organizerRepair: "semantic_page_grouping" },
       };
     }
-    if (node.kind === "page" && looksLikeDeclarationsStart(node)) {
+    if (nextNode.kind === "page" && looksLikeDeclarationsStart(nextNode)) {
       return {
-        ...node,
+        ...nextNode,
         title: "Declarations",
-        description: cleanText([node.description, "Declarations"].join(" "), "Declarations"),
-        metadata: { ...node.metadata, organizerRepair: "semantic_page_grouping" },
+        description: cleanText([nextNode.description, "Declarations"].join(" "), "Declarations"),
+        metadata: { ...nextNode.metadata, organizerRepair: "semantic_page_grouping" },
       };
     }
-    if (node.kind === "page" && looksLikePolicyFormStart(node)) {
+    if (nextNode.kind === "page" && looksLikePolicyFormStart(nextNode)) {
       return {
-        ...node,
+        ...nextNode,
         title: "Policy Form",
-        description: cleanText([node.description, "Policy Form"].join(" "), "Policy Form"),
-        metadata: { ...node.metadata, organizerRepair: "semantic_page_grouping" },
+        description: cleanText([nextNode.description, "Policy Form"].join(" "), "Policy Form"),
+        metadata: { ...nextNode.metadata, organizerRepair: "semantic_page_grouping" },
       };
     }
-    return node;
+    return nextNode;
   });
 
   const rootId = sourceTreeRootId(relabeled);
