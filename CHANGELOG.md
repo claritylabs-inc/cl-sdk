@@ -1,3 +1,10 @@
+## [3.0.23](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.22...v3.0.23) (2026-06-04)
+
+
+### Bug Fixes
+
+* **extraction:** model coverage schedules as coverage units ([c76e4c6](https://github.com/claritylabs-inc/cl-sdk/commit/c76e4c641b0cffb198a88a26736325e60e7c8113))
+
 ## [3.0.22](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.21...v3.0.22) (2026-06-04)
 
 
