@@ -3,6 +3,7 @@ import {
   buildDeterministicOperationalProfile,
   buildDocumentSourceTree,
   buildSourceSpan,
+  mergeOperationalProfile,
   normalizeDocumentSourceTreePaths,
   normalizeSourceSpans,
 } from "../../source";
@@ -223,6 +224,218 @@ describe("source tree v3", () => {
         expect.objectContaining({ kind: "retroactive_date", label: "Retroactive Date", value: "06/15/2023" }),
       ]),
     }));
+  });
+
+  it("extracts endorsement coverage from the leaf schedule instead of duplicate ancestor groups", () => {
+    const documentId = "policy-1";
+    const sourceTree = normalizeDocumentSourceTreePaths([
+      {
+        id: documentId,
+        documentId,
+        kind: "document",
+        title: "Policy",
+        description: "Policy",
+        sourceSpanIds: [],
+        order: 0,
+        path: "",
+      },
+      {
+        id: "endorsement-group",
+        documentId,
+        parentId: documentId,
+        kind: "endorsement",
+        title: "Endorsement No. 1",
+        description: "Endorsement group",
+        textExcerpt: "ENDORSEMENT NO. 1 — NETWORK SECURITY AND PRIVACY LIABILITY",
+        sourceSpanIds: ["s-group"],
+        pageStart: 21,
+        pageEnd: 33,
+        order: 1,
+        path: "",
+      },
+      {
+        id: "endorsement-page-1",
+        documentId,
+        parentId: "endorsement-group",
+        kind: "endorsement",
+        title: "Endorsement No. 1",
+        description: "Endorsement page",
+        textExcerpt: "ENDORSEMENT NO. 1 — NETWORK SECURITY AND PRIVACY LIABILITY",
+        sourceSpanIds: ["s-page"],
+        pageStart: 21,
+        pageEnd: 21,
+        order: 2,
+        path: "",
+      },
+      {
+        id: "endorsement-title-1",
+        documentId,
+        parentId: "endorsement-page-1",
+        kind: "endorsement",
+        title: "Endorsement No. 1",
+        description: "Endorsement title",
+        textExcerpt: "ENDORSEMENT NO. 1 — NETWORK SECURITY AND PRIVACY LIABILITY This endorsement modifies insurance provided under the Technology Errors & Omissions and Cyber Liability Insurance Policy.",
+        sourceSpanIds: ["s-title"],
+        pageStart: 21,
+        pageEnd: 21,
+        order: 3,
+        path: "",
+      },
+      {
+        id: "table-1",
+        documentId,
+        parentId: "endorsement-title-1",
+        kind: "table",
+        title: "Schedule",
+        description: "Schedule",
+        sourceSpanIds: ["s-table"],
+        pageStart: 21,
+        pageEnd: 21,
+        order: 4,
+        path: "",
+      },
+      {
+        id: "row-1",
+        documentId,
+        parentId: "table-1",
+        kind: "table_row",
+        title: "Row 1",
+        description: "Column 1: Each Claim Limit | Column 2: $3,000,000",
+        textExcerpt: "Column 1: Each Claim Limit | Column 2: $3,000,000",
+        sourceSpanIds: ["s-row-1"],
+        pageStart: 21,
+        pageEnd: 21,
+        order: 5,
+        path: "",
+      },
+      {
+        id: "cell-1a",
+        documentId,
+        parentId: "row-1",
+        kind: "table_cell",
+        title: "Column 1",
+        description: "Each Claim Limit",
+        textExcerpt: "Each Claim Limit",
+        sourceSpanIds: ["s-cell-1a"],
+        pageStart: 21,
+        pageEnd: 21,
+        order: 6,
+        path: "",
+      },
+      {
+        id: "cell-1b",
+        documentId,
+        parentId: "row-1",
+        kind: "table_cell",
+        title: "Column 2",
+        description: "$3,000,000",
+        textExcerpt: "$3,000,000",
+        sourceSpanIds: ["s-cell-1b"],
+        pageStart: 21,
+        pageEnd: 21,
+        order: 7,
+        path: "",
+      },
+      {
+        id: "row-2",
+        documentId,
+        parentId: "table-1",
+        kind: "table_row",
+        title: "Row 2",
+        description: "Column 1: SIR Each Claim | Column 2: $25,000",
+        textExcerpt: "Column 1: SIR Each Claim | Column 2: $25,000",
+        sourceSpanIds: ["s-row-2"],
+        pageStart: 21,
+        pageEnd: 21,
+        order: 8,
+        path: "",
+      },
+      {
+        id: "cell-2a",
+        documentId,
+        parentId: "row-2",
+        kind: "table_cell",
+        title: "Column 1",
+        description: "SIR Each Claim",
+        textExcerpt: "SIR Each Claim",
+        sourceSpanIds: ["s-cell-2a"],
+        pageStart: 21,
+        pageEnd: 21,
+        order: 9,
+        path: "",
+      },
+      {
+        id: "cell-2b",
+        documentId,
+        parentId: "row-2",
+        kind: "table_cell",
+        title: "Column 2",
+        description: "$25,000",
+        textExcerpt: "$25,000",
+        sourceSpanIds: ["s-cell-2b"],
+        pageStart: 21,
+        pageEnd: 21,
+        order: 10,
+        path: "",
+      },
+    ]);
+
+    const profile = buildDeterministicOperationalProfile({ sourceTree, sourceSpans: [] });
+
+    expect(profile.coverages).toHaveLength(1);
+    expect(profile.coverages[0]).toEqual(expect.objectContaining({
+      name: "Endorsement No. 1 - NETWORK SECURITY AND PRIVACY LIABILITY",
+      coverageOrigin: "endorsement",
+      endorsementNumber: "1",
+      limit: "$3,000,000",
+      deductible: "$25,000",
+      limits: expect.arrayContaining([
+        expect.objectContaining({ kind: "each_claim_limit", label: "Each Claim Limit", value: "$3,000,000" }),
+        expect.objectContaining({ kind: "retention", label: "SIR Each Claim", value: "$25,000" }),
+      ]),
+    }));
+  });
+
+  it("does not let model-generated coverages replace deterministic schedule coverages", () => {
+    const row = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: "Coverage: Cyber Liability | Each Claim Limit: $3,000,000 | Aggregate Limit: $3,000,000",
+      pageStart: 7,
+      pageEnd: 7,
+      sourceUnit: "table_row",
+      table: { tableId: "limits", rowIndex: 1 },
+    });
+    const sourceTree = buildDocumentSourceTree([row], "policy-1");
+    const base = buildDeterministicOperationalProfile({ sourceTree, sourceSpans: [row] });
+    const merged = mergeOperationalProfile(
+      base,
+      {
+        coverages: [{
+          name: "Each Claim Limit",
+          limit: "$3,000,000",
+          coverageOrigin: "endorsement",
+          sourceNodeIds: base.coverages[0].sourceNodeIds,
+          sourceSpanIds: base.coverages[0].sourceSpanIds,
+          limits: [{
+            kind: "other",
+            label: "Column 2",
+            value: "$3,000,000",
+            sourceNodeIds: base.coverages[0].sourceNodeIds,
+            sourceSpanIds: base.coverages[0].sourceSpanIds,
+          }],
+        }],
+      },
+      new Set(sourceTree.map((node) => node.id)),
+      new Set([row.id]),
+    );
+
+    expect(merged.coverages).toHaveLength(base.coverages.length);
+    expect(merged.coverages[0].name).toBe("Cyber Liability");
+    expect(merged.coverages[0].limits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "Each Claim Limit", value: "$3,000,000" }),
+      expect.objectContaining({ label: "Aggregate Limit", value: "$3,000,000" }),
+    ]));
   });
 
   it("uses visual title spans to split page content", () => {

@@ -19,6 +19,10 @@ function cleanValue(value: string | undefined): string | undefined {
   return normalizeWhitespace(value.replace(/^[\s:;#-]+|[\s;,.]+$/g, ""));
 }
 
+function cleanCoverageLabel(value: string | undefined): string | undefined {
+  return cleanValue(value)?.replace(/^column\s+\d+\s*:\s*/i, "");
+}
+
 function moneyValue(value: string | undefined): string | undefined {
   const clean = cleanValue(value);
   if (!clean) return undefined;
@@ -82,13 +86,13 @@ function inferDocumentType(nodes: DocumentSourceNode[]): "policy" | "quote" {
 
 function coverageNameFromRow(text: string): string | undefined {
   const labelled = text.match(/\b(?:coverage|coverage part|line)\s*:?\s*([^|;$]{3,80})/i)?.[1];
-  if (labelled) return cleanValue(labelled);
-  const parts = text.split(/\s+\|\s+| {2,}|\t/).map(cleanValue).filter(Boolean) as string[];
+  if (labelled) return cleanCoverageLabel(labelled);
+  const parts = text.split(/\s+\|\s+| {2,}|\t/).map(cleanCoverageLabel).filter(Boolean) as string[];
   const first = parts.find((part) =>
     !/^(limit|limits?|deductible|premium|amount|basis|rate|retroactive|aggregate|each occurrence)$/i.test(part)
     && !/^\$?[\d,]+/.test(part),
   );
-  return cleanValue(first);
+  return cleanCoverageLabel(first);
 }
 
 function limitFromText(text: string): string | undefined {
@@ -233,10 +237,29 @@ function endorsementNumberFrom(value: string | undefined): string | undefined {
   return cleanValue(value?.match(/\bendorsement\s+no\.?\s*([0-9A-Z-]+)/i)?.[1]);
 }
 
+function endorsementNameFrom(node: DocumentSourceNode): string {
+  const candidates = [node.title, node.textExcerpt, node.description, nodeText(node)].filter(Boolean) as string[];
+  for (const candidate of candidates) {
+    const match = candidate.match(/\bendorsement\s+no\.?\s*([0-9A-Z-]+)\s*[—-]\s*(.{3,140}?)(?=\s+This\s+endorsement\b|\.|$)/i);
+    if (match) return cleanValue(`Endorsement No. ${match[1]} - ${match[2]}`) ?? node.title;
+  }
+  return node.title;
+}
+
 function sourceIds(nodes: DocumentSourceNode[]) {
   return {
     sourceNodeIds: [...new Set(nodes.map((node) => node.id))],
     sourceSpanIds: [...new Set(nodes.flatMap((node) => node.sourceSpanIds))],
+  };
+}
+
+function relabelGenericTerm(term: OperationalCoverageTerm, label: string | undefined): OperationalCoverageTerm {
+  const cleanLabel = cleanValue(label);
+  if (!cleanLabel || !/^column\s+\d+$/i.test(term.label)) return term;
+  return {
+    ...term,
+    kind: termKind(cleanLabel, term.value),
+    label: cleanLabel,
   };
 }
 
@@ -250,11 +273,13 @@ function termFromCell(params: {
   const value = cleanValue(params.value);
   if (!value) return undefined;
   const nodes = [params.row, params.cell].filter((node): node is DocumentSourceNode => Boolean(node));
+  const kind = termKind(params.label, value);
+  const amount = moneyAmount(value);
   return {
-    kind: termKind(params.label, value),
+    kind,
     label: params.label,
     value,
-    ...(moneyAmount(value) !== undefined ? { amount: moneyAmount(value) } : {}),
+    ...(amount !== undefined && kind !== "retroactive_date" ? { amount } : {}),
     ...(params.appliesTo ? { appliesTo: params.appliesTo } : {}),
     ...sourceIds(nodes),
   };
@@ -297,7 +322,7 @@ function nameFromRow(row: DocumentSourceNode, children: Map<string | undefined, 
   const cells = cellRows(row, children);
   const named = cells.find((cell) => isNameCell(cell.label, cell.value));
   if (named) return cleanValue(named.value);
-  return coverageNameFromRow(nodeText(row));
+  return coverageNameFromRow(row.textExcerpt ?? row.description ?? nodeText(row));
 }
 
 function legacyLimit(terms: OperationalCoverageTerm[]): string | undefined {
@@ -364,26 +389,38 @@ function coverageFromEndorsement(
   const terms = uniqueTerms(rows.flatMap((row) =>
     termsFromRow(row, children).map((term) => {
       const appliesTo = nameFromRow(row, children);
-      return appliesTo && !/^(each claim limit|aggregate limit|retroactive date)$/i.test(appliesTo)
-        ? { ...term, appliesTo }
-        : term;
+      const labelled = relabelGenericTerm(term, appliesTo);
+      return appliesTo && labelled.label !== appliesTo
+        ? { ...labelled, appliesTo }
+        : labelled;
     }),
   ));
   if (terms.length === 0) return undefined;
   const ids = sourceIds([endorsement, ...rows, ...rows.flatMap((row) => directChildren(row, children))]);
+  const name = endorsementNameFrom(endorsement);
   return {
-    name: endorsement.title,
+    name,
     limit: legacyLimit(terms),
     deductible: legacyDeductible(terms),
     premium: legacyPremium(terms),
     retroactiveDate: retroDate(terms),
     formNumber: typeof endorsement.metadata?.formNumber === "string" ? endorsement.metadata.formNumber : undefined,
-    sectionRef: endorsement.title,
+    sectionRef: name,
     coverageOrigin: "endorsement",
-    endorsementNumber: endorsementNumberFrom(endorsement.title),
+    endorsementNumber: endorsementNumberFrom(name),
     limits: terms,
     ...ids,
   };
+}
+
+function hasDescendantEndorsementWithTableRows(
+  endorsement: DocumentSourceNode,
+  children: Map<string | undefined, DocumentSourceNode[]>,
+): boolean {
+  return descendants(endorsement, children).some((node) =>
+    node.kind === "endorsement" &&
+    descendants(node, children).some((descendant) => descendant.kind === "table_row"),
+  );
 }
 
 function buildCoverages(nodes: DocumentSourceNode[]): OperationalCoverageLine[] {
@@ -393,6 +430,7 @@ function buildCoverages(nodes: DocumentSourceNode[]): OperationalCoverageLine[] 
   const seen = new Set<string>();
 
   for (const endorsement of nodes.filter((node) => node.kind === "endorsement")) {
+    if (hasDescendantEndorsementWithTableRows(endorsement, children)) continue;
     const coverage = coverageFromEndorsement(endorsement, children);
     if (!coverage) continue;
     const key = [coverage.name.toLowerCase(), coverage.sourceNodeIds.join(",")].join("|");
@@ -604,7 +642,9 @@ export function mergeOperationalProfile(
     };
   };
 
-  const coverages = Array.isArray(candidate.coverages)
+  const coverages = base.coverages.length > 0
+    ? base.coverages
+    : Array.isArray(candidate.coverages)
     ? candidate.coverages
         .map((coverage) => {
           const record = coverage as Record<string, unknown>;
