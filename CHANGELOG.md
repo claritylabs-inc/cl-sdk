@@ -1,3 +1,10 @@
+## [3.0.19](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.18...v3.0.19) (2026-06-04)
+
+
+### Bug Fixes
+
+* **extraction:** use form inventory for source-native hierarchy ([9a13905](https://github.com/claritylabs-inc/cl-sdk/commit/9a139053b25d59887f80aaf70a339bce2924858b))
+
 ## [3.0.18](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.17...v3.0.18) (2026-06-04)
 
 
