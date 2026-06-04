@@ -180,6 +180,9 @@ function isNameCell(label: string, value: string): boolean {
   if (/\b(coverage|coverage part|insuring agreement|description|item|name)\b/.test(normalizedLabel)) {
     return true;
   }
+  if (/^column\s+1$/.test(normalizedLabel) && !/^(item\s+\d+|nwc-|iso-|cg |il |form\b|page\b)/i.test(normalizedValue)) {
+    return true;
+  }
   if (/^column\s+\d+$/.test(normalizedLabel) && /\b(coverage|sub[-\s]?limit|liability|expense|part\s+[a-z])\b/.test(normalizedValue)) {
     return true;
   }
