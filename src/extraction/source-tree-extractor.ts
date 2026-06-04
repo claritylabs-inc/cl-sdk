@@ -30,6 +30,8 @@ const ORGANIZABLE_KINDS = [
 
 const ORGANIZATION_TOP_LEVEL_BATCH_SIZE = 80;
 const ORGANIZATION_CHILD_CONTEXT_LIMIT = 4;
+const ORGANIZER_MAX_SOURCE_SPANS = 400;
+const ORGANIZER_MAX_TOP_LEVEL_NODES = 18;
 
 const SourceTreeOrganizationSchema = z.object({
   labels: z.array(z.object({
@@ -218,7 +220,8 @@ function semanticGroupNodeId(documentId: string, kind: string, title: string, ch
 }
 
 function looksLikeDeclarationsStart(node: DocumentSourceNode): boolean {
-  return /\bdeclarations?\s+(page|schedule)\b/i.test(sourceNodeText(node));
+  return /(^|\b)declarations?\b/i.test(sourceNodeText(node)) &&
+    !/\bforms?\s+and\s+endorsements?\b/i.test(sourceNodeText(node));
 }
 
 function looksLikeDeclarationsContinuation(node: DocumentSourceNode): boolean {
@@ -229,7 +232,9 @@ function looksLikeDeclarationsContinuation(node: DocumentSourceNode): boolean {
 
 function looksLikePolicyFormStart(node: DocumentSourceNode): boolean {
   const text = sourceNodeText(node);
+  const excerpt = cleanText(node.textExcerpt, "");
   return /\bpolicy form\b/i.test(node.title) ||
+    /^policy\s+form\b/i.test(excerpt) ||
     (/\btechnology errors?\s*&?\s*omissions\b/i.test(text) && /\bplease read this entire policy carefully\b/i.test(text)) ||
     /\bform\s+[A-Z]{2,}-[A-Z0-9-]+\s+\d{2}\s+\d{2}\b/i.test(text);
 }
@@ -709,6 +714,30 @@ function sourceTreeRootId(sourceTree: DocumentSourceNode[]): string | undefined 
   return sourceTree.find((node) => node.kind === "document")?.id;
 }
 
+function rootChildren(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
+  const byParent = nodesByParent(sourceTree);
+  const rootId = sourceTreeRootId(sourceTree);
+  return (byParent.get(rootId) ?? []).filter((node) => node.kind !== "document");
+}
+
+function hasDeterministicSemanticOutline(sourceTree: DocumentSourceNode[]): boolean {
+  const children = rootChildren(sourceTree);
+  const semanticCount = children.filter((node) =>
+    node.kind === "page_group" || node.kind === "form" || node.kind === "endorsement" || node.kind === "section" || node.kind === "schedule"
+  ).length;
+  return semanticCount >= 2 ||
+    children.some((node) => node.title === "Declarations") ||
+    children.some((node) => node.title === "Policy Form") ||
+    children.some((node) => node.title === "Endorsements");
+}
+
+function shouldRunSourceTreeOrganizer(sourceTree: DocumentSourceNode[], sourceSpans: SourceSpan[]): boolean {
+  const topLevelCount = rootChildren(sourceTree).length;
+  if (sourceSpans.length > ORGANIZER_MAX_SOURCE_SPANS) return false;
+  if (topLevelCount > ORGANIZER_MAX_TOP_LEVEL_NODES) return false;
+  return !hasDeterministicSemanticOutline(sourceTree);
+}
+
 function organizationBatches(sourceTree: DocumentSourceNode[]): OrganizationBatch[] {
   const byParent = nodesByParent(sourceTree);
   const rootId = sourceTreeRootId(sourceTree);
@@ -1032,7 +1061,7 @@ export async function runSourceTreeExtraction(params: {
   log?: (message: string) => Promise<void>;
 }): Promise<ExtractionV3Result> {
   const sourceSpans = normalizeSourceSpans(params.sourceSpans);
-  let sourceTree = buildDocumentSourceTree(sourceSpans, params.id);
+  let sourceTree = applySemanticPageGrouping(buildDocumentSourceTree(sourceSpans, params.id));
   const warnings: string[] = [];
   let modelCalls = 0;
   let callsWithUsage = 0;
@@ -1056,7 +1085,8 @@ export async function runSourceTreeExtraction(params: {
     params.trackUsage(usage, report);
   };
 
-  try {
+  if (shouldRunSourceTreeOrganizer(sourceTree, sourceSpans)) {
+    try {
     const organizations: SourceTreeOrganization[] = [];
     const batches = organizationBatches(sourceTree);
     for (const [batchIndex, batch] of batches.entries()) {
@@ -1070,7 +1100,7 @@ export async function runSourceTreeExtraction(params: {
           maxTokens: budget.maxTokens,
           taskKind: "extraction_source_tree",
           budgetDiagnostics: budget,
-          providerOptions: { ...params.providerOptions, sourceSpans },
+          providerOptions: params.providerOptions,
         },
         {
           fallback: { labels: [], groups: [] },
@@ -1086,10 +1116,12 @@ export async function runSourceTreeExtraction(params: {
       organizations.push(response.object as SourceTreeOrganization);
     }
     sourceTree = applyOrganization(sourceTree, mergeOrganizationResults(organizations));
-  } catch (error) {
-    warnings.push(`Source-tree organizer failed; deterministic tree used (${error instanceof Error ? error.message : String(error)})`);
+    } catch (error) {
+      warnings.push(`Source-tree organizer failed; deterministic tree used (${error instanceof Error ? error.message : String(error)})`);
+    }
+  } else {
+    await params.log?.("Deterministic source tree ready; skipped model organizer");
   }
-  sourceTree = applySemanticPageGrouping(sourceTree);
 
   const deterministicProfile = buildDeterministicOperationalProfile({
     sourceTree,

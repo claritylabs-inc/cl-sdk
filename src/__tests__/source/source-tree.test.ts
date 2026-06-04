@@ -3,6 +3,7 @@ import {
   buildDeterministicOperationalProfile,
   buildDocumentSourceTree,
   buildSourceSpan,
+  normalizeDocumentSourceTreePaths,
   normalizeSourceSpans,
 } from "../../source";
 
@@ -118,5 +119,39 @@ describe("source tree v3", () => {
     expect(normalized[0].text).toBe("This Policy is a CLAIMS-MADE AND REPORTED policy. As a condition of coverage, you must report any Claim.");
     expect(normalized[0].metadata?.mergedSourceSpanIds).toContain(firstLine.id);
     expect(normalized[0].metadata?.mergedSourceSpanIds).toContain(secondLine.id);
+  });
+
+  it("normalizes cyclic source-node parent references without recursive blow-up", () => {
+    const nodes = [
+      {
+        id: "a",
+        documentId: "policy-1",
+        parentId: "b",
+        kind: "page" as const,
+        title: "Page A",
+        description: "Cycle A",
+        sourceSpanIds: [],
+        order: 1,
+        path: "",
+      },
+      {
+        id: "b",
+        documentId: "policy-1",
+        parentId: "a",
+        kind: "page" as const,
+        title: "Page B",
+        description: "Cycle B",
+        sourceSpanIds: [],
+        order: 2,
+        path: "",
+      },
+    ];
+
+    const normalized = normalizeDocumentSourceTreePaths(nodes);
+
+    expect(normalized).toHaveLength(2);
+    expect(new Set(normalized.map((node) => node.id))).toEqual(new Set(["a", "b"]));
+    expect(normalized[0].parentId).toBeUndefined();
+    expect(normalized.map((node) => node.path)).toEqual(["1", "1.1"]);
   });
 });

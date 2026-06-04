@@ -158,15 +158,25 @@ export function normalizeDocumentSourceTreePaths(nodes: DocumentSourceNode[]): D
   }
 
   const result: DocumentSourceNode[] = [];
-  const visit = (node: DocumentSourceNode, path: string) => {
-    const next = { ...node, path };
+  const visited = new Set<string>();
+  const visit = (node: DocumentSourceNode, path: string, ancestors: Set<string>, parentId?: string) => {
+    if (visited.has(node.id) || ancestors.has(node.id)) return;
+    visited.add(node.id);
+    const next = { ...node, parentId, path };
     result.push(next);
     const children = byParent.get(node.id) ?? [];
-    children.forEach((child, index) => visit(child, `${path}.${index + 1}`));
+    const nextAncestors = new Set(ancestors);
+    nextAncestors.add(node.id);
+    children.forEach((child, index) => visit(child, `${path}.${index + 1}`, nextAncestors, node.id));
   };
 
   const roots = byParent.get(undefined) ?? [];
-  roots.forEach((root, index) => visit(root, String(index + 1)));
+  roots.forEach((root, index) => visit(root, String(index + 1), new Set(), undefined));
+  for (const node of nodes) {
+    if (!visited.has(node.id)) {
+      visit(node, String(result.length + 1), new Set(), undefined);
+    }
+  }
   return result;
 }
 

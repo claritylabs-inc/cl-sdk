@@ -365,12 +365,9 @@ describe("createExtractor", () => {
     expect(result.document.documentMetadata?.sourceTreeCanonical).toBe(true);
   });
 
-  it("shows every top-level page to the source-tree organizer instead of a prefix of descendants", async () => {
+  it("skips the source-tree organizer for large deterministic page sets", async () => {
     safeGenerateObject
       .mockReset()
-      .mockResolvedValueOnce({
-        object: { labels: [], groups: [] },
-      })
       .mockResolvedValueOnce({
         object: { documentType: "policy", policyTypes: ["cyber"], coverageTypes: ["cyber"] },
       });
@@ -391,13 +388,13 @@ describe("createExtractor", () => {
       reviewMode: "skip",
     });
 
-    await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
+    const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
 
     const sourceTreeCall = safeGenerateObject.mock.calls.find(([, params]) => params.taskKind === "extraction_source_tree");
-    const prompt = sourceTreeCall?.[1].prompt as string;
-    expect(prompt).toContain("top-level nodes 1-35 of 35");
-    expect(prompt).toContain("Page 35");
-    expect(prompt).toContain("Final endorsement schedule.");
+    expect(sourceTreeCall).toBeUndefined();
+    expect(result.sourceTree).toEqual(expect.arrayContaining([
+      expect.objectContaining({ pageStart: 35, title: "Page 35" }),
+    ]));
   });
 
   it("groups endorsements under a generic parent while rejecting range rollup titles", async () => {
