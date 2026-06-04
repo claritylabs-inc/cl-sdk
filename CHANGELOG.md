@@ -1,3 +1,10 @@
+## [3.0.16](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.15...v3.0.16) (2026-06-04)
+
+
+### Bug Fixes
+
+* **extraction:** tighten source title blocks ([833da5f](https://github.com/claritylabs-inc/cl-sdk/commit/833da5ffaddc5fcbf350202907464a931898a05b))
+
 ## [3.0.15](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.14...v3.0.15) (2026-06-04)
 
 
