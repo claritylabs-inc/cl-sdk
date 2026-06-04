@@ -138,10 +138,20 @@ describe("source tree v3", () => {
       pageEnd: 15,
       sourceUnit: "text",
     }, 1);
+    const sentenceSection = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: "Section V.D below with respect to the Supplementary Defense Annual Cap.",
+      pageStart: 15,
+      pageEnd: 15,
+      sourceUnit: "text",
+      metadata: { sourceUnit: "title", elementType: "title" },
+    }, 2);
 
-    const tree = buildDocumentSourceTree([proseTitle, paragraph], "policy-1");
+    const tree = buildDocumentSourceTree([proseTitle, paragraph, sentenceSection], "policy-1");
     const proseNode = tree.find((node) => node.sourceSpanIds.length === 1 && node.sourceSpanIds.includes(proseTitle.id));
     const paragraphNode = tree.find((node) => node.sourceSpanIds.length === 1 && node.sourceSpanIds.includes(paragraph.id));
+    const sentenceSectionNode = tree.find((node) => node.sourceSpanIds.length === 1 && node.sourceSpanIds.includes(sentenceSection.id));
 
     expect(proseNode).toEqual(expect.objectContaining({
       kind: "text",
@@ -149,6 +159,7 @@ describe("source tree v3", () => {
     }));
     expect(proseNode?.metadata?.organizer).toBeUndefined();
     expect(paragraphNode?.parentId).not.toBe(proseNode?.id);
+    expect(sentenceSectionNode?.metadata?.organizer).toBeUndefined();
   });
 
   it("normalizes boilerplate source spans and merges torn sentence rows", () => {

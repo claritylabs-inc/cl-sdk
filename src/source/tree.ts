@@ -152,7 +152,13 @@ function isTitleContentNode(node: DocumentSourceNode): boolean {
   const words = text.split(/\s+/);
   if (words.length > 14) return false;
 
-  const startsWithStructuredHeading = /^(section|item|part|endorsement|schedule|article)\b|^[A-Z]\.\s|\b[IVX]+\.\s/i.test(text);
+  const startsWithStructuredHeading =
+    /^(SECTION|PART|SCHEDULE|ARTICLE)\b/.test(text) ||
+    /^Section\s+[IVX0-9]+(?:\.[A-Z])?\s*[—:-]/.test(text) ||
+    /^Item\s+\d+[\.:]/i.test(text) ||
+    /^Endorsement\s+(?:No\.?|Number|#)\s+/i.test(text) ||
+    /^[A-Z]\.\s/.test(text) ||
+    /\b[IVX]+\.\s/.test(text);
   const uppercaseLetters = [...text].filter((char) => /[A-Z]/.test(char)).length;
   const lowercaseLetters = [...text].filter((char) => /[a-z]/.test(char)).length;
   const mostlyUppercase = uppercaseLetters > 0 && uppercaseLetters >= lowercaseLetters * 1.6;
