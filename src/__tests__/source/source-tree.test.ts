@@ -124,7 +124,7 @@ describe("source tree v3", () => {
     const proseTitle = buildSourceSpan({
       documentId: "policy-1",
       sourceKind: "policy_pdf",
-      text: "Declarations is a Self-Insured Retention and not a deductible.",
+      text: "PLEASE READ THIS ENTIRE POLICY CAREFULLY. WORDS AND PHRASES IN BOLD HAVE SPECIAL MEANING.",
       pageStart: 15,
       pageEnd: 15,
       sourceUnit: "text",

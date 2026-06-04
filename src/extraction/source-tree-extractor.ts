@@ -214,12 +214,30 @@ function nodePageEnd(node: DocumentSourceNode): number | undefined {
 }
 
 function pageRangeForNodes(nodes: DocumentSourceNode[]): string | undefined {
-  const pageStarts = nodes.map((node) => node.pageStart).filter((page): page is number => typeof page === "number");
-  const pageEnds = nodes.map(nodePageEnd).filter((page): page is number => typeof page === "number");
-  if (pageStarts.length === 0 || pageEnds.length === 0) return undefined;
-  const start = Math.min(...pageStarts);
-  const end = Math.max(...pageEnds);
-  return start === end ? `page ${start}` : `pages ${start}-${end}`;
+  const pages = [...new Set(nodes.flatMap((node) => {
+    if (typeof node.pageStart !== "number") return [];
+    const end = nodePageEnd(node) ?? node.pageStart;
+    const values: number[] = [];
+    for (let page = node.pageStart; page <= end; page += 1) values.push(page);
+    return values;
+  }))].sort((left, right) => left - right);
+  if (pages.length === 0) return undefined;
+  const ranges: string[] = [];
+  let start = pages[0];
+  let previous = pages[0];
+  for (const page of pages.slice(1)) {
+    if (page === previous + 1) {
+      previous = page;
+      continue;
+    }
+    ranges.push(start === previous ? String(start) : `${start}-${previous}`);
+    start = page;
+    previous = page;
+  }
+  ranges.push(start === previous ? String(start) : `${start}-${previous}`);
+  return ranges.length === 1 && !ranges[0].includes("-")
+    ? `page ${ranges[0]}`
+    : `pages ${ranges.join(", ")}`;
 }
 
 function descriptionWithPages(description: string, nodes: DocumentSourceNode[]): string {
@@ -656,6 +674,10 @@ function normalizeContainerEvidenceFromChildren(sourceTree: DocumentSourceNode[]
       pageEnd: pageEnds.length ? Math.max(...pageEnds) : currentNode.pageEnd,
       bbox,
       order: Math.min(currentNode.order, ...children.map((child) => child.order)),
+      description: descriptionWithPages(
+        currentNode.description.replace(/;\s*pages?\s+[0-9,\s-]+$/i, ""),
+        evidenceNodes,
+      ),
       textExcerpt: shouldUseOwnEvidenceForContainer(currentNode)
         ? currentNode.textExcerpt
         : childText || currentNode.textExcerpt,

@@ -152,14 +152,15 @@ function isTitleContentNode(node: DocumentSourceNode): boolean {
   const words = text.split(/\s+/);
   if (words.length > 14) return false;
 
-  const startsWithStructuredHeading = /^(section|item|part|coverage part|endorsement|schedule|article)\b|^[A-Z]\.\s|\b[IVX]+\.\s/i.test(text);
+  const startsWithStructuredHeading = /^(section|item|part|endorsement|schedule|article)\b|^[A-Z]\.\s|\b[IVX]+\.\s/i.test(text);
   const uppercaseLetters = [...text].filter((char) => /[A-Z]/.test(char)).length;
   const lowercaseLetters = [...text].filter((char) => /[a-z]/.test(char)).length;
   const mostlyUppercase = uppercaseLetters > 0 && uppercaseLetters >= lowercaseLetters * 1.6;
+  const containsSentencePunctuation = /[.;:]\s+\S/.test(text) || /[.;:]$/.test(text);
   const sentenceLike = /\b(is|are|was|were|will|shall|may|must|means|includes|provided|subject|available|attached|remain|constitutes)\b/i.test(text) &&
     /[a-z]/.test(text);
 
-  return startsWithStructuredHeading || (mostlyUppercase && !sentenceLike);
+  return startsWithStructuredHeading || (mostlyUppercase && !sentenceLike && !containsSentencePunctuation);
 }
 
 function nodePageEnd(node: DocumentSourceNode): number | undefined {

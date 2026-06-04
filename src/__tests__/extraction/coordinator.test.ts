@@ -574,6 +574,7 @@ describe("createExtractor", () => {
     ]);
 
     const notices = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Notices and Jacket");
+    expect(notices?.description).toContain("pages 5, 9");
     expect(result.sourceTree?.filter((node) => node.parentId === notices?.id).map((node) => node.pageStart)).toEqual([5, 9]);
 
     const declarations = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Declarations");
@@ -677,6 +678,7 @@ describe("createExtractor", () => {
       expect.objectContaining({ title: "Endorsements", kind: "page_group", pageStart: 10, pageEnd: 11, description: expect.stringContaining("pages 10-11") }),
     ]);
     const notices = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Notices and Jacket");
+    expect(notices?.description).toContain("pages 2-4, 7");
     expect(result.sourceTree?.filter((node) => node.parentId === notices?.id).map((node) => node.pageStart))
       .toEqual([2, 3, 4, 7]);
     expect(result.sourceTree?.find((node) => node.parentId === notices?.id && node.pageStart === 7))
