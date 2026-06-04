@@ -1,3 +1,10 @@
+## [3.0.22](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.21...v3.0.22) (2026-06-04)
+
+
+### Bug Fixes
+
+* **extraction:** limit source page title repair ([38d1a78](https://github.com/claritylabs-inc/cl-sdk/commit/38d1a78398d34e1db8f56dd77fb678e993d076c6))
+
 ## [3.0.21](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.20...v3.0.21) (2026-06-04)
 
 
