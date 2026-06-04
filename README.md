@@ -12,7 +12,7 @@ npm install @claritylabs/cl-sdk pdf-lib zod
 
 ## What It Does
 
-- **Document Extraction** — Source-tree extraction that turns parser-provided PDF spans into a canonical hierarchy of document, page group, form, endorsement, section, schedule, clause, table, row, cell, and text nodes. Operational policy facts are source-backed projections from that tree, not the canonical source of truth.
+- **Document Extraction** — Source-tree extraction that turns parser-provided PDF spans into a canonical hierarchy of document, page group, form, endorsement, section, schedule, clause, table, row, cell, and text nodes. Form-inventory page ranges and parser title elements guide the hierarchy, but every node remains backed by real source spans. Operational policy facts are projections from that tree, not the canonical source of truth.
 - **Source Grounding** — Shared source spans, source nodes, hierarchical table row/cell evidence, source stores, quoted evidence validation, and deterministic evidence ordering across extraction, query, application, PCE, and case workflows.
 - **Query Agent** — Citation-backed question answering over stored source nodes, exact source spans, and inbound photos/PDFs/text with sub-question decomposition, bounded retrieval planning, attachment-only reasoning when retrieval is unnecessary, and grounding verification.
 - **Application Processing** — Bounded workflows handle intake with deterministic planning — field extraction, prior-answer backfill, context auto-fill, document lookup gating, topic-based question batching, reply parsing, source-backed field provenance, and PDF mapping
@@ -81,7 +81,7 @@ const extractor = createExtractor({ generateText, generateObject, sourceStore })
 const result = await extractor.extract(pdfBase64, "policy-123", { sourceSpans });
 ```
 
-When source spans are available, extraction returns `sourceTree`, `sourceSpans`, `operationalProfile`, `warnings`, `tokenUsage`, and `performanceReport`. The source tree is canonical for policy wording and hierarchy. The operational profile contains policy metadata, parties, coverage lines, limits, deductibles, premiums, key dates, and endorsement-support facts, each with `sourceNodeIds` and `sourceSpanIds`.
+When source spans are available, extraction returns `sourceTree`, `sourceSpans`, `operationalProfile`, `warnings`, `tokenUsage`, and `performanceReport`. The source tree is canonical for policy wording and hierarchy. The extractor uses form/page-range hints to group declarations, policy forms, and endorsements, then promotes title elements into section/schedule nodes that can span page breaks. The operational profile contains policy metadata, parties, coverage lines, limits, deductibles, premiums, key dates, and endorsement-support facts, each with `sourceNodeIds` and `sourceSpanIds`.
 
 Store `result.sourceTree` in a retrievable node index and embed node `description` values for search. Keep `result.sourceSpans` as the exact PDF highlighting layer. `result.document` and its `documentOutline` remain compatibility projections for existing host screens; do not treat broad structured policy JSON as canonical extraction truth.
 

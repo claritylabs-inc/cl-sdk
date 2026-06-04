@@ -117,6 +117,8 @@ export interface ExtractionResult {
 export interface ExtractOptions {
   /** Resume extraction from a previously saved checkpoint. */
   resumeFrom?: PipelineCheckpoint<ExtractionState>;
+  /** Optional form inventory/page-range hints to guide v3 source-tree hierarchy when source spans are provided. */
+  formInventory?: FormInventoryResult;
   /** Caller-provided raw source spans for this document, reused for evidence grounding and optional persistence. */
   sourceSpans?: SourceSpan[];
 }
@@ -550,11 +552,23 @@ export function createExtractor(config: ExtractorConfig) {
       const v3 = await runSourceTreeExtraction({
         id,
         sourceSpans,
+        formInventory: options?.formInventory,
         generateObject,
         providerOptions: activeProviderOptions,
         resolveBudget,
         trackUsage,
         log,
+      });
+      const sourceTreeFormInventory = v3.formInventory.flatMap((form) => {
+        const formNumber = typeof form.formNumber === "string" ? form.formNumber.trim() : "";
+        if (!formNumber) return [];
+        return [{
+          formNumber,
+          title: form.title,
+          pageStart: form.pageStart,
+          pageEnd: form.pageEnd,
+          sources: ["source_tree"],
+        }];
       });
       const reviewReport: ExtractionReviewReport = {
         issues: v3.warnings.map((warning) => ({
@@ -569,7 +583,7 @@ export function createExtractor(config: ExtractorConfig) {
           { kind: "operational_profile", label: "Operational Profile", itemCount: v3.operationalProfile.coverages.length },
         ],
         reviewRoundRecords: [],
-        formInventory: [],
+        formInventory: sourceTreeFormInventory,
         qualityGateStatus: v3.warnings.length > 0 ? "warning" : "passed",
       };
       if (shouldFailQualityGate(qualityGate, reviewReport.qualityGateStatus)) {

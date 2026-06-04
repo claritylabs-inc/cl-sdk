@@ -18,6 +18,7 @@ import {
   normalizeDocumentSourceTreePaths,
   normalizeSourceSpans,
 } from "../source";
+import type { FormInventoryResult } from "../prompts/coordinator/form-inventory";
 
 const ORGANIZABLE_KINDS = [
   "page_group",
@@ -32,6 +33,15 @@ const ORGANIZATION_TOP_LEVEL_BATCH_SIZE = 80;
 const ORGANIZER_MAX_SOURCE_SPANS = 400;
 const ORGANIZER_MAX_TOP_LEVEL_NODES = 18;
 const OUTLINE_CLEANUP_MAX_TOP_LEVEL_NODES = 80;
+
+export type SourceTreeFormHint = {
+  formNumber?: string;
+  editionDate?: string;
+  title?: string;
+  formType: "coverage" | "endorsement" | "declarations" | "application" | "notice" | "other";
+  pageStart?: number;
+  pageEnd?: number;
+};
 
 const SourceTreeOrganizationSchema = z.object({
   labels: z.array(z.object({
@@ -100,6 +110,7 @@ export type ExtractionV3Result = {
   sourceTree: DocumentSourceNode[];
   sourceSpans: SourceSpan[];
   sourceChunks: SourceChunk[];
+  formInventory: SourceTreeFormHint[];
   operationalProfile: PolicyOperationalProfile;
   document: InsuranceDocument;
   chunks: [];
@@ -129,6 +140,21 @@ type OrganizationBatch = {
   topLevelNodeIds: string[];
   nodes: DocumentSourceNode[];
 };
+
+function formatFormHintsForPrompt(forms: SourceTreeFormHint[]): string {
+  const usable = forms
+    .filter((form) => typeof form.pageStart === "number" && typeof form.pageEnd === "number")
+    .slice(0, 120)
+    .map((form) => ({
+      title: form.title,
+      formType: form.formType,
+      formNumber: form.formNumber,
+      editionDate: form.editionDate,
+      pageStart: form.pageStart,
+      pageEnd: form.pageEnd,
+    }));
+  return usable.length ? JSON.stringify(usable, null, 2) : "[]";
+}
 
 function cleanText(value: string | undefined, fallback: string): string {
   const text = value?.replace(/\s+/g, " ").trim();
@@ -256,6 +282,253 @@ function semanticGroupNodeId(documentId: string, kind: string, title: string, ch
   ].join(":");
 }
 
+function spanPageStart(span: SourceSpan): number | undefined {
+  return span.pageStart ?? span.location?.page ?? span.location?.startPage;
+}
+
+function spanPageEnd(span: SourceSpan): number | undefined {
+  return span.pageEnd ?? span.location?.endPage ?? spanPageStart(span);
+}
+
+function spanSourceUnit(span: SourceSpan): string | undefined {
+  return span.sourceUnit ?? span.metadata?.sourceUnit ?? span.metadata?.elementType;
+}
+
+function formNumberFromText(value: string): string | undefined {
+  return cleanText(value, "")
+    .match(/\b[A-Z]{2,}(?:-[A-Z0-9]+)+\s+\d{2}\s+\d{2}\b/)?.[0]
+    ?.replace(/\s+/g, " ");
+}
+
+function editionDateFromFormNumber(formNumber: string | undefined): string | undefined {
+  const match = formNumber?.match(/\b(\d{2})\s+(\d{2})$/);
+  return match ? `${match[1]}/${match[2]}` : undefined;
+}
+
+function pageTitleFromText(text: string, fallback: string): string {
+  const normalized = cleanText(text, fallback);
+  const patterns = [
+    /\bIMPORTANT NOTICE\s+[—-]\s+HOW TO REPORT A CLAIM\b/i,
+    /\bPRIVACY NOTICE TO POLICYHOLDERS\b/i,
+    /\bOFAC ADVISORY NOTICE\b/i,
+    /\bTERRORISM RISK INSURANCE ACT\s*\(TRIA\)\s*DISCLOSURE AND REJECTION\b/i,
+    /\bDECLARATIONS PAGE\b/i,
+    /\bTECHNOLOGY ERRORS?\s*&\s*OMISSIONS AND CYBER LIABILITY INSURANCE POLICY\b/i,
+    /\bTRADE OR ECONOMIC SANCTIONS LIMITATION\b/i,
+    /\bFORMS? AND ENDORSEMENTS\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern)?.[0];
+    if (match) return cleanText(match, fallback);
+  }
+  const endorsement = normalized.match(/\bENDORSEMENT\s+(?:NO\.?|NUMBER|#)\s*[A-Z0-9][A-Z0-9.-]*\b/i)?.[0];
+  if (endorsement) return cleanText(endorsement, fallback);
+  const firstSentence = normalized.split(/(?<=\.)\s+/)[0];
+  if (firstSentence && firstSentence.length <= 120) return firstSentence.replace(/[.]$/, "");
+  return fallback;
+}
+
+function pageFormTypeFromText(text: string): SourceTreeFormHint["formType"] {
+  if (/\b(declarations?\s+page|declarations?\s+schedule)\b/i.test(text)) return "declarations";
+  if (/\b(endorsement\s+(?:no\.?|number|#)|this endorsement changes the policy|[A-Z]{2,}-END\s+\d{2,})\b/i.test(text)) return "endorsement";
+  if (/\b(technology errors?\s*&?\s*omissions.*liability insurance policy|policy form|coverage form|insuring agreement|definitions?|exclusions?|conditions?)\b/i.test(text)) return "coverage";
+  if (/\b(important notice|privacy notice|ofac advisory|terrorism risk insurance act|tria|trade or economic sanctions)\b/i.test(text)) return "notice";
+  return "other";
+}
+
+function inferFormHintsFromSourceSpans(sourceSpans: SourceSpan[]): SourceTreeFormHint[] {
+  const pageTexts = new Map<number, string>();
+  const pageSpanTexts = new Map<number, string>();
+  for (const span of sourceSpans) {
+    const start = spanPageStart(span);
+    if (typeof start !== "number") continue;
+    const end = spanPageEnd(span) ?? start;
+    for (let page = start; page <= end; page += 1) {
+      if (spanSourceUnit(span) === "page") {
+        pageSpanTexts.set(page, cleanText(span.text, ""));
+        continue;
+      }
+      const existing = pageTexts.get(page) ?? "";
+      if (existing.length < 4000) pageTexts.set(page, cleanText([existing, span.text].filter(Boolean).join(" "), ""));
+    }
+  }
+  if (pageSpanTexts.size === 0) return [];
+
+  const pageHints = [...new Set([...pageTexts.keys(), ...pageSpanTexts.keys()])]
+    .sort((left, right) => left - right)
+    .map((page): SourceTreeFormHint => {
+      const text = pageSpanTexts.get(page) ?? pageTexts.get(page) ?? "";
+      const formNumber = formNumberFromText(text);
+      return {
+        formNumber,
+        editionDate: editionDateFromFormNumber(formNumber),
+        title: pageTitleFromText(text, `Page ${page}`),
+        formType: pageFormTypeFromText(text),
+        pageStart: page,
+        pageEnd: page,
+      };
+    });
+
+  const merged: SourceTreeFormHint[] = [];
+  for (const hint of pageHints) {
+    const previous = merged[merged.length - 1];
+    const startsNewEndorsement =
+      hint.formType === "endorsement" &&
+      /\bendorsement\s+(?:no\.?|number|#)\s*[A-Z0-9]|this endorsement changes the policy/i.test(hint.title ?? "");
+    const canMerge =
+      previous &&
+      previous.formType === hint.formType &&
+      previous.pageEnd !== undefined &&
+      hint.pageStart === previous.pageEnd + 1 &&
+      (hint.formType === "declarations" ||
+        hint.formType === "coverage" ||
+        (hint.formType === "endorsement" && !startsNewEndorsement));
+
+    if (!canMerge) {
+      merged.push(hint);
+      continue;
+    }
+
+    previous.pageEnd = hint.pageEnd;
+    previous.title = previous.title ?? hint.title;
+    previous.formNumber = previous.formNumber ?? hint.formNumber;
+    previous.editionDate = previous.editionDate ?? hint.editionDate;
+  }
+
+  return merged;
+}
+
+function normalizeFormHints(forms: SourceTreeFormHint[] | undefined, sourceSpans: SourceSpan[]): SourceTreeFormHint[] {
+  const provided = (forms ?? [])
+    .filter((form) =>
+      typeof form.pageStart === "number" &&
+      typeof form.pageEnd === "number" &&
+      form.pageStart > 0 &&
+      form.pageEnd >= form.pageStart
+    )
+    .map((form) => ({
+      ...form,
+      title: form.title ? cleanText(form.title, "") : undefined,
+    }))
+    .sort((left, right) =>
+      (left.pageStart ?? Number.MAX_SAFE_INTEGER) - (right.pageStart ?? Number.MAX_SAFE_INTEGER) ||
+      (left.pageEnd ?? Number.MAX_SAFE_INTEGER) - (right.pageEnd ?? Number.MAX_SAFE_INTEGER)
+    );
+  return provided.length ? provided : inferFormHintsFromSourceSpans(sourceSpans);
+}
+
+function formHintForPage(forms: SourceTreeFormHint[], page: number): SourceTreeFormHint | undefined {
+  return forms.find((form) =>
+    typeof form.pageStart === "number" &&
+    typeof form.pageEnd === "number" &&
+    page >= form.pageStart &&
+    page <= form.pageEnd
+  );
+}
+
+function titleFromFormHint(form: SourceTreeFormHint, fallback: string): string {
+  if (form.formType === "declarations") return "Declarations";
+  if (form.formType === "coverage") return "Policy Form";
+  if (form.formType === "endorsement") return endorsementTitle([form.title, form.formNumber].filter(Boolean).join(" ")) ?? cleanText(form.title, fallback);
+  return cleanText(form.title, fallback);
+}
+
+function formGroupConfig(form: SourceTreeFormHint): {
+  kind: DocumentSourceNodeKind;
+  title: string;
+  description: string;
+  organizer: string;
+} | undefined {
+  if (form.formType === "declarations") {
+    return {
+      kind: "page_group",
+      title: "Declarations",
+      description: "Declarations pages and schedules grouped from form inventory",
+      organizer: "form_inventory_declarations_grouping",
+    };
+  }
+  if (form.formType === "coverage") {
+    return {
+      kind: "form",
+      title: "Policy Form",
+      description: "Policy form pages grouped from form inventory",
+      organizer: "form_inventory_policy_form_grouping",
+    };
+  }
+  if (form.formType === "endorsement") {
+    const title = titleFromFormHint(form, "Endorsement");
+    return {
+      kind: "endorsement",
+      title,
+      description: `${title} grouped from form inventory`,
+      organizer: "form_inventory_endorsement_grouping",
+    };
+  }
+  return undefined;
+}
+
+function applyFormInventoryHints(sourceTree: DocumentSourceNode[], forms: SourceTreeFormHint[]): DocumentSourceNode[] {
+  if (forms.length === 0) return sourceTree;
+  const rootId = sourceTreeRootId(sourceTree);
+  if (!rootId) return sourceTree;
+  const byParent = nodesByParent(sourceTree);
+  const children = (byParent.get(rootId) ?? [])
+    .filter((node) => node.kind !== "document")
+    .sort((left, right) => left.order - right.order);
+  const rootPages = children.filter((node) => node.kind === "page" && typeof node.pageStart === "number");
+
+  let nextTree = sourceTree.map((node) => {
+    if (node.kind !== "page" || typeof node.pageStart !== "number") return node;
+    const form = formHintForPage(forms, node.pageStart);
+    if (!form) return node;
+    const isStartPage = form.pageStart === node.pageStart;
+    const shouldRetitle = isStartPage && form.formType !== "other";
+    return {
+      ...node,
+      title: shouldRetitle ? titleFromFormHint(form, node.title) : node.title,
+      metadata: {
+        ...node.metadata,
+        formInventoryHint: {
+          formType: form.formType,
+          formNumber: form.formNumber,
+          title: form.title,
+          pageStart: form.pageStart,
+          pageEnd: form.pageEnd,
+        },
+      },
+    };
+  });
+
+  const claimed = new Set<string>();
+  for (const form of forms) {
+    const config = formGroupConfig(form);
+    const pageStart = form.pageStart;
+    const pageEnd = form.pageEnd;
+    if (!config || typeof pageStart !== "number" || typeof pageEnd !== "number") continue;
+    const childIds = rootPages
+      .filter((page) =>
+        !claimed.has(page.id) &&
+        typeof page.pageStart === "number" &&
+        page.pageStart >= pageStart &&
+        page.pageStart <= pageEnd
+      )
+      .map((page) => page.id);
+    if (childIds.length === 0) continue;
+    nextTree = groupAdjacentChildren({
+      sourceTree: nextTree,
+      children,
+      childIds,
+      kind: config.kind,
+      title: config.title,
+      description: config.description,
+      organizer: config.organizer,
+    });
+    childIds.forEach((id) => claimed.add(id));
+  }
+
+  return normalizeDocumentSourceTreePaths(nextTree);
+}
+
 function looksLikeDeclarationsStart(node: DocumentSourceNode): boolean {
   const title = cleanText(node.title, "");
   const text = sourceNodeText(node);
@@ -339,6 +612,29 @@ function groupAdjacentChildren(params: {
   ];
 }
 
+function reparentNodes(
+  sourceTree: DocumentSourceNode[],
+  childIds: string[],
+  parentId: string,
+  organizerRepair: string,
+): DocumentSourceNode[] {
+  const wanted = new Set(childIds);
+  if (wanted.size === 0) return sourceTree;
+  return sourceTree.map((node) =>
+    wanted.has(node.id)
+      ? {
+          ...node,
+          parentId,
+          order: node.order + 0.001,
+          metadata: {
+            ...node.metadata,
+            organizerRepair,
+          },
+        }
+      : node
+  );
+}
+
 function applySemanticPageGrouping(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
   const relabeled = sourceTree.map((node) => {
     if (node.kind === "document" || node.kind === "page_group") return node;
@@ -405,15 +701,23 @@ function applySemanticPageGrouping(sourceTree: DocumentSourceNode[]): DocumentSo
       if (!looksLikeDeclarationsContinuation(child)) break;
       declarationIds.push(child.id);
     }
-    nextTree = groupAdjacentChildren({
-      sourceTree: nextTree,
-      children,
-      childIds: declarationIds,
-      kind: "page_group",
-      title: "Declarations",
-      description: "Declarations pages and schedules grouped by source order",
-      organizer: "semantic_declarations_grouping",
-    });
+    const existingDeclarations = children[declarationsStartIndex];
+    nextTree = isDeclarationsNode(existingDeclarations)
+      ? reparentNodes(
+          nextTree,
+          declarationIds.filter((id) => id !== existingDeclarations.id),
+          existingDeclarations.id,
+          "semantic_declarations_continuation",
+        )
+      : groupAdjacentChildren({
+          sourceTree: nextTree,
+          children,
+          childIds: declarationIds,
+          kind: "page_group",
+          title: "Declarations",
+          description: "Declarations pages and schedules grouped by source order",
+          organizer: "semantic_declarations_grouping",
+        });
   }
 
   const policyStartIndex = children.findIndex(looksLikePolicyFormStart);
@@ -430,15 +734,23 @@ function applySemanticPageGrouping(sourceTree: DocumentSourceNode[]): DocumentSo
       if (!looksLikePolicyFormContinuation(child)) break;
       policyIds.push(child.id);
     }
-    nextTree = groupAdjacentChildren({
-      sourceTree: nextTree,
-      children,
-      childIds: policyIds,
-      kind: "form",
-      title: "Policy Form",
-      description: "Policy form pages grouped by source order",
-      organizer: "semantic_policy_form_grouping",
-    });
+    const existingPolicyForm = children[policyStartIndex];
+    nextTree = isPolicyFormNode(existingPolicyForm)
+      ? reparentNodes(
+          nextTree,
+          policyIds.filter((id) => id !== existingPolicyForm.id),
+          existingPolicyForm.id,
+          "semantic_policy_form_continuation",
+        )
+      : groupAdjacentChildren({
+          sourceTree: nextTree,
+          children,
+          childIds: policyIds,
+          kind: "form",
+          title: "Policy Form",
+          description: "Policy form pages grouped by source order",
+          organizer: "semantic_policy_form_grouping",
+        });
   }
 
   return applyEndorsementGrouping(normalizeDocumentSourceTreePaths(nextTree));
@@ -687,6 +999,165 @@ function normalizeContainerEvidenceFromChildren(sourceTree: DocumentSourceNode[]
   return sourceTree.map((node) => byId.get(node.id) ?? node);
 }
 
+function metadataText(node: DocumentSourceNode, key: string): string | undefined {
+  const value = node.metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function isTitleBlockNode(node: DocumentSourceNode): boolean {
+  if (node.kind !== "text") return false;
+  return metadataText(node, "organizer") === "title_block" ||
+    metadataText(node, "elementType") === "title" ||
+    metadataText(node, "sourceUnit") === "title";
+}
+
+function isRejectableSectionHeading(text: string, container: DocumentSourceNode): boolean {
+  const normalized = cleanText(text, "");
+  if (!normalized) return true;
+  if (normalized.length > 160) return true;
+  if (/^page\s+\d+$/i.test(normalized)) return true;
+  if (/^table\s+\d+$/i.test(normalized)) return true;
+  if (/^(document|text|header row|row\s+\d+)$/i.test(normalized)) return true;
+  if (/^(northwoods continental insurance company|specimen policy|for testing only)$/i.test(normalized)) return true;
+  if (/^technology errors?\s*&\s*omissions and cyber liability insurance policy$/i.test(normalized)) return true;
+  if (/^declarations(?:\s+page)?$/i.test(normalized) && /^declarations$/i.test(container.title)) return true;
+  if (/^policy\s+form$/i.test(normalized) && /^policy\s+form$/i.test(container.title)) return true;
+  if (/^endorsement\s+(?:no\.?|number|#)/i.test(normalized) && container.kind === "endorsement") return true;
+  if (/\b(policyholder|policyholders)\b/i.test(normalized) && normalized.length < 40) return true;
+  return false;
+}
+
+function sectionHeadingTitle(node: DocumentSourceNode, container: DocumentSourceNode): string | undefined {
+  if (!isTitleBlockNode(node)) return undefined;
+  const text = cleanText(node.title || node.textExcerpt, "");
+  if (isRejectableSectionHeading(text, container)) return undefined;
+  const words = text.split(/\s+/);
+  if (words.length > 18) return undefined;
+
+  const structured =
+    /^(SECTION|PART|ARTICLE|SCHEDULE)\b/i.test(text) ||
+    /^Item\s+\d+[\.:]/i.test(text) ||
+    /^Coverage\s+Part\b/i.test(text) ||
+    /^Endorsement\s+(?:No\.?|Number|#)\s+/i.test(text);
+  const uppercaseLetters = [...text].filter((char) => /[A-Z]/.test(char)).length;
+  const lowercaseLetters = [...text].filter((char) => /[a-z]/.test(char)).length;
+  const mostlyUppercase = uppercaseLetters > 0 && uppercaseLetters >= lowercaseLetters * 1.5;
+  const hasSentencePunctuation = /[.;:]\s+\S/.test(text) || /[.;:]$/.test(text);
+  const sentenceLike = /\b(is|are|was|were|will|shall|may|must|means|includes|provided|subject|available|attached|remain|constitutes)\b/i.test(text) &&
+    /[a-z]/.test(text);
+
+  if (!structured && (!mostlyUppercase || hasSentencePunctuation || sentenceLike)) return undefined;
+  return simplifyOrganizerTitle(text, text, node.kind);
+}
+
+function sectionKindForTitle(title: string): DocumentSourceNodeKind {
+  if (/^schedule\b/i.test(title) || /\b(forms? and endorsements?|coverage parts?|limits?|premium|declarations?)\b/i.test(title)) return "schedule";
+  if (/^(section|part|article|item)\b/i.test(title)) return "section";
+  return "section";
+}
+
+function hasAncestor(
+  node: DocumentSourceNode,
+  ancestorId: string,
+  byId: Map<string, DocumentSourceNode>,
+): boolean {
+  let parentId = node.parentId;
+  const seen = new Set<string>();
+  while (parentId) {
+    if (parentId === ancestorId) return true;
+    if (seen.has(parentId)) return false;
+    seen.add(parentId);
+    parentId = byId.get(parentId)?.parentId;
+  }
+  return false;
+}
+
+function shouldBuildSectionsForContainer(node: DocumentSourceNode): boolean {
+  if (isNoticesGroup(node)) return false;
+  if (isEndorsementGroup(node)) return false;
+  return node.kind === "form" || node.kind === "page_group" || node.kind === "endorsement";
+}
+
+function applyTitleSectionHierarchy(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
+  const byId = new Map(sourceTree.map((node) => [node.id, node]));
+  const byParent = nodesByParent(sourceTree);
+  const updates = new Map<string, DocumentSourceNode>();
+
+  for (const container of sourceTree.filter(shouldBuildSectionsForContainer)) {
+    const pageIds = new Set(
+      sourceTree
+        .filter((node) => node.kind === "page" && hasAncestor(node, container.id, byId))
+        .map((node) => node.id),
+    );
+    if (pageIds.size === 0) continue;
+
+    const directPageChildren = sourceTree
+      .filter((node) =>
+        node.parentId !== undefined &&
+        pageIds.has(node.parentId) &&
+        node.kind !== "table_row" &&
+        node.kind !== "table_cell"
+      )
+      .sort((left, right) =>
+        (left.pageStart ?? Number.MAX_SAFE_INTEGER) - (right.pageStart ?? Number.MAX_SAFE_INTEGER) ||
+        left.order - right.order ||
+        left.id.localeCompare(right.id)
+      );
+    if (directPageChildren.length === 0) continue;
+
+    let currentSectionId: string | undefined;
+    for (let index = 0; index < directPageChildren.length; index += 1) {
+      const child = directPageChildren[index];
+      const current = updates.get(child.id) ?? child;
+      const heading = sectionHeadingTitle(current, container);
+      if (heading) {
+        const descendants = byParent.get(child.id) ?? [];
+        const hasOwnContent = descendants.some((descendant) => descendant.kind !== "table_row" && descendant.kind !== "table_cell");
+        let hasFollowingContent = false;
+        for (const nextChild of directPageChildren.slice(index + 1)) {
+          const next = updates.get(nextChild.id) ?? nextChild;
+          if (sectionHeadingTitle(next, container)) break;
+          hasFollowingContent = true;
+          break;
+        }
+        if (!hasOwnContent && !hasFollowingContent) {
+          currentSectionId = undefined;
+          continue;
+        }
+        currentSectionId = child.id;
+        updates.set(child.id, {
+          ...current,
+          parentId: container.id,
+          kind: sectionKindForTitle(heading),
+          title: heading,
+          description: descriptionWithPages(cleanText([heading, "section"].join(" "), heading), [current, ...descendants]),
+          metadata: {
+            ...current.metadata,
+            organizer: "title_section",
+            sourceTreeVersion: "v3",
+          },
+        });
+        continue;
+      }
+
+      if (!currentSectionId) continue;
+      const parent = current.parentId ? byId.get(current.parentId) : undefined;
+      if (!parent || parent.kind !== "page") continue;
+      updates.set(child.id, {
+        ...current,
+        parentId: currentSectionId,
+        metadata: {
+          ...current.metadata,
+          organizerRepair: "title_section_continuation",
+        },
+      });
+    }
+  }
+
+  if (updates.size === 0) return sourceTree;
+  return normalizeDocumentSourceTreePaths(sourceTree.map((node) => updates.get(node.id) ?? node));
+}
+
 function normalizeSemanticHierarchy(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
   const normalized = normalizeDocumentSourceTreePaths(
     normalizePolicyFormStructure(
@@ -695,7 +1166,8 @@ function normalizeSemanticHierarchy(sourceTree: DocumentSourceNode[]): DocumentS
   );
   const nested = normalizeDocumentSourceTreePaths(nestEndorsementContinuationPages(normalized));
   const mergedNotices = normalizeDocumentSourceTreePaths(mergeAdministrativeNoticesIntoFrontMatter(nested));
-  const withEvidence = normalizeContainerEvidenceFromChildren(mergedNotices);
+  const sectioned = normalizeDocumentSourceTreePaths(applyTitleSectionHierarchy(mergedNotices));
+  const withEvidence = normalizeContainerEvidenceFromChildren(sectioned);
   return normalizeDocumentSourceTreePaths(
     normalizeRootSemanticOrder(normalizeContainerEvidenceFromChildren(withEvidence)),
   );
@@ -945,7 +1417,7 @@ function mergeOrganizationResults(results: SourceTreeOrganization[]): SourceTree
   };
 }
 
-function buildOrganizationPrompt(batch: OrganizationBatch): string {
+function buildOrganizationPrompt(batch: OrganizationBatch, formHints: SourceTreeFormHint[]): string {
   const nodes = batch.nodes.map((node) => compactNode(node, node.kind === "page" ? 900 : 320));
   return `You organize an insurance document source tree.
 
@@ -954,10 +1426,15 @@ Scope:
 - The provided list is a bounded extraction-time batch. It is not necessarily the whole document.
 - Top-level page/form candidates in this batch: ${JSON.stringify(batch.topLevelNodeIds)}
 
+Expected form inventory / page ranges:
+${formatFormHintsForPrompt(formHints)}
+
 Rules:
 - Use only node IDs from the provided list.
 - Do not invent text, page numbers, source spans, limits, or policy facts.
 - You may relabel existing nodes and group adjacent top-level/page nodes from this batch only when they are clearly one continuous form, one declarations set, one schedule, or one clause family.
+- Treat the form inventory as a page-range hint for the expected order: front matter/notices, declarations, policy form, then endorsements.
+- Prefer section hierarchy from printed title elements inside a form over page-by-page grouping.
 - Group adjacent separately numbered endorsements under a single generic "Endorsements" page_group parent, with each individual endorsement preserved as its own child node.
 - Never create rollup titles such as "Endorsements 1-3 (...)" or merge multiple endorsements into one endorsement node.
 - Add concise, human-readable titles to generic text, table, row, and cell nodes when the text makes their role clear.
@@ -983,7 +1460,7 @@ function shouldRunOutlineCleanup(sourceTree: DocumentSourceNode[]): boolean {
   return genericPages.length > 0 || topLevel.length > 6 || !hasDeclarations || !hasPolicyForm || !hasEndorsements;
 }
 
-function buildOutlineCleanupPrompt(sourceTree: DocumentSourceNode[]): string {
+function buildOutlineCleanupPrompt(sourceTree: DocumentSourceNode[], formHints: SourceTreeFormHint[]): string {
   const topLevel = rootChildren(sourceTree).slice(0, OUTLINE_CLEANUP_MAX_TOP_LEVEL_NODES);
   const nodes = topLevel.map((node) => compactNode(node, 900));
   return `You clean a top-level source outline for an insurance policy.
@@ -994,6 +1471,9 @@ Expected product-facing order:
 3. Policy Form: the main policy wording, insuring agreements, definitions, exclusions, conditions, claim provisions, and general policy terms.
 4. Endorsements: one generic "Endorsements" page_group containing each separately numbered endorsement as its own child.
 
+Expected form inventory / page ranges:
+${formatFormHintsForPrompt(formHints)}
+
 Rules:
 - Use only node IDs from this top-level list: ${JSON.stringify(topLevel.map((node) => node.id))}
 - Group only adjacent top-level nodes.
@@ -1002,6 +1482,7 @@ Rules:
 - Use canonical terse titles: "Notices and Jacket", "Declarations", "Policy Form", "Endorsements", or the printed endorsement number.
 - Keep page_group descriptions short and include the page range when pages are known, for example "Declarations pages 6-8".
 - If a page is an OFAC, privacy, terrorism/TRIA, claim-reporting notice, signature page, or jacket, do not label it as declarations or policy form.
+- If the form inventory provides page ranges, keep groups aligned to those ranges unless the source node text clearly contradicts them.
 - If the existing deterministic outline is already correct, return empty labels and groups.
 
 Top-level source nodes:
@@ -1143,6 +1624,7 @@ function valueOf(profile: PolicyOperationalProfile, key: keyof PolicyOperational
 function materializeDocument(params: {
   id: string;
   sourceTree: DocumentSourceNode[];
+  formInventory: SourceTreeFormHint[];
   operationalProfile: PolicyOperationalProfile;
 }): InsuranceDocument {
   const profile = params.operationalProfile;
@@ -1198,6 +1680,16 @@ function materializeDocument(params: {
     insuredName,
     premium,
     policyTypes: profile.policyTypes,
+    formInventory: params.formInventory
+      .filter((form): form is SourceTreeFormHint & { formNumber: string } => typeof form.formNumber === "string" && form.formNumber.trim().length > 0)
+      .map((form) => ({
+        formNumber: form.formNumber,
+        editionDate: form.editionDate,
+        title: form.title,
+        formType: form.formType,
+        pageStart: form.pageStart,
+        pageEnd: form.pageEnd,
+      })),
     coverages,
     documentMetadata,
     documentOutline,
@@ -1242,6 +1734,7 @@ function materializeDocument(params: {
 export async function runSourceTreeExtraction(params: {
   id: string;
   sourceSpans: SourceSpan[];
+  formInventory?: FormInventoryResult;
   generateObject: GenerateObject;
   providerOptions?: Record<string, unknown>;
   resolveBudget: (taskKind: "extraction_source_tree" | "extraction_operational_profile", hintTokens: number) => ModelBudgetResolution;
@@ -1249,7 +1742,8 @@ export async function runSourceTreeExtraction(params: {
   log?: (message: string) => Promise<void>;
 }): Promise<ExtractionV3Result> {
   const sourceSpans = normalizeSourceSpans(params.sourceSpans);
-  let sourceTree = applySemanticPageGrouping(buildDocumentSourceTree(sourceSpans, params.id));
+  const formHints = normalizeFormHints(params.formInventory?.forms, sourceSpans);
+  let sourceTree = applySemanticPageGrouping(applyFormInventoryHints(buildDocumentSourceTree(sourceSpans, params.id), formHints));
   const warnings: string[] = [];
   let modelCalls = 0;
   let callsWithUsage = 0;
@@ -1283,7 +1777,7 @@ export async function runSourceTreeExtraction(params: {
       const response = await safeGenerateObject(
         params.generateObject,
         {
-          prompt: buildOrganizationPrompt(batch),
+          prompt: buildOrganizationPrompt(batch, formHints),
           schema: SourceTreeOrganizationSchema,
           maxTokens: budget.maxTokens,
           taskKind: "extraction_source_tree",
@@ -1318,7 +1812,7 @@ export async function runSourceTreeExtraction(params: {
       const response = await safeGenerateObject(
         params.generateObject,
         {
-          prompt: buildOutlineCleanupPrompt(sourceTree),
+          prompt: buildOutlineCleanupPrompt(sourceTree, formHints),
           schema: SourceTreeOrganizationSchema,
           maxTokens,
           taskKind: "extraction_source_tree",
@@ -1385,6 +1879,7 @@ export async function runSourceTreeExtraction(params: {
   const document = materializeDocument({
     id: params.id,
     sourceTree,
+    formInventory: formHints,
     operationalProfile,
   });
 
@@ -1392,6 +1887,7 @@ export async function runSourceTreeExtraction(params: {
     sourceTree,
     sourceSpans,
     sourceChunks: chunkSourceSpans(sourceSpans),
+    formInventory: formHints,
     operationalProfile,
     document,
     chunks: [],

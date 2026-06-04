@@ -682,7 +682,7 @@ describe("createExtractor", () => {
     expect(result.sourceTree?.filter((node) => node.parentId === notices?.id).map((node) => node.pageStart))
       .toEqual([2, 3, 4, 7]);
     expect(result.sourceTree?.find((node) => node.parentId === notices?.id && node.pageStart === 7))
-      .toEqual(expect.objectContaining({ title: "Page 7" }));
+      .toEqual(expect.objectContaining({ title: "Trade or Economic Sanctions Limitation" }));
   });
 
   it("uses source spans for source-tree section indexes without section LLM calls", async () => {

@@ -30,7 +30,7 @@ flowchart LR
   C --> V[Validation + Review]
 ```
 
-Extraction builds a deterministic source tree from spans, then runs an extraction-time organizer over every top-level page/form node with bounded child context so the model can label and group the actual document hierarchy without inventing pages, text, or locations. The organizer groups adjacent separately numbered endorsements under one generic `Endorsements` page-group parent while preserving each endorsement as an individual child node; it must not merge multiple endorsements into one endorsement node or use synthesized range titles. It then extracts only source-cited operational facts. Query and PCE use retrievers to find source nodes, expand ancestors/siblings/children, and attach exact spans for citations. Application processing forwards spans into classification, field extraction, lookup, and explanation agents. Case workflows validate quoted evidence before proposals are scored or packets are generated.
+Extraction builds a deterministic source tree from spans, applies form-inventory/page-range hints when available, promotes parser title elements into section/schedule nodes inside the matching form, then runs bounded model cleanup only over existing node IDs. The hierarchy is content-first: declarations, policy forms, endorsements, sections, schedules, and tables are structure; pages are provenance. The organizer groups adjacent separately numbered endorsements under one generic `Endorsements` page-group parent while preserving each endorsement as an individual child node; it must not merge multiple endorsements into one endorsement node or use synthesized range titles. It then extracts only source-cited operational facts. Query and PCE use retrievers to find source nodes, expand ancestors/siblings/children, and attach exact spans for citations. Application processing forwards spans into classification, field extraction, lookup, and explanation agents. Case workflows validate quoted evidence before proposals are scored or packets are generated.
 
 ## Minimal setup
 
@@ -62,6 +62,8 @@ const result = await extractor.extract("base64-pdf", "policy-123", { sourceSpans
 
 - Keep spans stable. IDs should change only when the underlying source text changes.
 - Keep source nodes parser-grounded. LLM organization may label or group existing node IDs, but must not invent text, pages, spans, or bounding boxes.
+- Use form inventory as a skeleton hint, not as invented evidence. Page ranges can group existing page/source nodes, but every retained node still needs real source spans.
+- Prefer title-derived section hierarchy over page-by-page outlines. Content can continue across page breaks, and section nodes should carry the combined page range.
 - Keep quote text short enough to verify, but long enough to identify the policy language.
 - Preserve page and form metadata whenever you have it.
 - Treat operational profiles as materialized projections. Source nodes and source spans are the canonical evidence for policy wording.

@@ -7,12 +7,13 @@ CL SDK is organized into eight systems: **document extraction**, **source ground
 
 ## Document extraction pipeline
 
-The core of CL SDK is a source-tree pipeline that turns parser-provided insurance PDF spans into a canonical hierarchy plus source-backed operational facts. When source spans are available, the extractor builds deterministic document/page/table/row/cell nodes, runs an extraction-time organizer across every top-level page/form node with bounded child context, extracts only cited operational facts, and returns a compatibility `InsuranceDocument` projection for existing hosts.
+The core of CL SDK is a source-tree pipeline that turns parser-provided insurance PDF spans into a canonical hierarchy plus source-backed operational facts. When source spans are available, the extractor builds deterministic document/page/table/row/cell nodes, uses form-inventory page ranges as a conservative skeleton, promotes title elements into section/schedule hierarchy across page breaks, runs bounded organizer cleanup over existing node IDs, extracts only cited operational facts, and returns a compatibility `InsuranceDocument` projection for existing hosts.
 
 ```mermaid
 flowchart LR
   PDF[Parser Source Spans] --> TREE[Deterministic Source Tree]
-  TREE --> ORG[Bounded Organizer]
+  TREE --> HINTS[Form + Title Structure]
+  HINTS --> ORG[Bounded Organizer]
   ORG --> PROF[Operational Profile]
   PROF --> PROJ[Compatibility Document]
   TREE --> OUT[Source Tree + Source Spans]
@@ -21,11 +22,11 @@ flowchart LR
 
 ### Source tree
 
-The deterministic builder converts `SourceSpan` records into `DocumentSourceNode` rows. Page spans become page nodes, LiteParse/Docling tables become table/row/cell nodes, section candidates become section/schedule/clause/endorsement nodes, and all nodes retain source span IDs, page ranges, bounding boxes, source order, and path.
+The deterministic builder converts `SourceSpan` records into `DocumentSourceNode` rows. Page spans become page nodes, LiteParse/Docling tables become table/row/cell nodes, section candidates become section/schedule/clause/endorsement nodes, and all nodes retain source span IDs, page ranges, bounding boxes, source order, and path. Form inventory, when supplied or inferable from page spans, establishes expected page ranges for front matter, declarations, policy forms, and endorsements. Parser title elements then split continuous content into sections/schedules inside those forms, including content that starts on one page and continues on the next.
 
 ### Organizer
 
-The organizer prompt may label existing nodes and group adjacent nodes into continuous forms, schedules, clauses, page groups, declaration sets, or a generic `Endorsements` page-group parent. Separately numbered endorsements remain individual endorsement child nodes; the organizer must not merge them into one endorsement node or use range titles such as `Endorsements 1-3`. Titles stay terse and source-heading-derived, such as `Declarations`, `Policy Form`, `Definitions`, `Endorsements`, or `Endorsement No. 3`, without parenthetical summaries. It sees all top-level page/form candidates rather than a prefix of low-level descendants, with only bounded direct-child context for naming. It cannot invent text, pages, source spans, or bounding boxes. If the organizer fails, the deterministic tree is still usable.
+The organizer prompt may label existing nodes and group adjacent nodes into continuous forms, schedules, clauses, page groups, declaration sets, or a generic `Endorsements` page-group parent. It also receives compact form-inventory/page-range hints so cleanup follows the standard order: notices/front matter, declarations, policy form, endorsements. Separately numbered endorsements remain individual endorsement child nodes; the organizer must not merge them into one endorsement node or use range titles such as `Endorsements 1-3`. Titles stay terse and source-heading-derived, such as `Declarations`, `Policy Form`, `Definitions`, `Endorsements`, or `Endorsement No. 3`, without parenthetical summaries. It sees all top-level page/form candidates rather than a prefix of low-level descendants, with only bounded direct-child context for naming. It cannot invent text, pages, source spans, or bounding boxes. If the organizer fails, the deterministic tree is still usable.
 
 ### Operational profile
 
