@@ -1,3 +1,10 @@
+## [3.0.27](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.26...v3.0.27) (2026-06-04)
+
+
+### Bug Fixes
+
+* **extraction:** use first-column coverage labels ([cb90860](https://github.com/claritylabs-inc/cl-sdk/commit/cb90860d77e25ed49209e5eb4523282be0b4434f))
+
 ## [3.0.26](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.25...v3.0.26) (2026-06-04)
 
 
