@@ -142,8 +142,24 @@ function metadataString(
 
 function isTitleContentNode(node: DocumentSourceNode): boolean {
   if (node.kind !== "text") return false;
-  return metadataString(node.metadata, "elementType") === "title" ||
+  const isMarkedTitle =
+    metadataString(node.metadata, "elementType") === "title" ||
     metadataString(node.metadata, "sourceUnit") === "title";
+  if (!isMarkedTitle) return false;
+
+  const text = normalizeWhitespace(node.textExcerpt ?? node.title);
+  if (!text || text.length > 140) return false;
+  const words = text.split(/\s+/);
+  if (words.length > 14) return false;
+
+  const startsWithStructuredHeading = /^(section|item|part|coverage part|endorsement|schedule|article)\b|^[A-Z]\.\s|\b[IVX]+\.\s/i.test(text);
+  const uppercaseLetters = [...text].filter((char) => /[A-Z]/.test(char)).length;
+  const lowercaseLetters = [...text].filter((char) => /[a-z]/.test(char)).length;
+  const mostlyUppercase = uppercaseLetters > 0 && uppercaseLetters >= lowercaseLetters * 1.6;
+  const sentenceLike = /\b(is|are|was|were|will|shall|may|must|means|includes|provided|subject|available|attached|remain|constitutes)\b/i.test(text) &&
+    /[a-z]/.test(text);
+
+  return startsWithStructuredHeading || (mostlyUppercase && !sentenceLike);
 }
 
 function nodePageEnd(node: DocumentSourceNode): number | undefined {
@@ -197,10 +213,10 @@ function groupPageContentByTitles(nodes: DocumentSourceNode[]): DocumentSourceNo
 
       byId.set(activeTitle.id, {
         ...activeTitle,
-        kind: "section",
+        kind: "text",
         title,
         description: nodeTextDescription({
-          kind: "section",
+          kind: "text",
           title,
           text: evidenceNodes
             .map((node) => node.textExcerpt)

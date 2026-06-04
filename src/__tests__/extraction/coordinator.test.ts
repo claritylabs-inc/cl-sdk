@@ -490,6 +490,11 @@ describe("createExtractor", () => {
     const sourceSpans = buildPageSourceSpans([
       {
         documentId: "doc-1",
+        pageNumber: 5,
+        text: "TERRORISM RISK INSURANCE ACT (TRIA) DISCLOSURE AND REJECTION Form NWC-TRIA-D 04 22 Disclosure of Federal Participation in Payment of Terrorism Losses.",
+      },
+      {
+        documentId: "doc-1",
         pageNumber: 6,
         text: "DECLARATIONS PAGE TECHNOLOGY ERRORS & OMISSIONS AND CYBER LIABILITY INSURANCE POLICY Item 1. Named Insured Cove Technologies Inc.",
       },
@@ -502,6 +507,11 @@ describe("createExtractor", () => {
         documentId: "doc-1",
         pageNumber: 8,
         text: "A Bilateral Discovery Period of 60 days is automatically available. Item 13. Forms and Endorsements at inception.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 9,
+        text: "Trade or Economic Sanctions Limitation. This administrative notice explains sanctions restrictions.",
       },
       {
         documentId: "doc-1",
@@ -551,6 +561,20 @@ describe("createExtractor", () => {
     });
 
     const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
+
+    const documentRoot = result.sourceTree?.find((node) => node.kind === "document");
+    const topLevel = result.sourceTree
+      ?.filter((node) => node.parentId === documentRoot?.id)
+      .map((node) => ({ title: node.title, kind: node.kind, pageStart: node.pageStart, pageEnd: node.pageEnd }));
+    expect(topLevel).toEqual([
+      { title: "Notices and Jacket", kind: "page_group", pageStart: 5, pageEnd: 9 },
+      { title: "Declarations", kind: "page_group", pageStart: 6, pageEnd: 8 },
+      { title: "Policy Form", kind: "form", pageStart: 10, pageEnd: 12 },
+      { title: "Endorsements", kind: "page_group", pageStart: 21, pageEnd: 26 },
+    ]);
+
+    const notices = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Notices and Jacket");
+    expect(result.sourceTree?.filter((node) => node.parentId === notices?.id).map((node) => node.pageStart)).toEqual([5, 9]);
 
     const declarations = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Declarations");
     expect(declarations).toEqual(expect.objectContaining({ pageStart: 6, pageEnd: 8 }));
@@ -647,12 +671,14 @@ describe("createExtractor", () => {
       .map((node) => ({ title: node.title, kind: node.kind, pageStart: node.pageStart, pageEnd: node.pageEnd, description: node.description }));
 
     expect(topLevel).toEqual([
-      expect.objectContaining({ title: "Notices and Jacket", kind: "page_group", pageStart: 3, pageEnd: 7 }),
+      expect.objectContaining({ title: "Notices and Jacket", kind: "page_group", pageStart: 2, pageEnd: 7 }),
       expect.objectContaining({ title: "Declarations", kind: "page_group", pageStart: 5, pageEnd: 6, description: expect.stringContaining("pages 5-6") }),
       expect.objectContaining({ title: "Policy Form", kind: "form", pageStart: 8, pageEnd: 9, description: expect.stringContaining("pages 8-9") }),
       expect.objectContaining({ title: "Endorsements", kind: "page_group", pageStart: 10, pageEnd: 11, description: expect.stringContaining("pages 10-11") }),
     ]);
     const notices = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Notices and Jacket");
+    expect(result.sourceTree?.filter((node) => node.parentId === notices?.id).map((node) => node.pageStart))
+      .toEqual([2, 3, 4, 7]);
     expect(result.sourceTree?.find((node) => node.parentId === notices?.id && node.pageStart === 7))
       .toEqual(expect.objectContaining({ title: "Page 7" }));
   });

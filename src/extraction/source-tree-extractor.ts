@@ -258,6 +258,7 @@ function looksLikeDeclarationsContinuation(node: DocumentSourceNode): boolean {
 function looksLikePolicyFormStart(node: DocumentSourceNode): boolean {
   const text = sourceNodeText(node);
   const excerpt = cleanText(node.textExcerpt, "");
+  if (isAdministrativeNoticeNode(node) || looksLikeDeclarationsStart(node)) return false;
   return /\bpolicy form\b/i.test(node.title) ||
     /^policy\s+form\b/i.test(excerpt) ||
     (/\btechnology errors?\s*&?\s*omissions\b/i.test(text) && /\bplease read this entire policy carefully\b/i.test(text)) ||
@@ -279,11 +280,11 @@ function groupAdjacentChildren(params: {
   description: string;
   organizer: string;
 }): DocumentSourceNode[] {
-  if (params.childIds.length < 2) return params.sourceTree;
+  if (params.childIds.length < 1) return params.sourceTree;
   const children = params.childIds
     .map((id) => params.children.find((child) => child.id === id))
     .filter((child): child is DocumentSourceNode => Boolean(child));
-  if (children.length < 2) return params.sourceTree;
+  if (children.length < 1) return params.sourceTree;
   const parentId = children[0].parentId;
   if (!children.every((child) => child.parentId === parentId)) return params.sourceTree;
   const documentId = children[0].documentId;
@@ -403,6 +404,11 @@ function applySemanticPageGrouping(sourceTree: DocumentSourceNode[]): DocumentSo
     for (let index = policyStartIndex; index < children.length; index += 1) {
       const child = children[index];
       if (index > policyStartIndex && looksLikeEndorsementStart(child)) break;
+      if (isAdministrativeNoticeNode(child) || looksLikeDeclarationsStart(child)) break;
+      if (index > policyStartIndex && child.kind === "page") {
+        policyIds.push(child.id);
+        continue;
+      }
       if (!looksLikePolicyFormContinuation(child)) break;
       policyIds.push(child.id);
     }

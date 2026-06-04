@@ -108,16 +108,47 @@ describe("source tree v3", () => {
     }, 2);
 
     const tree = buildDocumentSourceTree([title, paragraph, emptyTitle], "policy-1");
-    const titleNode = tree.find((node) => node.kind === "section" && node.sourceSpanIds.includes(title.id));
-    const paragraphNode = tree.find((node) => node.kind === "text" && node.sourceSpanIds.includes(paragraph.id));
-    const emptyTitleNode = tree.find((node) => node.kind === "text" && node.sourceSpanIds.includes(emptyTitle.id));
+    const titleNode = tree.find((node) => node.metadata?.organizer === "title_block" && node.sourceSpanIds.includes(title.id));
+    const paragraphNode = tree.find((node) => node.kind === "text" && node.sourceSpanIds.length === 1 && node.sourceSpanIds.includes(paragraph.id));
+    const emptyTitleNode = tree.find((node) => node.kind === "text" && node.sourceSpanIds.length === 1 && node.sourceSpanIds.includes(emptyTitle.id));
 
     expect(titleNode).toEqual(expect.objectContaining({
-      kind: "section",
+      kind: "text",
       title: "DEFENSE AND FINES SUB-COVERAGES",
     }));
     expect(paragraphNode?.parentId).toBe(titleNode?.id);
     expect(emptyTitleNode).toEqual(expect.objectContaining({ kind: "text" }));
+  });
+
+  it("does not turn sentence-like title elements into section containers", () => {
+    const proseTitle = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: "Declarations is a Self-Insured Retention and not a deductible.",
+      pageStart: 15,
+      pageEnd: 15,
+      sourceUnit: "text",
+      metadata: { sourceUnit: "title", elementType: "title" },
+    }, 0);
+    const paragraph = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: "The Company has no obligation to pay covered Loss unless the retention is satisfied.",
+      pageStart: 15,
+      pageEnd: 15,
+      sourceUnit: "text",
+    }, 1);
+
+    const tree = buildDocumentSourceTree([proseTitle, paragraph], "policy-1");
+    const proseNode = tree.find((node) => node.sourceSpanIds.length === 1 && node.sourceSpanIds.includes(proseTitle.id));
+    const paragraphNode = tree.find((node) => node.sourceSpanIds.length === 1 && node.sourceSpanIds.includes(paragraph.id));
+
+    expect(proseNode).toEqual(expect.objectContaining({
+      kind: "text",
+      title: "Text",
+    }));
+    expect(proseNode?.metadata?.organizer).toBeUndefined();
+    expect(paragraphNode?.parentId).not.toBe(proseNode?.id);
   });
 
   it("normalizes boilerplate source spans and merges torn sentence rows", () => {

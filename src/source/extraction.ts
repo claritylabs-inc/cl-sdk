@@ -265,7 +265,6 @@ function isDiscardableBoilerplate(text: string, unit?: string): boolean {
 function isBoilerplateLine(line: string): boolean {
   const cleaned = normalizeWhitespace(line.replace(/\bColumn\s+\d+:\s*/gi, ""));
   return isDiscardableBoilerplate(cleaned) ||
-    /^IMPORTANT NOTICE\s*[-—]\s*/i.test(cleaned) ||
     /^THIS IS A CLAIMS-MADE AND REPORTED POLICY\.? PLEASE READ IT CAREFULLY\.?$/i.test(cleaned);
 }
 
