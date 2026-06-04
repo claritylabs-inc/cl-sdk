@@ -1,3 +1,10 @@
+## [3.0.25](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.24...v3.0.25) (2026-06-04)
+
+
+### Bug Fixes
+
+* **extraction:** filter non-coverage schedule rows ([a43c176](https://github.com/claritylabs-inc/cl-sdk/commit/a43c17618c1ccab79a48cb4bdab863a722fe68ca))
+
 ## [3.0.24](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.23...v3.0.24) (2026-06-04)
 
 
