@@ -284,29 +284,16 @@ describe("createExtractor", () => {
     expect(typeof extractor.extract).toBe("function");
   });
 
-  it("persists caller-provided source spans and passes them to extraction model calls", async () => {
+  it("persists caller-provided source spans without forwarding them through source-tree provider options", async () => {
     safeGenerateObject
       .mockReset()
-      .mockResolvedValueOnce({
-        object: { documentType: "policy", policyTypes: ["general_liability"], confidence: 0.95 },
-      })
-      .mockResolvedValueOnce({
-        object: { forms: [] },
-      })
-      .mockResolvedValueOnce({
-        object: {
-          pages: [
-            { localPageNumber: 1, extractorNames: ["exclusions"] },
-            { localPageNumber: 2, extractorNames: ["exclusions"] },
-            { localPageNumber: 3, extractorNames: ["exclusions"] },
-            { localPageNumber: 4, extractorNames: ["exclusions"] },
-            { localPageNumber: 5, extractorNames: ["exclusions"] },
-            { localPageNumber: 6, extractorNames: ["exclusions"] },
-          ],
-        },
-      })
-      .mockResolvedValueOnce({
-        object: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
+      .mockImplementation(async (_generateObject, params) => {
+        if (params.taskKind === "extraction_source_tree") {
+          return { object: { labels: [], groups: [] } };
+        }
+        return {
+          object: { documentType: "policy", policyTypes: ["general_liability"], confidence: 0.95 },
+        };
       });
     const sourceSpans = buildPageSourceSpans([
       {
@@ -350,26 +337,24 @@ describe("createExtractor", () => {
     expect(result.sourceChunks).toHaveLength(1);
     expect(result.sourceTree?.some((node) => node.kind === "page")).toBe(true);
     expect(result.operationalProfile?.policyNumber?.value).toBe("POL-0001");
-    expect(safeGenerateObject).toHaveBeenNthCalledWith(
-      1,
-      expect.any(Function),
-      expect.objectContaining({
-        taskKind: "extraction_source_tree",
-        providerOptions: expect.objectContaining({
-          sourceSpans,
-          sourceChunks: result.sourceChunks,
-        }),
-      }),
-      expect.any(Object),
-    );
+    const sourceTreeCallParams = safeGenerateObject.mock.calls.find(([, params]) => params.taskKind === "extraction_source_tree")?.[1];
+    expect(sourceTreeCallParams).toEqual(expect.objectContaining({
+      taskKind: "extraction_source_tree",
+    }));
+    expect(sourceTreeCallParams).not.toHaveProperty("providerOptions");
     expect(result.document.documentMetadata?.sourceTreeCanonical).toBe(true);
   });
 
   it("skips the source-tree organizer for large deterministic page sets", async () => {
     safeGenerateObject
       .mockReset()
-      .mockResolvedValueOnce({
-        object: { documentType: "policy", policyTypes: ["cyber"], coverageTypes: ["cyber"] },
+      .mockImplementation(async (_generateObject, params) => {
+        if (params.taskKind === "extraction_source_tree") {
+          return { object: { labels: [], groups: [] } };
+        }
+        return {
+          object: { documentType: "policy", policyTypes: ["cyber"], coverageTypes: ["cyber"] },
+        };
       });
     const sourceSpans = buildPageSourceSpans(
       Array.from({ length: 35 }, (_, index) => {
@@ -390,8 +375,12 @@ describe("createExtractor", () => {
 
     const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
 
-    const sourceTreeCall = safeGenerateObject.mock.calls.find(([, params]) => params.taskKind === "extraction_source_tree");
-    expect(sourceTreeCall).toBeUndefined();
+    const sourceTreeCalls = safeGenerateObject.mock.calls.filter(([, params]) => params.taskKind === "extraction_source_tree");
+    expect(sourceTreeCalls).toHaveLength(1);
+    expect(sourceTreeCalls[0]?.[1]).toEqual(expect.objectContaining({
+      prompt: expect.stringContaining("You clean a top-level source outline"),
+    }));
+    expect(sourceTreeCalls[0]?.[1]).not.toHaveProperty("providerOptions");
     expect(result.sourceTree).toEqual(expect.arrayContaining([
       expect.objectContaining({ pageStart: 35, title: "Page 35" }),
     ]));
@@ -587,6 +576,78 @@ describe("createExtractor", () => {
       .toEqual(expect.arrayContaining([22]));
   });
 
+  it("keeps front matter separate and includes page ranges on standard policy groups", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockResolvedValue({
+        object: { documentType: "policy", policyTypes: ["cyber"], coverageTypes: ["cyber"] },
+      });
+    const sourceSpans = buildPageSourceSpans([
+      {
+        documentId: "doc-1",
+        pageNumber: 2,
+        text: "IMPORTANT NOTICE — HOW TO REPORT A CLAIM. This notice explains claim reporting.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 3,
+        text: "PRIVACY NOTICE TO POLICYHOLDERS. This administrative notice is not policy wording.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 4,
+        text: "OFAC ADVISORY NOTICE. This administrative notice is not policy wording.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 5,
+        text: "DECLARATIONS PAGE TECHNOLOGY ERRORS & OMISSIONS AND CYBER LIABILITY INSURANCE POLICY Item 1. Named Insured Cove Technologies Inc.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 6,
+        text: "Coverage Part Each Claim Limit Aggregate Limit Retroactive Date. Item 13. Forms and Endorsements at inception.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 7,
+        text: "TECHNOLOGY ERRORS & OMISSIONS AND CYBER LIABILITY INSURANCE POLICY Form NWC-TEC 04 25 PLEASE READ THIS ENTIRE POLICY CAREFULLY.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 8,
+        text: "INSURING AGREEMENT. DEFINITIONS. EXCLUSIONS. CONDITIONS. Claim means a written demand.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 9,
+        text: "NWC-END 001 04 25 THIS ENDORSEMENT CHANGES THE POLICY. Network Security and Privacy Liability.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 10,
+        text: "All other terms and conditions remain unchanged under Endorsement No. 1.",
+      },
+    ]);
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+      reviewMode: "skip",
+    });
+
+    const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
+    const topLevel = result.sourceTree
+      ?.filter((node) => node.parentId === result.sourceTree?.find((candidate) => candidate.kind === "document")?.id)
+      .map((node) => ({ title: node.title, kind: node.kind, pageStart: node.pageStart, pageEnd: node.pageEnd, description: node.description }));
+
+    expect(topLevel).toEqual([
+      expect.objectContaining({ title: "Notices and Jacket", kind: "page_group", pageStart: 3, pageEnd: 4, description: expect.stringContaining("pages 3-4") }),
+      expect.objectContaining({ title: "Declarations", kind: "page_group", pageStart: 5, pageEnd: 6, description: expect.stringContaining("pages 5-6") }),
+      expect.objectContaining({ title: "Policy Form", kind: "form", pageStart: 7, pageEnd: 8, description: expect.stringContaining("pages 7-8") }),
+      expect.objectContaining({ title: "Endorsements", kind: "page_group", pageStart: 9, pageEnd: 10, description: expect.stringContaining("pages 9-10") }),
+    ]);
+  });
+
   it("uses source spans for source-tree section indexes without section LLM calls", async () => {
     safeGenerateObject
       .mockReset()
@@ -632,7 +693,7 @@ describe("createExtractor", () => {
 
     const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
 
-    expect(safeGenerateObject).toHaveBeenCalledTimes(2);
+    expect(safeGenerateObject.mock.calls.filter(([, params]) => params.taskKind === "extraction_source_tree")).toHaveLength(2);
     expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_source_tree")).toBe(true);
     expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_operational_profile")).toBe(true);
     expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_form_inventory")).toBe(false);
@@ -736,19 +797,12 @@ describe("createExtractor", () => {
         sourceSpanIds: [result.sourceSpans[1].id],
       }),
     ]));
-    expect(safeGenerateObject).toHaveBeenNthCalledWith(
-      1,
-      expect.any(Function),
-      expect.objectContaining({
-        taskKind: "extraction_source_tree",
-        prompt: expect.stringContaining("Source nodes"),
-        providerOptions: expect.objectContaining({
-          sourceSpans: result.sourceSpans,
-          sourceChunks: result.sourceChunks,
-        }),
-      }),
-      expect.any(Object),
-    );
+    const sourceTreeCallParams = safeGenerateObject.mock.calls.find(([, params]) => params.taskKind === "extraction_source_tree")?.[1];
+    expect(sourceTreeCallParams).toEqual(expect.objectContaining({
+      taskKind: "extraction_source_tree",
+      prompt: expect.stringContaining("Source nodes"),
+    }));
+    expect(sourceTreeCallParams).not.toHaveProperty("providerOptions");
     expect(runExtractor).not.toHaveBeenCalled();
   });
 

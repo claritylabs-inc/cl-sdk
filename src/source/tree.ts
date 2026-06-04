@@ -79,7 +79,7 @@ function normalizeNodeKind(span: SourceSpan): DocumentSourceNodeKind {
   if (unit === "table_cell") return "table_cell";
   if (unit === "key_value") return "schedule";
   if (unit === "section") return "section";
-  if (element === "title" || element === "section_candidate") {
+  if (element === "section_candidate") {
     const text = span.text.toLowerCase();
     if (/endorsement/.test(text)) return "endorsement";
     if (/schedule|declarations?/.test(text)) return "schedule";
@@ -130,6 +130,120 @@ function makeNode(params: {
     path: "",
     metadata: params.metadata,
   };
+}
+
+function metadataString(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function isTitleContentNode(node: DocumentSourceNode): boolean {
+  if (node.kind !== "text") return false;
+  return metadataString(node.metadata, "elementType") === "title" ||
+    metadataString(node.metadata, "sourceUnit") === "title";
+}
+
+function nodePageEnd(node: DocumentSourceNode): number | undefined {
+  return node.pageEnd ?? node.pageStart;
+}
+
+function groupPageContentByTitles(nodes: DocumentSourceNode[]): DocumentSourceNode[] {
+  const byParent = new Map<string | undefined, DocumentSourceNode[]>();
+  for (const node of nodes) {
+    const children = byParent.get(node.parentId) ?? [];
+    children.push(node);
+    byParent.set(node.parentId, children);
+  }
+  for (const children of byParent.values()) {
+    children.sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+  }
+
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  for (const pageNode of nodes.filter((node) => node.kind === "page")) {
+    const children = (byParent.get(pageNode.id) ?? [])
+      .filter((child) => child.kind !== "table_row" && child.kind !== "table_cell");
+    let activeTitle: DocumentSourceNode | undefined;
+    let activeContent: DocumentSourceNode[] = [];
+
+    const flush = () => {
+      if (!activeTitle || activeContent.length === 0) {
+        activeTitle = undefined;
+        activeContent = [];
+        return;
+      }
+
+      const contentNodes = activeContent
+        .map((node) => byId.get(node.id) ?? node)
+        .filter((node) => node.parentId === pageNode.id);
+      if (contentNodes.length === 0) {
+        activeTitle = undefined;
+        activeContent = [];
+        return;
+      }
+
+      const evidenceNodes = [activeTitle, ...contentNodes];
+      const title = truncate(activeTitle.textExcerpt ?? activeTitle.title, 120);
+      const pageStarts = evidenceNodes
+        .map((node) => node.pageStart)
+        .filter((page): page is number => typeof page === "number");
+      const pageEnds = evidenceNodes
+        .map(nodePageEnd)
+        .filter((page): page is number => typeof page === "number");
+      const sourceSpanIds = [...new Set(evidenceNodes.flatMap((node) => node.sourceSpanIds))];
+      const bbox = evidenceNodes.flatMap((node) => node.bbox ?? []).slice(0, 12);
+
+      byId.set(activeTitle.id, {
+        ...activeTitle,
+        kind: "section",
+        title,
+        description: nodeTextDescription({
+          kind: "section",
+          title,
+          text: evidenceNodes
+            .map((node) => node.textExcerpt)
+            .filter(Boolean)
+            .join("\n\n"),
+          page: activeTitle.pageStart,
+        }),
+        textExcerpt: evidenceNodes
+          .map((node) => node.textExcerpt)
+          .filter(Boolean)
+          .join("\n\n")
+          .slice(0, 1600),
+        sourceSpanIds,
+        pageStart: pageStarts.length ? Math.min(...pageStarts) : activeTitle.pageStart,
+        pageEnd: pageEnds.length ? Math.max(...pageEnds) : activeTitle.pageEnd,
+        bbox,
+        metadata: {
+          ...activeTitle.metadata,
+          sourceTreeVersion: "v3",
+          organizer: "title_block",
+        },
+      });
+
+      for (const node of contentNodes) {
+        byId.set(node.id, { ...node, parentId: activeTitle.id });
+      }
+      activeTitle = undefined;
+      activeContent = [];
+    };
+
+    for (const child of children) {
+      if (isTitleContentNode(child)) {
+        flush();
+        activeTitle = child;
+        activeContent = [];
+        continue;
+      }
+      if (activeTitle) activeContent.push(child);
+    }
+    flush();
+  }
+
+  return nodes.map((node) => byId.get(node.id) ?? node);
 }
 
 function sortSpans(left: SourceSpan, right: SourceSpan): number {
@@ -328,5 +442,5 @@ export function buildDocumentSourceTree(sourceSpans: SourceSpan[], documentId?: 
     addStandaloneSpanNode(span, pageParentId);
   }
 
-  return normalizeDocumentSourceTreePaths([...nodes.values()]);
+  return normalizeDocumentSourceTreePaths(groupPageContentByTitles([...nodes.values()]));
 }

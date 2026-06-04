@@ -79,6 +79,47 @@ describe("source tree v3", () => {
     }));
   });
 
+  it("uses visual title spans to split page content", () => {
+    const title = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: "DEFENSE AND FINES SUB-COVERAGES",
+      pageStart: 23,
+      pageEnd: 23,
+      sourceUnit: "text",
+      metadata: { sourceUnit: "title", elementType: "title" },
+    }, 0);
+    const paragraph = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: "The Company will reimburse the Named Insured for covered defense expenses.",
+      pageStart: 23,
+      pageEnd: 23,
+      sourceUnit: "text",
+    }, 1);
+    const emptyTitle = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: "NORTHWOODS CONTINENTAL INSURANCE COMPANY",
+      pageStart: 23,
+      pageEnd: 23,
+      sourceUnit: "text",
+      metadata: { sourceUnit: "title", elementType: "title" },
+    }, 2);
+
+    const tree = buildDocumentSourceTree([title, paragraph, emptyTitle], "policy-1");
+    const titleNode = tree.find((node) => node.kind === "section" && node.sourceSpanIds.includes(title.id));
+    const paragraphNode = tree.find((node) => node.kind === "text" && node.sourceSpanIds.includes(paragraph.id));
+    const emptyTitleNode = tree.find((node) => node.kind === "text" && node.sourceSpanIds.includes(emptyTitle.id));
+
+    expect(titleNode).toEqual(expect.objectContaining({
+      kind: "section",
+      title: "DEFENSE AND FINES SUB-COVERAGES",
+    }));
+    expect(paragraphNode?.parentId).toBe(titleNode?.id);
+    expect(emptyTitleNode).toEqual(expect.objectContaining({ kind: "text" }));
+  });
+
   it("normalizes boilerplate source spans and merges torn sentence rows", () => {
     const warning = buildSourceSpan({
       documentId: "policy-1",

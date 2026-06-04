@@ -29,9 +29,9 @@ const ORGANIZABLE_KINDS = [
 ] as const;
 
 const ORGANIZATION_TOP_LEVEL_BATCH_SIZE = 80;
-const ORGANIZATION_CHILD_CONTEXT_LIMIT = 4;
 const ORGANIZER_MAX_SOURCE_SPANS = 400;
 const ORGANIZER_MAX_TOP_LEVEL_NODES = 18;
+const OUTLINE_CLEANUP_MAX_TOP_LEVEL_NODES = 80;
 
 const SourceTreeOrganizationSchema = z.object({
   labels: z.array(z.object({
@@ -209,6 +209,25 @@ function endorsementDescription(title: string, node: DocumentSourceNode): string
   );
 }
 
+function nodePageEnd(node: DocumentSourceNode): number | undefined {
+  return node.pageEnd ?? node.pageStart;
+}
+
+function pageRangeForNodes(nodes: DocumentSourceNode[]): string | undefined {
+  const pageStarts = nodes.map((node) => node.pageStart).filter((page): page is number => typeof page === "number");
+  const pageEnds = nodes.map(nodePageEnd).filter((page): page is number => typeof page === "number");
+  if (pageStarts.length === 0 || pageEnds.length === 0) return undefined;
+  const start = Math.min(...pageStarts);
+  const end = Math.max(...pageEnds);
+  return start === end ? `page ${start}` : `pages ${start}-${end}`;
+}
+
+function descriptionWithPages(description: string, nodes: DocumentSourceNode[]): string {
+  const range = pageRangeForNodes(nodes);
+  if (!range || new RegExp(`\\b${range.replace("-", "\\-")}\\b`, "i").test(description)) return description;
+  return `${description}; ${range}`;
+}
+
 function semanticGroupNodeId(documentId: string, kind: string, title: string, childNodeIds: string[]): string {
   return [
     documentId.replace(/[^a-zA-Z0-9_.:-]/g, "_"),
@@ -220,8 +239,14 @@ function semanticGroupNodeId(documentId: string, kind: string, title: string, ch
 }
 
 function looksLikeDeclarationsStart(node: DocumentSourceNode): boolean {
-  return /(^|\b)declarations?\b/i.test(sourceNodeText(node)) &&
-    !/\bforms?\s+and\s+endorsements?\b/i.test(sourceNodeText(node));
+  const title = cleanText(node.title, "");
+  const text = sourceNodeText(node);
+  if (/\b(important notice|privacy notice|ofac advisory|terrorism risk insurance act|how to report a claim)\b/i.test(text)) {
+    return false;
+  }
+  return /^declarations?$/i.test(title) ||
+    /\bdeclarations?\s+(page|schedule|section)\b/i.test(text) ||
+    /^declarations?\b/i.test(cleanText(node.textExcerpt, ""));
 }
 
 function looksLikeDeclarationsContinuation(node: DocumentSourceNode): boolean {
@@ -274,7 +299,7 @@ function groupAdjacentChildren(params: {
     parentId,
     kind: params.kind,
     title: params.title,
-    description: params.description,
+    description: descriptionWithPages(params.description, children),
     textExcerpt: children.map((child) => child.textExcerpt ?? child.description).filter(Boolean).join("\n\n").slice(0, 1600),
     sourceSpanIds,
     pageStart: pageStarts.length ? Math.min(...pageStarts) : undefined,
@@ -332,8 +357,27 @@ function applySemanticPageGrouping(sourceTree: DocumentSourceNode[]): DocumentSo
     .filter((node) => node.kind !== "document")
     .sort((left, right) => left.order - right.order);
   let nextTree = relabeled;
-
   const declarationsStartIndex = children.findIndex(looksLikeDeclarationsStart);
+  const firstCoreIndex = children.findIndex((child) =>
+    looksLikeDeclarationsStart(child) || looksLikePolicyFormStart(child) || looksLikeEndorsementStart(child)
+  );
+  const frontMatterBoundary = declarationsStartIndex >= 0 ? declarationsStartIndex : firstCoreIndex;
+
+  if (frontMatterBoundary > 0) {
+    const frontMatterIds = children
+      .slice(0, frontMatterBoundary)
+      .map((child) => child.id);
+    nextTree = groupAdjacentChildren({
+      sourceTree: nextTree,
+      children,
+      childIds: frontMatterIds,
+      kind: "page_group",
+      title: "Notices and Jacket",
+      description: "Policy jacket, notices, and administrative pages grouped by source order",
+      organizer: "semantic_front_matter_grouping",
+    });
+  }
+
   if (declarationsStartIndex >= 0) {
     const declarationIds: string[] = [];
     for (let index = declarationsStartIndex; index < children.length; index += 1) {
@@ -547,18 +591,20 @@ function normalizeContainerEvidenceFromChildren(sourceTree: DocumentSourceNode[]
 }
 
 function normalizeSemanticHierarchy(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
-  return normalizeDocumentSourceTreePaths(
-    normalizeContainerEvidenceFromChildren(
-      nestEndorsementContinuationPages(
-        normalizePolicyFormStructure(
-          normalizeDocumentSourceTreePaths(sourceTree),
-        ),
-      ),
+  const normalized = normalizeDocumentSourceTreePaths(
+    normalizePolicyFormStructure(
+      normalizeDocumentSourceTreePaths(sourceTree),
     ),
+  );
+  const nested = normalizeDocumentSourceTreePaths(nestEndorsementContinuationPages(normalized));
+  const withEvidence = normalizeContainerEvidenceFromChildren(nested);
+  return normalizeDocumentSourceTreePaths(
+    normalizeContainerEvidenceFromChildren(withEvidence),
   );
 }
 
 function applyEndorsementGrouping(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
+  const rootId = sourceTreeRootId(sourceTree);
   const relabeledTree = sourceTree.map((node) => {
     if (node.kind === "document" || isEndorsementGroup(node)) return node;
     const title = endorsementStartTitle(node);
@@ -596,7 +642,7 @@ function applyEndorsementGrouping(sourceTree: DocumentSourceNode[]): DocumentSou
       ...node,
       kind: "page_group" as const,
       title: "Endorsements",
-      description: cleanText(node.description, "Endorsement forms grouped by source order"),
+      description: descriptionWithPages(cleanText(node.description, "Endorsement forms grouped by source order"), byParent.get(node.id) ?? [node]),
       metadata: {
         ...node.metadata,
         sourceTreeVersion: "v3",
@@ -625,9 +671,10 @@ function applyEndorsementGrouping(sourceTree: DocumentSourceNode[]): DocumentSou
   });
 
   for (const [parentId, children] of byParent) {
+    if (parentId !== rootId) continue;
     if (endorsementGroupIds.has(parentId ?? "")) continue;
     const endorsementChildren = children.filter((child) => child.kind === "endorsement" && !isEndorsementGroup(child));
-    if (endorsementChildren.length < 2) continue;
+    if (endorsementChildren.length < 1) continue;
     const endorsementGroupChildren: DocumentSourceNode[] = [];
     let hasSeenEndorsementStart = false;
     for (const child of children) {
@@ -640,6 +687,7 @@ function applyEndorsementGrouping(sourceTree: DocumentSourceNode[]): DocumentSou
         endorsementGroupChildren.push(child);
       }
     }
+    if (endorsementGroupChildren.length < 1) continue;
     const documentId = endorsementChildren[0].documentId;
     const pageStarts = endorsementGroupChildren.map((child) => child.pageStart).filter((page): page is number => typeof page === "number");
     const pageEnds = endorsementGroupChildren.map((child) => child.pageEnd ?? child.pageStart).filter((page): page is number => typeof page === "number");
@@ -652,7 +700,7 @@ function applyEndorsementGrouping(sourceTree: DocumentSourceNode[]): DocumentSou
       parentId,
       kind: "page_group",
       title: "Endorsements",
-      description: "Endorsement forms grouped by source order",
+      description: descriptionWithPages("Endorsement forms grouped by source order", endorsementGroupChildren),
       textExcerpt: undefined,
       sourceSpanIds: [],
       pageStart: pageStarts.length ? Math.min(...pageStarts) : undefined,
@@ -663,11 +711,21 @@ function applyEndorsementGrouping(sourceTree: DocumentSourceNode[]): DocumentSou
       metadata: { sourceTreeVersion: "v3", organizer: "endorsement_grouping" },
     };
     const childSpanIds = [...new Set(endorsementGroupChildren.flatMap((child) => child.sourceSpanIds))];
+    const childPageStart = pageStarts.length ? Math.min(...pageStarts) : undefined;
+    const childPageEnd = pageEnds.length ? Math.max(...pageEnds) : undefined;
     const normalizedGroup = {
       ...groupNode,
       sourceSpanIds: groupNode.sourceSpanIds.length ? groupNode.sourceSpanIds : childSpanIds,
-      pageStart: groupNode.pageStart ?? (pageStarts.length ? Math.min(...pageStarts) : undefined),
-      pageEnd: groupNode.pageEnd ?? (pageEnds.length ? Math.max(...pageEnds) : undefined),
+      pageStart: childPageStart === undefined
+        ? groupNode.pageStart
+        : groupNode.pageStart === undefined
+          ? childPageStart
+          : Math.min(groupNode.pageStart, childPageStart),
+      pageEnd: childPageEnd === undefined
+        ? groupNode.pageEnd
+        : groupNode.pageEnd === undefined
+          ? childPageEnd
+          : Math.max(groupNode.pageEnd, childPageEnd),
       order,
     };
     groupsByParent.set(parentId, normalizedGroup);
@@ -759,12 +817,6 @@ function organizationBatches(sourceTree: DocumentSourceNode[]): OrganizationBatc
     const candidates = new Map<string, DocumentSourceNode>();
     for (const node of topLevelBatch) {
       candidates.set(node.id, node);
-      const childContext = (byParent.get(node.id) ?? [])
-        .filter((child) => child.kind !== "text" && child.kind !== "table_cell")
-        .slice(0, ORGANIZATION_CHILD_CONTEXT_LIMIT);
-      for (const child of childContext) {
-        candidates.set(child.id, child);
-      }
     }
     batches.push({
       label: `top-level nodes ${index + 1}-${index + topLevelBatch.length} of ${topLevelNodes.length}`,
@@ -817,6 +869,43 @@ Rules:
 - Prefer the document's own form titles, endorsement titles, schedules, declarations headings, and page order over keyword-only guessing.
 
 Source nodes:
+${JSON.stringify(nodes, null, 2)}
+
+Return JSON with labels and groups only.`;
+}
+
+function shouldRunOutlineCleanup(sourceTree: DocumentSourceNode[]): boolean {
+  const topLevel = rootChildren(sourceTree);
+  if (topLevel.length === 0 || topLevel.length > OUTLINE_CLEANUP_MAX_TOP_LEVEL_NODES) return false;
+  const genericPages = topLevel.filter((node) => node.kind === "page" && /^Page\s+\d+$/i.test(node.title));
+  const hasDeclarations = topLevel.some((node) => node.title === "Declarations");
+  const hasPolicyForm = topLevel.some((node) => node.title === "Policy Form");
+  const hasEndorsements = topLevel.some((node) => node.title === "Endorsements");
+  return genericPages.length > 0 || topLevel.length > 6 || !hasDeclarations || !hasPolicyForm || !hasEndorsements;
+}
+
+function buildOutlineCleanupPrompt(sourceTree: DocumentSourceNode[]): string {
+  const topLevel = rootChildren(sourceTree).slice(0, OUTLINE_CLEANUP_MAX_TOP_LEVEL_NODES);
+  const nodes = topLevel.map((node) => compactNode(node, 900));
+  return `You clean a top-level source outline for an insurance policy.
+
+Expected product-facing order:
+1. Optional front matter: policy jacket, important notices, privacy notices, OFAC notices, TRIA/terrorism notices, marketing/admin pages, signatures, countersignatures, or other pages that are not the declarations, policy wording, or endorsements.
+2. Declarations: declarations page(s), schedules, named insured/policy period/premium rows, coverage limit schedules, forms-and-endorsements schedules.
+3. Policy Form: the main policy wording, insuring agreements, definitions, exclusions, conditions, claim provisions, and general policy terms.
+4. Endorsements: one generic "Endorsements" page_group containing each separately numbered endorsement as its own child.
+
+Rules:
+- Use only node IDs from this top-level list: ${JSON.stringify(topLevel.map((node) => node.id))}
+- Group only adjacent top-level nodes.
+- Do not invent text, pages, source spans, limits, or policy facts.
+- Do not merge individually numbered endorsements into one endorsement node; use the generic "Endorsements" parent for the series.
+- Use canonical terse titles: "Notices and Jacket", "Declarations", "Policy Form", "Endorsements", or the printed endorsement number.
+- Keep page_group descriptions short and include the page range when pages are known, for example "Declarations pages 6-8".
+- If a page is an OFAC, privacy, terrorism/TRIA, claim-reporting notice, signature page, or jacket, do not label it as declarations or policy form.
+- If the existing deterministic outline is already correct, return empty labels and groups.
+
+Top-level source nodes:
 ${JSON.stringify(nodes, null, 2)}
 
 Return JSON with labels and groups only.`;
@@ -882,7 +971,7 @@ function applyOrganization(sourceTree: DocumentSourceNode[], organization: Sourc
     if (!children.every((child) => child.parentId === parentId)) continue;
     const documentId = children[0].documentId;
     const title = simplifyOrganizerTitle(group.title, group.title, group.kind as DocumentSourceNodeKind);
-    const description = cleanText(group.description, title);
+    const description = descriptionWithPages(cleanText(group.description, title), children);
     const id = groupNodeId(documentId, { ...group, title });
     if (byId.has(id)) continue;
     const sourceSpanIds = [...new Set(children.flatMap((child) => child.sourceSpanIds))];
@@ -1100,7 +1189,6 @@ export async function runSourceTreeExtraction(params: {
           maxTokens: budget.maxTokens,
           taskKind: "extraction_source_tree",
           budgetDiagnostics: budget,
-          providerOptions: params.providerOptions,
         },
         {
           fallback: { labels: [], groups: [] },
@@ -1121,6 +1209,37 @@ export async function runSourceTreeExtraction(params: {
     }
   } else {
     await params.log?.("Deterministic source tree ready; skipped model organizer");
+  }
+
+  if (shouldRunOutlineCleanup(sourceTree)) {
+    try {
+      const budget = params.resolveBudget("extraction_source_tree", 1600);
+      const maxTokens = Math.min(budget.maxTokens, 1600);
+      const startedAt = Date.now();
+      const response = await safeGenerateObject(
+        params.generateObject,
+        {
+          prompt: buildOutlineCleanupPrompt(sourceTree),
+          schema: SourceTreeOrganizationSchema,
+          maxTokens,
+          taskKind: "extraction_source_tree",
+          budgetDiagnostics: { ...budget, maxTokens },
+        },
+        {
+          fallback: { labels: [], groups: [] },
+          log: params.log,
+        },
+      );
+      localTrack(response.usage, {
+        taskKind: "extraction_source_tree",
+        label: "source_tree_outline_cleanup",
+        maxTokens,
+        durationMs: Date.now() - startedAt,
+      });
+      sourceTree = applyOrganization(sourceTree, response.object as SourceTreeOrganization);
+    } catch (error) {
+      warnings.push(`Source-tree outline cleanup failed; deterministic tree used (${error instanceof Error ? error.message : String(error)})`);
+    }
   }
 
   const deterministicProfile = buildDeterministicOperationalProfile({
