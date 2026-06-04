@@ -652,6 +652,11 @@ describe("createExtractor", () => {
     const declarations = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Declarations");
     expect(declarations).toEqual(expect.objectContaining({ pageStart: 6, pageEnd: 8 }));
     expect(result.sourceTree?.filter((node) => node.parentId === declarations?.id).map((node) => node.pageStart)).toEqual([6, 7, 8]);
+    expect(result.sourceTree?.filter((node) => node.parentId === declarations?.id && node.kind === "page").map((node) => node.title)).toEqual([
+      "Declarations",
+      "Page 7",
+      "Forms and Endorsements",
+    ]);
 
     const policyForm = result.sourceTree?.find((node) => node.kind === "form" && node.title === "Policy Form");
     expect(policyForm).toEqual(expect.objectContaining({ pageStart: 10, pageEnd: 12 }));

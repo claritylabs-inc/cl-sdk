@@ -329,6 +329,28 @@ function pageTitleFromText(text: string, fallback: string): string {
   return fallback;
 }
 
+function pageHeadingTitleFromText(text: string, fallback: string): string {
+  const normalized = cleanText(text, "");
+  const headingText = normalized
+    .replace(/^page\s+\d+\s*(?:\|\s*page\s*\|\s*page\s+\d+\s*\|?)?/i, "")
+    .slice(0, 700);
+  const patterns = [
+    /\bIMPORTANT NOTICE\s+[—-]\s+HOW TO REPORT A CLAIM\b/i,
+    /\bPRIVACY NOTICE TO POLICYHOLDERS\b/i,
+    /\bOFAC ADVISORY NOTICE\b/i,
+    /\bTERRORISM RISK INSURANCE ACT\s*\(TRIA\)\s*DISCLOSURE AND REJECTION\b/i,
+    /\bDECLARATIONS PAGE\b/i,
+    /\bTECHNOLOGY ERRORS?\s*&\s*OMISSIONS AND CYBER LIABILITY INSURANCE POLICY\b/i,
+    /\bTRADE OR ECONOMIC SANCTIONS LIMITATION\b/i,
+    /\bFORMS? AND ENDORSEMENTS\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = headingText.match(pattern)?.[0];
+    if (match) return cleanText(match, fallback);
+  }
+  return fallback;
+}
+
 function pageFormTypeFromText(text: string): SourceTreeFormHint["formType"] {
   if (/\b(declarations?\s+page|declarations?\s+schedule)\b/i.test(text)) return "declarations";
   if (/\b(endorsement\s+(?:no\.?|number|#)|this endorsement changes the policy|[A-Z]{2,}-END\s+\d{2,})\b/i.test(text)) return "endorsement";
@@ -677,7 +699,7 @@ function applySemanticPageGrouping(sourceTree: DocumentSourceNode[]): DocumentSo
     if (node.kind === "document" || node.kind === "page_group") return node;
     let nextNode = node;
     if (node.kind === "page" && /^page\s+\d+$/i.test(node.title)) {
-      const title = pageTitleFromText(sourceNodeText(node), node.title);
+      const title = pageHeadingTitleFromText([node.textExcerpt, node.description].filter(Boolean).join(" "), node.title);
       if (title !== node.title) {
         nextNode = {
           ...node,
