@@ -1,3 +1,10 @@
+## [3.0.20](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.19...v3.0.20) (2026-06-04)
+
+
+### Bug Fixes
+
+* **extraction:** normalize source-native form inventory ([91743dc](https://github.com/claritylabs-inc/cl-sdk/commit/91743dcf20d9d90e908d4f16ad33f2e97e1e33f4))
+
 ## [3.0.19](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.18...v3.0.19) (2026-06-04)
 
 
