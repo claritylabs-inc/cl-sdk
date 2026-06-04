@@ -1,3 +1,10 @@
+## [3.0.26](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.25...v3.0.26) (2026-06-04)
+
+
+### Bug Fixes
+
+* **extraction:** drop defense expense prose coverage rows ([0a3bf34](https://github.com/claritylabs-inc/cl-sdk/commit/0a3bf3429765c8f2c00bdb89d1119a63fbdf35b1))
+
 ## [3.0.25](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.24...v3.0.25) (2026-06-04)
 
 
