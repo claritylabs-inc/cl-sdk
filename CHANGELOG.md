@@ -1,3 +1,10 @@
+## [3.0.18](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.17...v3.0.18) (2026-06-04)
+
+
+### Bug Fixes
+
+* **extraction:** build section hierarchy from source titles ([cfd229c](https://github.com/claritylabs-inc/cl-sdk/commit/cfd229c0ca8f1d2514fb4e3d29f96d4d8aa95140))
+
 ## [3.0.17](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.16...v3.0.17) (2026-06-04)
 
 
