@@ -636,6 +636,7 @@ describe("createExtractor", () => {
     });
 
     const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
+    expect(safeGenerateObject.mock.calls.filter(([, params]) => params.taskKind === "extraction_source_tree")).toHaveLength(0);
     const topLevel = result.sourceTree
       ?.filter((node) => node.parentId === result.sourceTree?.find((candidate) => candidate.kind === "document")?.id)
       .map((node) => ({ title: node.title, kind: node.kind, pageStart: node.pageStart, pageEnd: node.pageEnd, description: node.description }));

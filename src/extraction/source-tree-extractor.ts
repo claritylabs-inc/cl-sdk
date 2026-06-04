@@ -881,6 +881,7 @@ function shouldRunOutlineCleanup(sourceTree: DocumentSourceNode[]): boolean {
   const hasDeclarations = topLevel.some((node) => node.title === "Declarations");
   const hasPolicyForm = topLevel.some((node) => node.title === "Policy Form");
   const hasEndorsements = topLevel.some((node) => node.title === "Endorsements");
+  if (hasDeclarations && hasPolicyForm && hasEndorsements) return false;
   return genericPages.length > 0 || topLevel.length > 6 || !hasDeclarations || !hasPolicyForm || !hasEndorsements;
 }
 
