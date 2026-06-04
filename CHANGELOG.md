@@ -1,3 +1,10 @@
+## [3.0.24](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.23...v3.0.24) (2026-06-04)
+
+
+### Bug Fixes
+
+* **extraction:** keep source-native coverage schedules ([7e27451](https://github.com/claritylabs-inc/cl-sdk/commit/7e27451c3e26a756383f6c7c39a3da7c034c1523))
+
 ## [3.0.23](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.22...v3.0.23) (2026-06-04)
 
 
