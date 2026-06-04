@@ -1,3 +1,10 @@
+## [3.0.14](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.13...v3.0.14) (2026-06-04)
+
+
+### Bug Fixes
+
+* **extraction:** normalize source outline order ([474b50d](https://github.com/claritylabs-inc/cl-sdk/commit/474b50d11d708afdd35038dbb368b12327b688ed))
+
 ## [3.0.13](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.12...v3.0.13) (2026-06-04)
 
 
