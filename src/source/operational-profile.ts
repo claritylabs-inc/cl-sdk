@@ -358,8 +358,10 @@ function isOperationalCoverageRow(coverage: OperationalCoverageLine): boolean {
   const name = normalizeLabel(coverage.name);
   if (!hasCoverageLimitTerm(coverage.limits)) return false;
   if (/^(item\s+\d+|option:|annual policy premium|total premium|premium and payment)\b/i.test(coverage.name)) return false;
+  if (/^coverage part\s+s\b/i.test(coverage.name)) return false;
   if (/^(nwc|iso|cg|il|acord)[-\s]?[a-z0-9]/i.test(coverage.name)) return false;
   if (/\b(forms?|endorsements?|premium|payment|terrorism risk insurance act|tria|erp option|bilateral discovery)\b/i.test(name)) return false;
+  if (/\b(incurred in excess|shall erode|subject to|combined defense expenses)\b/i.test(name)) return false;
   if (coverage.name.split(/\s+/).length > 16 && !/\b(coverage|liability|sub[-\s]?limit|aggregate|each\s+(claim|loss|occurrence)|limit)\b/i.test(coverage.name)) {
     return false;
   }

@@ -443,6 +443,7 @@ describe("source tree v3", () => {
       "Column 1: NWC-END 001 04 25 | Column 2: Endt. No. 1 — Network Security and Privacy Liability Coverage",
       "Column 1: Annual Policy Premium | Column 2: $48,200",
       "Option: ERP Option A | Length: 12 Months | Additional Premium (% of expiring annual premium): 85%",
+      "Column 1: Item 8. Defense Expenses | Column 2: OUTSIDE THE LIMITS OF LIABILITY (Supplementary) Subject to a separate Supplementary Defense Annual Cap of $5,000,000 in the aggregate for all Coverage Parts combined. Defense Expenses incurred in excess of the Supplementary Defense Annual Cap shall erode the applicable Aggregate Limit of the implicated Coverage Part(s)",
       "Coverage Part: A. Technology Errors & Omissions Liability | Each Claim Limit: $5,000,000 | Aggregate Limit: $10,000,000 | Retroactive Date: 06/15/2023",
     ].map((text, index) => buildSourceSpan({
       documentId: "policy-1",
