@@ -437,6 +437,10 @@ function isEndorsementGroup(node: DocumentSourceNode): boolean {
   return node.kind === "page_group" && /^endorsements?\b/i.test(node.title);
 }
 
+function isNoticesGroup(node: DocumentSourceNode): boolean {
+  return node.kind === "page_group" && /^notices?\s+and\s+jacket$/i.test(node.title);
+}
+
 function endorsementGroupNodeId(documentId: string, parentId: string | undefined): string {
   return [
     documentId.replace(/[^a-zA-Z0-9_.:-]/g, "_"),
@@ -453,6 +457,71 @@ function isPolicyFormNode(node: DocumentSourceNode): boolean {
 
 function isDeclarationsNode(node: DocumentSourceNode): boolean {
   return node.kind === "page_group" && node.title === "Declarations";
+}
+
+function isAdministrativeNoticeNode(node: DocumentSourceNode): boolean {
+  const text = sourceNodeText(node);
+  return /\b(specimen policy|policy jacket|important notice|privacy notice|ofac advisory|terrorism risk insurance act|tria|trade or economic sanctions|economic sanctions limitation|signature|countersignature|how to report a claim)\b/i.test(text);
+}
+
+function mergeAdministrativeNoticesIntoFrontMatter(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
+  const rootId = sourceTreeRootId(sourceTree);
+  if (!rootId) return sourceTree;
+  const children = (nodesByParent(sourceTree).get(rootId) ?? []).filter((node) => node.kind !== "document");
+  const noticesGroup = children.find(isNoticesGroup);
+  if (!noticesGroup) return sourceTree;
+  const noticesGroupChildren = new Set(
+    (nodesByParent(sourceTree).get(noticesGroup.id) ?? []).map((node) => node.id),
+  );
+  const noticeIds = new Set(
+    children
+      .filter((node) =>
+        node.id !== noticesGroup.id &&
+        !noticesGroupChildren.has(node.id) &&
+        node.kind === "page" &&
+        isAdministrativeNoticeNode(node)
+      )
+      .map((node) => node.id),
+  );
+  if (noticeIds.size === 0) return sourceTree;
+  return sourceTree.map((node) => noticeIds.has(node.id)
+    ? {
+        ...node,
+        parentId: noticesGroup.id,
+        metadata: {
+          ...node.metadata,
+          organizerRepair: "merge_administrative_notice",
+        },
+      }
+    : node
+  );
+}
+
+function rootSemanticRank(node: DocumentSourceNode): number {
+  if (isNoticesGroup(node)) return 0;
+  if (node.title === "Declarations") return 1;
+  if (node.title === "Policy Form") return 2;
+  if (isEndorsementGroup(node)) return 3;
+  if (isAdministrativeNoticeNode(node)) return 0.5;
+  return 2.5;
+}
+
+function normalizeRootSemanticOrder(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
+  const rootId = sourceTreeRootId(sourceTree);
+  if (!rootId) return sourceTree;
+  const rootChildren = (nodesByParent(sourceTree).get(rootId) ?? [])
+    .filter((node) => node.kind !== "document")
+    .sort((left, right) =>
+      rootSemanticRank(left) - rootSemanticRank(right) ||
+      (left.pageStart ?? Number.MAX_SAFE_INTEGER) - (right.pageStart ?? Number.MAX_SAFE_INTEGER) ||
+      left.order - right.order ||
+      left.id.localeCompare(right.id)
+    );
+  const orderById = new Map(rootChildren.map((node, index) => [node.id, index + 1]));
+  return sourceTree.map((node) => {
+    const order = orderById.get(node.id);
+    return order === undefined ? node : { ...node, order };
+  });
 }
 
 function normalizePolicyFormStructure(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
@@ -597,9 +666,10 @@ function normalizeSemanticHierarchy(sourceTree: DocumentSourceNode[]): DocumentS
     ),
   );
   const nested = normalizeDocumentSourceTreePaths(nestEndorsementContinuationPages(normalized));
-  const withEvidence = normalizeContainerEvidenceFromChildren(nested);
+  const mergedNotices = normalizeDocumentSourceTreePaths(mergeAdministrativeNoticesIntoFrontMatter(nested));
+  const withEvidence = normalizeContainerEvidenceFromChildren(mergedNotices);
   return normalizeDocumentSourceTreePaths(
-    normalizeContainerEvidenceFromChildren(withEvidence),
+    normalizeRootSemanticOrder(normalizeContainerEvidenceFromChildren(withEvidence)),
   );
 }
 

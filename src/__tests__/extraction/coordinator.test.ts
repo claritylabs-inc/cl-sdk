@@ -611,21 +611,26 @@ describe("createExtractor", () => {
       {
         documentId: "doc-1",
         pageNumber: 7,
-        text: "TECHNOLOGY ERRORS & OMISSIONS AND CYBER LIABILITY INSURANCE POLICY Form NWC-TEC 04 25 PLEASE READ THIS ENTIRE POLICY CAREFULLY.",
+        text: "Trade or Economic Sanctions Limitation. This administrative notice explains sanctions restrictions.",
       },
       {
         documentId: "doc-1",
         pageNumber: 8,
-        text: "INSURING AGREEMENT. DEFINITIONS. EXCLUSIONS. CONDITIONS. Claim means a written demand.",
+        text: "TECHNOLOGY ERRORS & OMISSIONS AND CYBER LIABILITY INSURANCE POLICY Form NWC-TEC 04 25 PLEASE READ THIS ENTIRE POLICY CAREFULLY.",
       },
       {
         documentId: "doc-1",
         pageNumber: 9,
-        text: "NWC-END 001 04 25 THIS ENDORSEMENT CHANGES THE POLICY. Network Security and Privacy Liability.",
+        text: "INSURING AGREEMENT. DEFINITIONS. EXCLUSIONS. CONDITIONS. Claim means a written demand.",
       },
       {
         documentId: "doc-1",
         pageNumber: 10,
+        text: "NWC-END 001 04 25 THIS ENDORSEMENT CHANGES THE POLICY. Network Security and Privacy Liability.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 11,
         text: "All other terms and conditions remain unchanged under Endorsement No. 1.",
       },
     ]);
@@ -642,11 +647,14 @@ describe("createExtractor", () => {
       .map((node) => ({ title: node.title, kind: node.kind, pageStart: node.pageStart, pageEnd: node.pageEnd, description: node.description }));
 
     expect(topLevel).toEqual([
-      expect.objectContaining({ title: "Notices and Jacket", kind: "page_group", pageStart: 3, pageEnd: 4, description: expect.stringContaining("pages 3-4") }),
+      expect.objectContaining({ title: "Notices and Jacket", kind: "page_group", pageStart: 3, pageEnd: 7 }),
       expect.objectContaining({ title: "Declarations", kind: "page_group", pageStart: 5, pageEnd: 6, description: expect.stringContaining("pages 5-6") }),
-      expect.objectContaining({ title: "Policy Form", kind: "form", pageStart: 7, pageEnd: 8, description: expect.stringContaining("pages 7-8") }),
-      expect.objectContaining({ title: "Endorsements", kind: "page_group", pageStart: 9, pageEnd: 10, description: expect.stringContaining("pages 9-10") }),
+      expect.objectContaining({ title: "Policy Form", kind: "form", pageStart: 8, pageEnd: 9, description: expect.stringContaining("pages 8-9") }),
+      expect.objectContaining({ title: "Endorsements", kind: "page_group", pageStart: 10, pageEnd: 11, description: expect.stringContaining("pages 10-11") }),
     ]);
+    const notices = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Notices and Jacket");
+    expect(result.sourceTree?.find((node) => node.parentId === notices?.id && node.pageStart === 7))
+      .toEqual(expect.objectContaining({ title: "Page 7" }));
   });
 
   it("uses source spans for source-tree section indexes without section LLM calls", async () => {
