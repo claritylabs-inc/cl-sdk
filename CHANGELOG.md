@@ -1,3 +1,10 @@
+## [3.0.13](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.12...v3.0.13) (2026-06-04)
+
+
+### Bug Fixes
+
+* **extraction:** trust deterministic source outline ([2728afa](https://github.com/claritylabs-inc/cl-sdk/commit/2728afa06c384e0ee6003f1315b04c1cbdd12bc2))
+
 ## [3.0.12](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.11...v3.0.12) (2026-06-04)
 
 
