@@ -85,8 +85,12 @@ function inferDocumentType(nodes: DocumentSourceNode[]): "policy" | "quote" {
 }
 
 function coverageNameFromRow(text: string): string | undefined {
-  const labelled = text.match(/\b(?:coverage|coverage part|line)\s*:?\s*([^|;$]{3,80})/i)?.[1];
-  if (labelled) return cleanCoverageLabel(labelled);
+  const labelled = text.match(/\b(coverage part|coverage|line)\s*:?\s*([^|;$]{3,80})/i);
+  if (labelled) {
+    const value = cleanCoverageLabel(labelled[2]);
+    if (!value) return undefined;
+    return /^coverage part$/i.test(labelled[1]) ? `Coverage Part ${value}` : value;
+  }
   const parts = text.split(/\s+\|\s+| {2,}|\t/).map(cleanCoverageLabel).filter(Boolean) as string[];
   const first = parts.find((part) =>
     !/^(limit|limits?|deductible|premium|amount|basis|rate|retroactive|aggregate|each occurrence)$/i.test(part)
@@ -343,6 +347,25 @@ function retroDate(terms: OperationalCoverageTerm[]): string | undefined {
   return terms.find((term) => term.kind === "retroactive_date")?.value;
 }
 
+function hasCoverageLimitTerm(terms: OperationalCoverageTerm[]): boolean {
+  return terms.some((term) =>
+    ["each_claim_limit", "each_occurrence_limit", "each_loss_limit", "aggregate_limit", "sublimit"].includes(term.kind)
+    || (term.kind === "other" && /\blimit\b/i.test(term.label) && moneyAmount(term.value) !== undefined),
+  );
+}
+
+function isOperationalCoverageRow(coverage: OperationalCoverageLine): boolean {
+  const name = normalizeLabel(coverage.name);
+  if (!hasCoverageLimitTerm(coverage.limits)) return false;
+  if (/^(item\s+\d+|option:|annual policy premium|total premium|premium and payment)\b/i.test(coverage.name)) return false;
+  if (/^(nwc|iso|cg|il|acord)[-\s]?[a-z0-9]/i.test(coverage.name)) return false;
+  if (/\b(forms?|endorsements?|premium|payment|terrorism risk insurance act|tria|erp option|bilateral discovery)\b/i.test(name)) return false;
+  if (coverage.name.split(/\s+/).length > 16 && !/\b(coverage|liability|sub[-\s]?limit|aggregate|each\s+(claim|loss|occurrence)|limit)\b/i.test(coverage.name)) {
+    return false;
+  }
+  return /\b(coverage|coverage part|liability|sub[-\s]?limit|aggregate|each\s+(claim|loss|occurrence)|bricking|cyber|privacy|media|regulatory|defense|ai\/ml|errors?\s*&?\s*omissions|technology)\b/i.test(coverage.name);
+}
+
 function uniqueTerms(terms: OperationalCoverageTerm[]): OperationalCoverageTerm[] {
   const seen = new Set<string>();
   const result: OperationalCoverageTerm[] = [];
@@ -450,6 +473,7 @@ function buildCoverages(nodes: DocumentSourceNode[]): OperationalCoverageLine[] 
     if (endorsementAncestor(row, byId)) continue;
     const structured = row.kind === "table_row" ? coverageFromTableRow(row, children, byId) : undefined;
     if (structured) {
+      if (!isOperationalCoverageRow(structured)) continue;
       const key = [
         structured.name.toLowerCase(),
         structured.limits.map((term) => `${term.kind}:${term.value}`).join(","),
@@ -468,6 +492,20 @@ function buildCoverages(nodes: DocumentSourceNode[]): OperationalCoverageLine[] 
     const deductible = deductibleFromText(text);
     const premium = premiumFromText(text);
     if (!name || (!limit && !deductible && !premium)) continue;
+    if (!isOperationalCoverageRow({
+      name,
+      limit,
+      deductible,
+      premium,
+      coverageOrigin: "core",
+      limits: [
+        ...(limit ? [{ kind: "other" as const, label: "Limit", value: limit, sourceNodeIds: [row.id], sourceSpanIds: row.sourceSpanIds }] : []),
+        ...(deductible ? [{ kind: "deductible" as const, label: "Deductible", value: deductible, sourceNodeIds: [row.id], sourceSpanIds: row.sourceSpanIds }] : []),
+        ...(premium ? [{ kind: "premium" as const, label: "Premium", value: premium, sourceNodeIds: [row.id], sourceSpanIds: row.sourceSpanIds }] : []),
+      ],
+      sourceNodeIds: [row.id],
+      sourceSpanIds: row.sourceSpanIds,
+    })) continue;
     const key = [name.toLowerCase(), limit, deductible, premium].join("|");
     if (seen.has(key)) continue;
     seen.add(key);

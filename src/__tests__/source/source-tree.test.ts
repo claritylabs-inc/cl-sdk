@@ -438,6 +438,29 @@ describe("source tree v3", () => {
     ]));
   });
 
+  it("does not treat form inventory, premium, or ERP option rows as coverage lines", () => {
+    const rows = [
+      "Column 1: NWC-END 001 04 25 | Column 2: Endt. No. 1 — Network Security and Privacy Liability Coverage",
+      "Column 1: Annual Policy Premium | Column 2: $48,200",
+      "Option: ERP Option A | Length: 12 Months | Additional Premium (% of expiring annual premium): 85%",
+      "Coverage Part: A. Technology Errors & Omissions Liability | Each Claim Limit: $5,000,000 | Aggregate Limit: $10,000,000 | Retroactive Date: 06/15/2023",
+    ].map((text, index) => buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text,
+      pageStart: 7,
+      pageEnd: 7,
+      sourceUnit: "table_row",
+      table: { tableId: "limits", rowIndex: index },
+    }, index));
+    const sourceTree = buildDocumentSourceTree(rows, "policy-1");
+    const profile = buildDeterministicOperationalProfile({ sourceTree, sourceSpans: rows });
+
+    expect(profile.coverages.map((coverage) => coverage.name)).toEqual([
+      "Coverage Part A. Technology Errors & Omissions Liability",
+    ]);
+  });
+
   it("uses visual title spans to split page content", () => {
     const title = buildSourceSpan({
       documentId: "policy-1",
