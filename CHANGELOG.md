@@ -1,3 +1,10 @@
+## [3.0.17](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.16...v3.0.17) (2026-06-04)
+
+
+### Bug Fixes
+
+* **extraction:** reject prose title blocks ([0f492d2](https://github.com/claritylabs-inc/cl-sdk/commit/0f492d2b91ed2d3e930566de4716a88314b605f2))
+
 ## [3.0.16](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.15...v3.0.16) (2026-06-04)
 
 
