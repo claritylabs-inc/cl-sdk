@@ -1,3 +1,10 @@
+## [3.0.21](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.20...v3.0.21) (2026-06-04)
+
+
+### Bug Fixes
+
+* **extraction:** name source pages from titles ([9a31d6f](https://github.com/claritylabs-inc/cl-sdk/commit/9a31d6f3fb12fc3aa81d1ac06054378740375214))
+
 ## [3.0.20](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.19...v3.0.20) (2026-06-04)
 
 
