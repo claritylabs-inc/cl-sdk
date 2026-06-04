@@ -38,6 +38,8 @@ For EACH form, extract:
 
 Critical rules:
 - Include declarations page sets even if they do not show a standard form number.
+- Do not classify policy jackets, claim-reporting notices, privacy notices, OFAC notices, terrorism/TRIA notices, sanctions notices, signatures, countersignatures, or marketing/admin pages as declarations.
+- Declarations pages contain policy-specific schedules such as named insured, policy number, policy period, premium, limits, retentions, coverage parts, or forms-and-endorsements schedules.
 - Use original document page numbers, not local chunk page numbers.
 - Do not emit duplicate entries for repeated headers/footers.
 - Multi-page forms should be represented once with pageStart/pageEnd covering the full span when visible.

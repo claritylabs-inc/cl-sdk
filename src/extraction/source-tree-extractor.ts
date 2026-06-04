@@ -336,7 +336,17 @@ function pageFormTypeFromText(text: string): SourceTreeFormHint["formType"] {
   return "other";
 }
 
-function inferFormHintsFromSourceSpans(sourceSpans: SourceSpan[]): SourceTreeFormHint[] {
+function administrativeFormTypeFromText(text: string): SourceTreeFormHint["formType"] | undefined {
+  if (/\b(important notice|privacy notice|ofac advisory|terrorism risk insurance act|tria|trade or economic sanctions|economic sanctions limitation|how to report a claim)\b/i.test(text)) {
+    return "notice";
+  }
+  if (/\b(specimen policy|policy jacket|countersigned|countersignature|licensed resident agent|corporate secretary|president and ceo|application of insurance executed)\b/i.test(text)) {
+    return "other";
+  }
+  return undefined;
+}
+
+function pageTextByNumber(sourceSpans: SourceSpan[]): Map<number, string> {
   const pageTexts = new Map<number, string>();
   const pageSpanTexts = new Map<number, string>();
   for (const span of sourceSpans) {
@@ -352,12 +362,36 @@ function inferFormHintsFromSourceSpans(sourceSpans: SourceSpan[]): SourceTreeFor
       if (existing.length < 4000) pageTexts.set(page, cleanText([existing, span.text].filter(Boolean).join(" "), ""));
     }
   }
-  if (pageSpanTexts.size === 0) return [];
+  return new Map([...new Set([...pageTexts.keys(), ...pageSpanTexts.keys()])].map((page) => [
+    page,
+    pageSpanTexts.get(page) ?? pageTexts.get(page) ?? "",
+  ]));
+}
 
-  const pageHints = [...new Set([...pageTexts.keys(), ...pageSpanTexts.keys()])]
+function reconcileFormTypeWithSourceText(
+  form: SourceTreeFormHint,
+  pageTexts: Map<number, string>,
+): SourceTreeFormHint["formType"] {
+  const pages: string[] = [];
+  const start = form.pageStart;
+  const end = form.pageEnd ?? start;
+  if (typeof start === "number" && typeof end === "number") {
+    for (let page = start; page <= end; page += 1) pages.push(pageTexts.get(page) ?? "");
+  }
+  const text = cleanText([form.title, form.formNumber, ...pages].filter(Boolean).join(" "), "");
+  const administrativeType = administrativeFormTypeFromText(text);
+  if (administrativeType && form.formType !== administrativeType) return administrativeType;
+  return form.formType;
+}
+
+function inferFormHintsFromSourceSpans(sourceSpans: SourceSpan[]): SourceTreeFormHint[] {
+  const pageTexts = pageTextByNumber(sourceSpans);
+  if (pageTexts.size === 0) return [];
+
+  const pageHints = [...pageTexts.keys()]
     .sort((left, right) => left - right)
     .map((page): SourceTreeFormHint => {
-      const text = pageSpanTexts.get(page) ?? pageTexts.get(page) ?? "";
+      const text = pageTexts.get(page) ?? "";
       const formNumber = formNumberFromText(text);
       return {
         formNumber,
@@ -399,6 +433,7 @@ function inferFormHintsFromSourceSpans(sourceSpans: SourceSpan[]): SourceTreeFor
 }
 
 function normalizeFormHints(forms: SourceTreeFormHint[] | undefined, sourceSpans: SourceSpan[]): SourceTreeFormHint[] {
+  const pageTexts = pageTextByNumber(sourceSpans);
   const provided = (forms ?? [])
     .filter((form) =>
       typeof form.pageStart === "number" &&
@@ -408,6 +443,7 @@ function normalizeFormHints(forms: SourceTreeFormHint[] | undefined, sourceSpans
     )
     .map((form) => ({
       ...form,
+      formType: reconcileFormTypeWithSourceText(form, pageTexts),
       title: form.title ? cleanText(form.title, "") : undefined,
     }))
     .sort((left, right) =>

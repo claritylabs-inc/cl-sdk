@@ -39,7 +39,7 @@ import { recoverCoverageScheduleRows } from "./coverage-schedule-recovery";
 import { runFocusedExtractorWithFallback } from "./focused-dispatch";
 import { buildExtractionReviewReport, toReviewRoundRecord, type ExtractionReviewReport, type ReviewRoundRecord } from "./quality";
 import { shouldFailQualityGate } from "../core/quality";
-import { buildPlanFromPageAssignments, buildTemplateHints, normalizePageAssignments } from "./planning";
+import { buildFormInventoryHints, buildPlanFromPageAssignments, buildTemplateHints, normalizePageAssignments } from "./planning";
 import {
   getCarrierInfo,
   getCoverageLimitCoverages,
@@ -557,7 +557,7 @@ export function createExtractor(config: ExtractorConfig) {
         onProgress?.("Building form inventory from source spans...");
         const budget = resolveBudget("extraction_form_inventory", 2048);
         const startedAt = Date.now();
-        const templateHints = buildTemplateHints("other", "policy", pageCount, getTemplate("other"));
+        const templateHints = buildFormInventoryHints("other", "policy", pageCount, getTemplate("other"));
         const sourceText = formatSourceSpanText(sourceSpans);
         const prompt = `${buildFormInventoryPrompt(templateHints)}\n\nSOURCE SPAN DOCUMENT TEXT:\n${sourceText}`;
         const response = await safeGenerateObject(
@@ -838,7 +838,9 @@ export function createExtractor(config: ExtractorConfig) {
       const formInventoryResponse = await safeGenerateObject(
         generateObject as GenerateObject<FormInventoryResult>,
         {
-          prompt: withFullDocumentTextContext(buildFormInventoryPrompt(templateHints)),
+          prompt: withFullDocumentTextContext(buildFormInventoryPrompt(
+            buildFormInventoryHints(primaryType, documentType, pageCount, template),
+          )),
           schema: FormInventorySchema,
           maxTokens: budget.maxTokens,
           taskKind: "extraction_form_inventory",

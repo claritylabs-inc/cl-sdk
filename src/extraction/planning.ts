@@ -32,6 +32,23 @@ export function buildTemplateHints(
   ].join("\n");
 }
 
+export function buildFormInventoryHints(
+  primaryType: string,
+  documentType: "policy" | "quote",
+  pageCount: number,
+  template: DocumentTemplate,
+): string {
+  return [
+    `Document type: ${primaryType} ${documentType}`,
+    `Expected sections: ${template.expectedSections.join(", ")}`,
+    "Expected source order: jacket/front matter and notices, declarations, policy or coverage form, endorsements/amendatory forms.",
+    "Front matter/notices include policy jackets, claim-reporting notices, privacy notices, OFAC notices, terrorism/TRIA notices, sanctions notices, signatures, countersignatures, and marketing/admin pages.",
+    "Declarations include named insured, policy number, policy period, premium, coverage limits, retentions, forms-and-endorsements schedules, and similar schedule rows.",
+    "Do not classify a page as declarations merely because it appears early in the document.",
+    `Total pages: ${pageCount}`,
+  ].join("\n");
+}
+
 export function groupContiguousPages(pages: number[]): Array<{ startPage: number; endPage: number }> {
   if (pages.length === 0) return [];
   const sorted = [...new Set(pages)].sort((a, b) => a - b);

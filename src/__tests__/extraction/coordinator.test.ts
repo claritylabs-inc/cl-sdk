@@ -487,7 +487,7 @@ describe("createExtractor", () => {
     ]);
   });
 
-  it("deterministically groups Northwoods-like declarations, policy form pages, and endorsements", async () => {
+  it("keeps administrative notices out of Northwoods-like declarations and endorsements", async () => {
     safeGenerateObject
       .mockReset()
       .mockImplementation(async (_generateObject, params) => {
@@ -498,16 +498,23 @@ describe("createExtractor", () => {
                 {
                   formNumber: "NWC-TRIA-D 04 22",
                   title: "TERRORISM RISK INSURANCE ACT (TRIA) DISCLOSURE AND REJECTION",
-                  formType: "notice",
+                  formType: "declarations",
                   pageStart: 5,
                   pageEnd: 5,
+                },
+                {
+                  formNumber: "NWC-TES 09 17",
+                  title: "Trade or Economic Sanctions Limitation",
+                  formType: "endorsement",
+                  pageStart: 9,
+                  pageEnd: 9,
                 },
                 {
                   formNumber: "NWC-DEC 04 25",
                   title: "DECLARATIONS PAGE",
                   formType: "declarations",
                   pageStart: 6,
-                  pageEnd: 9,
+                  pageEnd: 8,
                 },
                 {
                   formNumber: "NWC-TEC 04 25",
@@ -628,19 +635,19 @@ describe("createExtractor", () => {
       ?.filter((node) => node.parentId === documentRoot?.id)
       .map((node) => ({ title: node.title, kind: node.kind, pageStart: node.pageStart, pageEnd: node.pageEnd }));
     expect(topLevel).toEqual([
-      { title: "Notices and Jacket", kind: "page_group", pageStart: 5, pageEnd: 5 },
-      { title: "Declarations", kind: "page_group", pageStart: 6, pageEnd: 9 },
+      { title: "Notices and Jacket", kind: "page_group", pageStart: 5, pageEnd: 9 },
+      { title: "Declarations", kind: "page_group", pageStart: 6, pageEnd: 8 },
       { title: "Policy Form", kind: "form", pageStart: 10, pageEnd: 12 },
       { title: "Endorsements", kind: "page_group", pageStart: 21, pageEnd: 26 },
     ]);
 
     const notices = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Notices and Jacket");
-    expect(notices?.description).toContain("page 5");
-    expect(result.sourceTree?.filter((node) => node.parentId === notices?.id).map((node) => node.pageStart)).toEqual([5]);
+    expect(notices?.description).toContain("pages 5, 9");
+    expect(result.sourceTree?.filter((node) => node.parentId === notices?.id).map((node) => node.pageStart)).toEqual([5, 9]);
 
     const declarations = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Declarations");
-    expect(declarations).toEqual(expect.objectContaining({ pageStart: 6, pageEnd: 9 }));
-    expect(result.sourceTree?.filter((node) => node.parentId === declarations?.id).map((node) => node.pageStart)).toEqual([6, 7, 8, 9]);
+    expect(declarations).toEqual(expect.objectContaining({ pageStart: 6, pageEnd: 8 }));
+    expect(result.sourceTree?.filter((node) => node.parentId === declarations?.id).map((node) => node.pageStart)).toEqual([6, 7, 8]);
 
     const policyForm = result.sourceTree?.find((node) => node.kind === "form" && node.title === "Policy Form");
     expect(policyForm).toEqual(expect.objectContaining({ pageStart: 10, pageEnd: 12 }));
