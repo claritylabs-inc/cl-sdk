@@ -97,8 +97,31 @@ const OperationalProfilePromptSchema = z.object({
     limit: z.string().optional(),
     deductible: z.string().optional(),
     premium: z.string().optional(),
+    retroactiveDate: z.string().optional(),
     formNumber: z.string().optional(),
     sectionRef: z.string().optional(),
+    coverageOrigin: z.enum(["core", "endorsement"]).optional(),
+    endorsementNumber: z.string().optional(),
+    limits: z.array(z.object({
+      kind: z.enum([
+        "each_claim_limit",
+        "each_occurrence_limit",
+        "each_loss_limit",
+        "aggregate_limit",
+        "sublimit",
+        "retention",
+        "deductible",
+        "retroactive_date",
+        "premium",
+        "other",
+      ]).optional(),
+      label: z.string(),
+      value: z.string(),
+      amount: z.number().optional(),
+      appliesTo: z.string().optional(),
+      sourceNodeIds: z.array(z.string()),
+      sourceSpanIds: z.array(z.string()),
+    })).optional(),
     sourceNodeIds: z.array(z.string()),
     sourceSpanIds: z.array(z.string()),
   })).optional(),
@@ -1570,13 +1593,16 @@ function buildOperationalProfilePrompt(sourceTree: DocumentSourceNode[], fallbac
 
 Return only high-value operational facts needed for policy lists, Q&A, compliance, and certificate generation:
 - policy number, named insured, insurer/carrier/security, broker/producer, policy period, retroactive date, premium
-- coverage lines with limits, deductibles, premiums, and form references
+- coverage units with their own nested limit terms, deductibles/retentions, retroactive dates, premiums, and form references
 - coverage type labels
 
 Rules:
 - Every returned value must include sourceNodeIds or sourceSpanIds from the provided nodes.
 - If a value is not directly supported, omit it.
 - Prefer declarations, schedules, premium tables, and endorsement schedules over generic policy wording.
+- Treat an endorsement as one coverage unit when it contains a schedule. Do not split an endorsement schedule into generic rows like "Aggregate Limit".
+- For coverage schedules, put each claim, aggregate, sublimit, retention, deductible, and retroactive date values in coverages[].limits with labels and source IDs. Keep the legacy coverages[].limit as the primary display value only.
+- Use coverageOrigin: "endorsement" for endorsement units and "core" for declarations/core policy coverage units.
 - Do not copy entire policy wording into fields.
 
 Deterministic baseline:
@@ -1710,11 +1736,20 @@ function materializeDocument(params: {
     limit: coverage.limit,
     deductible: coverage.deductible,
     premium: coverage.premium,
+    retroactiveDate: coverage.retroactiveDate,
     formNumber: coverage.formNumber,
     sectionRef: coverage.sectionRef,
+    coverageOrigin: coverage.coverageOrigin,
+    endorsementNumber: coverage.endorsementNumber,
+    limits: coverage.limits,
     sourceSpanIds: coverage.sourceSpanIds,
     documentNodeId: coverage.sourceNodeIds[0],
-    originalContent: [coverage.name, coverage.limit, coverage.deductible, coverage.premium].filter(Boolean).join(" | "),
+    originalContent: [
+      coverage.name,
+      ...(coverage.limits?.length
+        ? coverage.limits.map((term) => `${term.label}: ${term.value}`)
+        : [coverage.limit, coverage.deductible, coverage.premium]),
+    ].filter(Boolean).join(" | "),
   }));
   const documentOutline = sourceTreeToOutline(params.sourceTree);
   const documentMetadata = {

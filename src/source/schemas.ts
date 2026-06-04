@@ -149,14 +149,40 @@ export const SourceBackedValueSchema = z.object({
 });
 export type SourceBackedValue = z.infer<typeof SourceBackedValueSchema>;
 
+export const OperationalCoverageTermSchema = z.object({
+  kind: z.enum([
+    "each_claim_limit",
+    "each_occurrence_limit",
+    "each_loss_limit",
+    "aggregate_limit",
+    "sublimit",
+    "retention",
+    "deductible",
+    "retroactive_date",
+    "premium",
+    "other",
+  ]).default("other"),
+  label: z.string(),
+  value: z.string(),
+  amount: z.number().optional(),
+  appliesTo: z.string().optional(),
+  sourceNodeIds: z.array(z.string().min(1)).default([]),
+  sourceSpanIds: z.array(z.string().min(1)).default([]),
+});
+export type OperationalCoverageTerm = z.infer<typeof OperationalCoverageTermSchema>;
+
 export const OperationalCoverageLineSchema = z.object({
   name: z.string(),
   coverageCode: z.string().optional(),
   limit: z.string().optional(),
   deductible: z.string().optional(),
   premium: z.string().optional(),
+  retroactiveDate: z.string().optional(),
   formNumber: z.string().optional(),
   sectionRef: z.string().optional(),
+  coverageOrigin: z.enum(["core", "endorsement"]).optional(),
+  endorsementNumber: z.string().optional(),
+  limits: z.array(OperationalCoverageTermSchema).default([]),
   sourceNodeIds: z.array(z.string().min(1)).default([]),
   sourceSpanIds: z.array(z.string().min(1)).default([]),
 });
