@@ -1,3 +1,10 @@
+## [3.0.15](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.14...v3.0.15) (2026-06-04)
+
+
+### Bug Fixes
+
+* **extraction:** simplify source title hierarchy ([2077071](https://github.com/claritylabs-inc/cl-sdk/commit/2077071aa4c82f9a1a490ba324f2cc0370935374))
+
 ## [3.0.14](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.13...v3.0.14) (2026-06-04)
 
 
