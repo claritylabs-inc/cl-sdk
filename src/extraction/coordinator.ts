@@ -548,11 +548,47 @@ export function createExtractor(config: ExtractorConfig) {
     }
 
     if (sourceSpans.length > 0) {
+      const pageCount = Math.max(
+        1,
+        ...sourceSpans.map((span) => span.pageEnd ?? span.pageStart ?? span.location?.endPage ?? span.location?.page ?? 1),
+      );
+      let formInventory = options?.formInventory;
+      if (!formInventory) {
+        onProgress?.("Building form inventory from source spans...");
+        const budget = resolveBudget("extraction_form_inventory", 2048);
+        const startedAt = Date.now();
+        const templateHints = buildTemplateHints("other", "policy", pageCount, getTemplate("other"));
+        const sourceText = formatSourceSpanText(sourceSpans);
+        const prompt = `${buildFormInventoryPrompt(templateHints)}\n\nSOURCE SPAN DOCUMENT TEXT:\n${sourceText}`;
+        const response = await safeGenerateObject(
+          generateObject as GenerateObject<FormInventoryResult>,
+          {
+            prompt,
+            schema: FormInventorySchema,
+            maxTokens: budget.maxTokens,
+            taskKind: "extraction_form_inventory",
+            budgetDiagnostics: budget,
+          },
+          {
+            fallback: { forms: [] },
+            log,
+            onError: (err, attempt) =>
+              log?.(`Form inventory attempt ${attempt + 1} failed: ${err instanceof Error ? err.message : String(err)}`),
+          },
+        );
+        trackUsage(response.usage, {
+          taskKind: "extraction_form_inventory",
+          label: "form_inventory",
+          maxTokens: budget.maxTokens,
+          durationMs: Date.now() - startedAt,
+        });
+        formInventory = response.object;
+      }
       onProgress?.("Building source-native document tree...");
       const v3 = await runSourceTreeExtraction({
         id,
         sourceSpans,
-        formInventory: options?.formInventory,
+        formInventory,
         generateObject,
         providerOptions: activeProviderOptions,
         resolveBudget,

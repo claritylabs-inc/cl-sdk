@@ -288,6 +288,9 @@ describe("createExtractor", () => {
     safeGenerateObject
       .mockReset()
       .mockImplementation(async (_generateObject, params) => {
+        if (params.taskKind === "extraction_form_inventory") {
+          return { object: { forms: [] } };
+        }
         if (params.taskKind === "extraction_source_tree") {
           return { object: { labels: [], groups: [] } };
         }
@@ -349,6 +352,9 @@ describe("createExtractor", () => {
     safeGenerateObject
       .mockReset()
       .mockImplementation(async (_generateObject, params) => {
+        if (params.taskKind === "extraction_form_inventory") {
+          return { object: { forms: [] } };
+        }
         if (params.taskKind === "extraction_source_tree") {
           return { object: { labels: [], groups: [] } };
         }
@@ -390,6 +396,9 @@ describe("createExtractor", () => {
     safeGenerateObject
       .mockReset()
       .mockImplementation(async (_generateObject, params) => {
+        if (params.taskKind === "extraction_form_inventory") {
+          return { object: { forms: [] } };
+        }
         if (params.taskKind === "extraction_source_tree") {
           const topLevelNodeIds = JSON.parse(
             (params.prompt as string).match(/Top-level page\/form candidates in this batch: (.+)/)?.[1] ?? "[]",
@@ -481,11 +490,63 @@ describe("createExtractor", () => {
   it("deterministically groups Northwoods-like declarations, policy form pages, and endorsements", async () => {
     safeGenerateObject
       .mockReset()
-      .mockResolvedValueOnce({
-        object: { labels: [], groups: [] },
-      })
-      .mockResolvedValueOnce({
+      .mockImplementation(async (_generateObject, params) => {
+        if (params.taskKind === "extraction_form_inventory") {
+          return {
+            object: {
+              forms: [
+                {
+                  formNumber: "NWC-TRIA-D 04 22",
+                  title: "TERRORISM RISK INSURANCE ACT (TRIA) DISCLOSURE AND REJECTION",
+                  formType: "notice",
+                  pageStart: 5,
+                  pageEnd: 5,
+                },
+                {
+                  formNumber: "NWC-DEC 04 25",
+                  title: "DECLARATIONS PAGE",
+                  formType: "declarations",
+                  pageStart: 6,
+                  pageEnd: 9,
+                },
+                {
+                  formNumber: "NWC-TEC 04 25",
+                  title: "TECHNOLOGY ERRORS & OMISSIONS AND CYBER LIABILITY INSURANCE POLICY",
+                  formType: "coverage",
+                  pageStart: 10,
+                  pageEnd: 12,
+                },
+                {
+                  formNumber: "NWC-END 001 04 25",
+                  title: "ENDORSEMENT NO. 1",
+                  formType: "endorsement",
+                  pageStart: 21,
+                  pageEnd: 22,
+                },
+                {
+                  formNumber: "NWC-END 002 04 25",
+                  title: "ENDORSEMENT NO. 2",
+                  formType: "endorsement",
+                  pageStart: 23,
+                  pageEnd: 24,
+                },
+                {
+                  formNumber: "NWC-END 004 04 25",
+                  title: "ENDORSEMENT NO. 4",
+                  formType: "endorsement",
+                  pageStart: 26,
+                  pageEnd: 26,
+                },
+              ],
+            },
+          };
+        }
+        if (params.taskKind === "extraction_source_tree") {
+          return { object: { labels: [], groups: [] } };
+        }
+        return {
         object: { documentType: "policy", policyTypes: ["cyber"], coverageTypes: ["cyber"] },
+        };
       });
     const sourceSpans = buildPageSourceSpans([
       {
@@ -567,19 +628,19 @@ describe("createExtractor", () => {
       ?.filter((node) => node.parentId === documentRoot?.id)
       .map((node) => ({ title: node.title, kind: node.kind, pageStart: node.pageStart, pageEnd: node.pageEnd }));
     expect(topLevel).toEqual([
-      { title: "Notices and Jacket", kind: "page_group", pageStart: 5, pageEnd: 9 },
-      { title: "Declarations", kind: "page_group", pageStart: 6, pageEnd: 8 },
+      { title: "Notices and Jacket", kind: "page_group", pageStart: 5, pageEnd: 5 },
+      { title: "Declarations", kind: "page_group", pageStart: 6, pageEnd: 9 },
       { title: "Policy Form", kind: "form", pageStart: 10, pageEnd: 12 },
       { title: "Endorsements", kind: "page_group", pageStart: 21, pageEnd: 26 },
     ]);
 
     const notices = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Notices and Jacket");
-    expect(notices?.description).toContain("pages 5, 9");
-    expect(result.sourceTree?.filter((node) => node.parentId === notices?.id).map((node) => node.pageStart)).toEqual([5, 9]);
+    expect(notices?.description).toContain("page 5");
+    expect(result.sourceTree?.filter((node) => node.parentId === notices?.id).map((node) => node.pageStart)).toEqual([5]);
 
     const declarations = result.sourceTree?.find((node) => node.kind === "page_group" && node.title === "Declarations");
-    expect(declarations).toEqual(expect.objectContaining({ pageStart: 6, pageEnd: 8 }));
-    expect(result.sourceTree?.filter((node) => node.parentId === declarations?.id).map((node) => node.pageStart)).toEqual([6, 7, 8]);
+    expect(declarations).toEqual(expect.objectContaining({ pageStart: 6, pageEnd: 9 }));
+    expect(result.sourceTree?.filter((node) => node.parentId === declarations?.id).map((node) => node.pageStart)).toEqual([6, 7, 8, 9]);
 
     const policyForm = result.sourceTree?.find((node) => node.kind === "form" && node.title === "Policy Form");
     expect(policyForm).toEqual(expect.objectContaining({ pageStart: 10, pageEnd: 12 }));
@@ -604,8 +665,14 @@ describe("createExtractor", () => {
   it("keeps front matter separate and includes page ranges on standard policy groups", async () => {
     safeGenerateObject
       .mockReset()
-      .mockResolvedValue({
-        object: { documentType: "policy", policyTypes: ["cyber"], coverageTypes: ["cyber"] },
+      .mockImplementation(async (_generateObject, params) => {
+        if (params.taskKind === "extraction_form_inventory") {
+          return { object: { forms: [] } };
+        }
+        if (params.taskKind === "extraction_source_tree") {
+          return { object: { labels: [], groups: [] } };
+        }
+        return { object: { documentType: "policy", policyTypes: ["cyber"], coverageTypes: ["cyber"] } };
       });
     const sourceSpans = buildPageSourceSpans([
       {
@@ -688,18 +755,16 @@ describe("createExtractor", () => {
   it("uses source spans for source-tree section indexes without section LLM calls", async () => {
     safeGenerateObject
       .mockReset()
-      .mockResolvedValueOnce({
-        object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
-      })
-      .mockResolvedValueOnce({
-        object: { forms: [] },
-      })
-      .mockResolvedValueOnce({
-        object: {
-          pages: [
-            { localPageNumber: 2, extractorNames: ["sections"] },
-          ],
-        },
+      .mockImplementation(async (_generateObject, params) => {
+        if (params.taskKind === "extraction_form_inventory") {
+          return { object: { forms: [] } };
+        }
+        if (params.taskKind === "extraction_source_tree") {
+          return { object: { labels: [], groups: [] } };
+        }
+        return {
+          object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
+        };
       });
     const sourceSpans = [
       buildSourceSpan({
@@ -733,7 +798,7 @@ describe("createExtractor", () => {
     expect(safeGenerateObject.mock.calls.filter(([, params]) => params.taskKind === "extraction_source_tree")).toHaveLength(2);
     expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_source_tree")).toBe(true);
     expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_operational_profile")).toBe(true);
-    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_form_inventory")).toBe(false);
+    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_form_inventory")).toBe(true);
     expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_page_map")).toBe(false);
     expect(runExtractor.mock.calls.some(([arg]) => arg.name === "sections")).toBe(false);
     expect(result.sourceTree).toEqual(expect.arrayContaining([
@@ -761,22 +826,21 @@ describe("createExtractor", () => {
   it("accepts Docling documents without PDF slicing and derives source spans", async () => {
     safeGenerateObject
       .mockReset()
-      .mockResolvedValueOnce({
-        object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
-      })
-      .mockResolvedValueOnce({
-        object: { forms: [] },
-      })
-      .mockResolvedValueOnce({
-        object: {
-          pages: [
-            { localPageNumber: 1, extractorNames: ["declarations", "coverage_limits"] },
-            { localPageNumber: 2, extractorNames: ["sections"] },
-          ],
-        },
-      })
-      .mockResolvedValue({
-        object: { complete: true, missingFields: [], qualityIssues: [], additionalTasks: [] },
+      .mockImplementation(async (_generateObject, params) => {
+        if (params.taskKind === "extraction_form_inventory") {
+          return { object: { forms: [] } };
+        }
+        if (params.taskKind === "extraction_source_tree") {
+          return {
+            object: {
+              labels: [],
+              groups: [],
+            },
+          };
+        }
+        return {
+          object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
+        };
       });
 
     runExtractor.mockResolvedValue({
