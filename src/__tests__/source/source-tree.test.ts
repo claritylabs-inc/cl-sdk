@@ -438,6 +438,66 @@ describe("source tree v3", () => {
     ]));
   });
 
+  it("keeps model-generated coverage rows with nullable optional fields", () => {
+    const row = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: "Basic insurance coverage | Insurance amount: $X,XXX,XXX | Premium payment period: Payable to age 100",
+      pageStart: 4,
+      pageEnd: 4,
+      sourceUnit: "table_row",
+      table: { tableId: "benefits", rowIndex: 1 },
+    });
+    const sourceTree = buildDocumentSourceTree([row], "policy-1");
+    const base = buildDeterministicOperationalProfile({ sourceTree, sourceSpans: [row] });
+    const rowNode = sourceTree.find((node) => node.kind === "table_row");
+
+    const merged = mergeOperationalProfile(
+      { ...base, coverages: [] },
+      {
+        coverages: [{
+          name: "Sun Permanent Life - Basic insurance coverage",
+          coverageCode: null,
+          limit: "$X,XXX,XXX",
+          deductible: null,
+          premium: null,
+          retroactiveDate: null,
+          formNumber: null,
+          coverageOrigin: "core",
+          endorsementNumber: null,
+          limits: [{
+            kind: null,
+            label: "Insurance amount",
+            value: "$X,XXX,XXX",
+            amount: null,
+            appliesTo: null,
+            sourceNodeIds: [rowNode?.id],
+            sourceSpanIds: [row.id],
+          }],
+          sourceNodeIds: [rowNode?.id],
+          sourceSpanIds: [row.id],
+        }],
+      } as unknown as Parameters<typeof mergeOperationalProfile>[1],
+      new Set(sourceTree.map((node) => node.id)),
+      new Set([row.id]),
+    );
+
+    expect(merged.coverages).toHaveLength(1);
+    expect(merged.coverages[0]).toEqual(expect.objectContaining({
+      name: "Sun Permanent Life - Basic insurance coverage",
+      limit: "$X,XXX,XXX",
+      coverageOrigin: "core",
+    }));
+    expect(merged.coverages[0].deductible).toBeUndefined();
+    expect(merged.coverages[0].limits).toEqual([
+      expect.objectContaining({
+        kind: "other",
+        label: "Insurance amount",
+        value: "$X,XXX,XXX",
+      }),
+    ]);
+  });
+
   it("does not treat form inventory, premium, or ERP option rows as coverage lines", () => {
     const rows = [
       "Column 1: NWC-END 001 04 25 | Column 2: Endt. No. 1 — Network Security and Privacy Liability Coverage",

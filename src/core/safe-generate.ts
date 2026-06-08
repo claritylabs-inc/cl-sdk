@@ -1,5 +1,6 @@
 import type { GenerateObject, TokenUsage, LogFn } from "./types";
 import type { ModelBudgetResolution, ModelTaskKind } from "./model-budget";
+import { sanitizeNulls } from "./sanitize";
 import { withRetry } from "./retry";
 import { toStrictSchema } from "./strict-schema";
 
@@ -50,7 +51,10 @@ export async function safeGenerateObject<T>(
         () => generateObject(strictParams),
         options?.log,
       );
-      return result;
+      return {
+        ...result,
+        object: params.schema.parse(sanitizeNulls(result.object)),
+      };
     } catch (error) {
       lastError = error;
       options?.onError?.(error, attempt);

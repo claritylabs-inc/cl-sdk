@@ -691,6 +691,9 @@ export function mergeOperationalProfile(
     ? candidate.coverages
         .map((coverage) => {
           const record = coverage as Record<string, unknown>;
+          const name = typeof record.name === "string" ? cleanValue(record.name) : undefined;
+          const sourceNodeIds = keepIds(record.sourceNodeIds, validNodeIds);
+          const sourceSpanIds = keepIds(record.sourceSpanIds, validSpanIds);
           const limits: OperationalCoverageTerm[] = Array.isArray(record.limits)
             ? record.limits
                 .filter((term): term is Record<string, unknown> =>
@@ -714,10 +717,21 @@ export function mergeOperationalProfile(
                 })
             : [];
           return {
-            ...coverage,
+            name,
+            coverageCode: typeof record.coverageCode === "string" ? cleanValue(record.coverageCode) : undefined,
+            limit: typeof record.limit === "string" ? cleanValue(record.limit) : undefined,
+            deductible: typeof record.deductible === "string" ? cleanValue(record.deductible) : undefined,
+            premium: typeof record.premium === "string" ? cleanValue(record.premium) : undefined,
+            retroactiveDate: typeof record.retroactiveDate === "string" ? cleanValue(record.retroactiveDate) : undefined,
+            formNumber: typeof record.formNumber === "string" ? cleanValue(record.formNumber) : undefined,
+            sectionRef: typeof record.sectionRef === "string" ? cleanValue(record.sectionRef) : undefined,
+            coverageOrigin: record.coverageOrigin === "core" || record.coverageOrigin === "endorsement"
+              ? record.coverageOrigin
+              : undefined,
+            endorsementNumber: typeof record.endorsementNumber === "string" ? cleanValue(record.endorsementNumber) : undefined,
             limits,
-            sourceNodeIds: keepIds(record.sourceNodeIds, validNodeIds),
-            sourceSpanIds: keepIds(record.sourceSpanIds, validSpanIds),
+            sourceNodeIds,
+            sourceSpanIds,
           };
         })
         .filter((coverage) => coverage.name && (coverage.sourceNodeIds.length > 0 || coverage.sourceSpanIds.length > 0))
