@@ -136,6 +136,40 @@ describe("source tree v3", () => {
     expect(profile.policyNumber?.value).toBe("LI-1234,567-9");
   });
 
+  it("ignores jacket prose when building deterministic identity facts", () => {
+    const spans = [
+      buildSourceSpan({
+        documentId: "term-policy",
+        sourceKind: "policy_pdf",
+        text: "Sun Critical Illness Insurance - Term 75 Page 1 (insured person: age nearest 18 to 65)",
+        pageStart: 1,
+        pageEnd: 1,
+        sourceUnit: "text",
+      }, 0),
+      buildSourceSpan({
+        documentId: "term-policy",
+        sourceKind: "policy_pdf",
+        text: "Policy summary Plan: Sun Critical Illness Insurance - Term 75 Policy number: LI-1234,567-9 Insured person: John Doe born on March 1, 1975",
+        pageStart: 4,
+        pageEnd: 4,
+        sourceUnit: "text",
+      }, 1),
+      buildSourceSpan({
+        documentId: "term-policy",
+        sourceKind: "policy_pdf",
+        text: "Your policy is issued and underwritten by Sun Life Assurance Company of Canada.",
+        pageStart: 4,
+        pageEnd: 4,
+        sourceUnit: "text",
+      }, 2),
+    ];
+    const tree = buildDocumentSourceTree(spans, "term-policy");
+    const profile = buildDeterministicOperationalProfile({ sourceTree: tree, sourceSpans: spans });
+
+    expect(profile.namedInsured?.value).toBe("John Doe");
+    expect(profile.insurer?.value).toBe("Sun Life Assurance Company of Canada");
+  });
+
   it("infers critical illness, disability, and long term care policy types", () => {
     const row = buildSourceSpan({
       documentId: "term-policy",

@@ -99,6 +99,70 @@ function policyNumberFromNodes(nodes: DocumentSourceNode[]): SourceBackedValue |
   return candidate ? valueFromNode(candidate.node, candidate.value, "high") : undefined;
 }
 
+function compactFactNodes(nodes: DocumentSourceNode[]): DocumentSourceNode[] {
+  return nodes.filter((node) => {
+    if (node.kind === "document" || node.kind === "page_group" || node.kind === "form") return false;
+    const text = nodeText(node);
+    if (text.length > 900) return false;
+    if (/\b(table of contents|provided solely for your convenience|not to be construed|actual policy issued)\b/i.test(text)) return false;
+    return node.kind === "text" || node.kind === "table_row" || node.kind === "table_cell" || node.kind === "page";
+  });
+}
+
+function firstCleanMatch(
+  nodes: DocumentSourceNode[],
+  patterns: RegExp[],
+  clean: (value: string) => string | undefined,
+): SourceBackedValue | undefined {
+  for (const node of compactFactNodes(nodes)) {
+    const text = nodeText(node);
+    for (const pattern of patterns) {
+      const raw = cleanValue(text.match(pattern)?.[1]);
+      if (!raw) continue;
+      const value = clean(raw);
+      if (value) return valueFromNode(node, value, "high");
+    }
+  }
+  return undefined;
+}
+
+function cleanNamedInsured(value: string): string | undefined {
+  const clean = cleanValue(value
+    .replace(/\bborn\s+on\b.*$/i, "")
+    .replace(/\bage\s+nearest\b.*$/i, "")
+    .replace(/\bbeneficiary\b.*$/i, ""));
+  if (!clean || clean.length > 160) return undefined;
+  if (/^(person|persons)\b/i.test(clean)) return undefined;
+  if (/\b(table of contents|policy wording|provided solely|convenience|not to be construed|actual policy issued)\b/i.test(clean)) {
+    return undefined;
+  }
+  return clean;
+}
+
+function namedInsuredFromNodes(nodes: DocumentSourceNode[]): SourceBackedValue | undefined {
+  return firstCleanMatch(nodes, [
+    /\b(?:named insured|insured name|insured persons?|insured person)\s*:?\s*(.+?)(?=\s+(?:insurance amount|benefit amount|policy number|policy date|owner|beneficiary|premium|coverage|risk classification|date this)\b|[|;\n]|$)/i,
+    /\b(?:applicant|policyholder)\s*:?\s*(.+?)(?=\s+(?:coverage|policy number|insurer|carrier|premium|effective|expiration)\b|[|;\n]|$)/i,
+  ], cleanNamedInsured);
+}
+
+function cleanInsurer(value: string): string | undefined {
+  const clean = cleanValue(value);
+  if (!clean || clean.length > 140) return undefined;
+  if (/^(mean|means|we|us|our)\b/i.test(clean)) return undefined;
+  if (/\b(table of contents|policy wording|provided solely|convenience)\b/i.test(clean)) return undefined;
+  const known = clean.match(/\b(Sun Life Assurance Company of Canada|Manulife|The Manufacturers Life Insurance Company)\b/i)?.[1];
+  return known ?? clean;
+}
+
+function insurerFromNodes(nodes: DocumentSourceNode[]): SourceBackedValue | undefined {
+  return firstCleanMatch(nodes, [
+    /\bunderwritten by\s+([^|;\n.]{3,160})/i,
+    /\b(?:insurer|carrier|company|security)\s*:?\s*([^|;\n]{3,120})/i,
+    /\b(Sun Life Assurance Company of Canada|Manulife|The Manufacturers Life Insurance Company)\b/i,
+  ], cleanInsurer);
+}
+
 function inferPolicyTypes(nodes: DocumentSourceNode[]): string[] {
   const text = nodes.slice(0, 40).map(nodeText).join(" ").toLowerCase();
   const types: string[] = [];
@@ -637,16 +701,8 @@ export function buildDeterministicOperationalProfile(params: {
     documentType: inferDocumentType(nodes),
     policyTypes: inferPolicyTypes(nodes),
     policyNumber: policyNumberFromNodes(nodes),
-    namedInsured: firstMatch(nodes, [
-      /\b(?:named insured|insured name|insured)\s*:?\s*(.+?)(?=\s+(?:coverage|policy number|insurer|carrier|premium|effective|expiration)\b|[|;\n]|$)/i,
-      /\b(?:applicant|policyholder)\s*:?\s*(.+?)(?=\s+(?:coverage|policy number|insurer|carrier|premium|effective|expiration)\b|[|;\n]|$)/i,
-    ]),
-    insurer: firstMatch(nodes, [
-      /\b(?:insurer|carrier|company|security)\s*:?\s*([^|;\n]{3,120})/i,
-      /\bunderwritten by\s+([^|;\n]{3,120})/i,
-    ]) ?? firstMatch(nodes, [
-      /\b(Manulife)\b/i,
-    ]),
+    namedInsured: namedInsuredFromNodes(nodes),
+    insurer: insurerFromNodes(nodes),
     broker: firstMatch(nodes, [
       /\b(?:broker|producer|agent)\s*:?\s*([^|;\n]{3,120})/i,
     ]),
