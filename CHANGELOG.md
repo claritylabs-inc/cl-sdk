@@ -1,3 +1,10 @@
+## [3.0.32](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.31...v3.0.32) (2026-06-09)
+
+
+### Bug Fixes
+
+* **extraction:** reject label-only identity hints ([d15d2a1](https://github.com/claritylabs-inc/cl-sdk/commit/d15d2a128334a41820f3bd9ba4784347acdae9ac))
+
 ## [3.0.31](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.30...v3.0.31) (2026-06-09)
 
 
