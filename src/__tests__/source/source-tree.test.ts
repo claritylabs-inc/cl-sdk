@@ -84,6 +84,53 @@ describe("source tree v3", () => {
     }));
   });
 
+  it("preserves comma-delimited life policy numbers and infers personal policy types", () => {
+    const spans = [
+      buildSourceSpan({
+        documentId: "life-policy",
+        sourceKind: "policy_pdf",
+        text: "Sun Permanent Life Policy number: LI-1234,567-8 Owner: Jim Doe",
+        pageStart: 1,
+        pageEnd: 1,
+        sourceUnit: "text",
+      }, 0),
+      buildSourceSpan({
+        documentId: "life-policy",
+        sourceKind: "policy_pdf",
+        text: "Sun Permanent Life Basic insurance coverage Insurance amount: $X,XXX,XXX",
+        pageStart: 4,
+        pageEnd: 4,
+        sourceUnit: "table_row",
+        table: { tableId: "policy-summary", rowIndex: 1 },
+      }, 1),
+    ];
+    const tree = buildDocumentSourceTree(spans, "life-policy");
+    const profile = buildDeterministicOperationalProfile({ sourceTree: tree, sourceSpans: spans });
+
+    expect(profile.policyNumber?.value).toBe("LI-1234,567-8");
+    expect(profile.policyTypes).toContain("life");
+  });
+
+  it("infers critical illness, disability, and long term care policy types", () => {
+    const row = buildSourceSpan({
+      documentId: "term-policy",
+      sourceKind: "policy_pdf",
+      text: "Critical illness insurance benefit | Total disability waiver | Long term care conversion option",
+      pageStart: 5,
+      pageEnd: 5,
+      sourceUnit: "table_row",
+      table: { tableId: "benefits", rowIndex: 1 },
+    });
+    const tree = buildDocumentSourceTree([row], "term-policy");
+    const profile = buildDeterministicOperationalProfile({ sourceTree: tree, sourceSpans: [row] });
+
+    expect(profile.policyTypes).toEqual(expect.arrayContaining([
+      "critical_illness",
+      "disability",
+      "long_term_care",
+    ]));
+  });
+
   it("keeps multi-limit endorsement schedules as one coverage unit", () => {
     const documentId = "policy-1";
     const sourceTree = normalizeDocumentSourceTreePaths([

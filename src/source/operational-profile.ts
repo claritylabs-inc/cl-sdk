@@ -66,6 +66,10 @@ function inferPolicyTypes(nodes: DocumentSourceNode[]): string[] {
   const add = (pattern: RegExp, type: string) => {
     if (pattern.test(text) && !types.includes(type)) types.push(type);
   };
+  add(/\b(life insurance|permanent life|term life|whole life|universal life|sun permanent life|sun par protector|manulife par|vitality\s*plus|death benefit)\b/i, "life");
+  add(/\b(critical illness|critical illness insurance|covered critical illness|partial benefit payout)\b/i, "critical_illness");
+  add(/\b(disability benefit|total disability|catastrophic disability|disability waiver|waiver of premium disability)\b/i, "disability");
+  add(/\b(long[-\s]?term care|long term care conversion)\b/i, "long_term_care");
   add(/\b(cyber|network security|privacy liability|data breach)\b/i, "cyber");
   add(/\b(professional liability|errors?\s*&?\s*omissions|e&o)\b/i, "professional_liability");
   add(/\b(commercial general liability|general liability|cgl)\b/i, "general_liability");
@@ -594,8 +598,8 @@ export function buildDeterministicOperationalProfile(params: {
     documentType: inferDocumentType(nodes),
     policyTypes: inferPolicyTypes(nodes),
     policyNumber: firstMatch(nodes, [
-      /\bpolicy\s*(?:number|no\.?|#)\s*:?\s*([A-Z0-9][A-Z0-9-]{4,})/i,
-      /\bpolicy\s*[:#]\s*([A-Z0-9][A-Z0-9-]{4,})/i,
+      /\bpolicy\s*(?:number|no\.?|#)\s*:?\s*([A-Z0-9][A-Z0-9,.-]{4,}[A-Z0-9])/i,
+      /\bpolicy\s*[:#]\s*([A-Z0-9][A-Z0-9,.-]{4,}[A-Z0-9])/i,
     ]),
     namedInsured: firstMatch(nodes, [
       /\b(?:named insured|insured name|insured)\s*:?\s*(.+?)(?=\s+(?:coverage|policy number|insurer|carrier|premium|effective|expiration)\b|[|;\n]|$)/i,
@@ -604,6 +608,8 @@ export function buildDeterministicOperationalProfile(params: {
     insurer: firstMatch(nodes, [
       /\b(?:insurer|carrier|company|security)\s*:?\s*([^|;\n]{3,120})/i,
       /\bunderwritten by\s+([^|;\n]{3,120})/i,
+    ]) ?? firstMatch(nodes, [
+      /\b(Manulife)\b/i,
     ]),
     broker: firstMatch(nodes, [
       /\b(?:broker|producer|agent)\s*:?\s*([^|;\n]{3,120})/i,
