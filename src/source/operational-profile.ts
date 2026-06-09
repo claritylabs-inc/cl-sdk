@@ -60,6 +60,45 @@ function firstMatch(nodes: DocumentSourceNode[], patterns: RegExp[]): SourceBack
   return undefined;
 }
 
+const POLICY_NUMBER_PATTERNS = [
+  /\bpolicy\s*(?:number|no\.?|#)\s*:?\s*([A-Z0-9][A-Z0-9,.-]{4,}[A-Z0-9])/i,
+  /\bpolicy\s*[:#]\s*([A-Z0-9][A-Z0-9,.-]{4,}[A-Z0-9])/i,
+];
+
+function policyNumberEvidenceScore(node: DocumentSourceNode): number {
+  const text = normalizeWhitespace([node.path, nodeText(node)].filter(Boolean).join(" ")).toLowerCase();
+  let score = 0;
+  if (/\b(policy\s+summary|declarations?|declaration\s+page|schedule)\b/.test(text)) score += 80;
+  if (/\b(plan|policy\s+date|insured\s+person|named\s+insured|insurance\s+amount|benefit\s+amount)\b/.test(text)) score += 35;
+  if (node.kind === "table_row" || node.kind === "table_cell" || node.kind === "text") score += 20;
+  if (node.kind === "page") score += 10;
+  if (typeof node.pageStart === "number" && node.pageStart > 1 && node.pageStart <= 10) score += 20;
+  if (typeof node.pageStart === "number" && node.pageStart === 1) score -= 30;
+  if (/\b(notices?\s+and\s+jacket|policy\s+jacket|front\s+matter|table\s+of\s+contents)\b/.test(text)) score -= 70;
+  if (node.kind === "page_group" || node.kind === "form") score -= 30;
+  return score;
+}
+
+function policyNumberFromNodes(nodes: DocumentSourceNode[]): SourceBackedValue | undefined {
+  const candidates = nodes
+    .slice(0, 120)
+    .flatMap((node) => {
+      const text = nodeText(node);
+      for (const pattern of POLICY_NUMBER_PATTERNS) {
+        const value = cleanValue(text.match(pattern)?.[1]);
+        if (value) return [{ node, value, score: policyNumberEvidenceScore(node) }];
+      }
+      return [];
+    })
+    .sort((left, right) =>
+      right.score - left.score ||
+      (left.node.pageStart ?? Number.MAX_SAFE_INTEGER) - (right.node.pageStart ?? Number.MAX_SAFE_INTEGER) ||
+      left.node.order - right.node.order,
+    );
+  const candidate = candidates[0];
+  return candidate ? valueFromNode(candidate.node, candidate.value, "high") : undefined;
+}
+
 function inferPolicyTypes(nodes: DocumentSourceNode[]): string[] {
   const text = nodes.slice(0, 40).map(nodeText).join(" ").toLowerCase();
   const types: string[] = [];
@@ -597,10 +636,7 @@ export function buildDeterministicOperationalProfile(params: {
   const partial: Partial<PolicyOperationalProfile> = {
     documentType: inferDocumentType(nodes),
     policyTypes: inferPolicyTypes(nodes),
-    policyNumber: firstMatch(nodes, [
-      /\bpolicy\s*(?:number|no\.?|#)\s*:?\s*([A-Z0-9][A-Z0-9,.-]{4,}[A-Z0-9])/i,
-      /\bpolicy\s*[:#]\s*([A-Z0-9][A-Z0-9,.-]{4,}[A-Z0-9])/i,
-    ]),
+    policyNumber: policyNumberFromNodes(nodes),
     namedInsured: firstMatch(nodes, [
       /\b(?:named insured|insured name|insured)\s*:?\s*(.+?)(?=\s+(?:coverage|policy number|insurer|carrier|premium|effective|expiration)\b|[|;\n]|$)/i,
       /\b(?:applicant|policyholder)\s*:?\s*(.+?)(?=\s+(?:coverage|policy number|insurer|carrier|premium|effective|expiration)\b|[|;\n]|$)/i,

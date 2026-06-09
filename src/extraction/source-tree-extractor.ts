@@ -1600,6 +1600,7 @@ Rules:
 - Every returned value must include sourceNodeIds or sourceSpanIds from the provided nodes.
 - If a value is not directly supported, omit it.
 - Prefer declarations, schedules, premium tables, and endorsement schedules over generic policy wording.
+- For life, critical illness, disability, and long-term care policies, keep named benefit units and benefit subconditions as operational facts even when they do not have dollar limits. Examples include death benefit, disability benefit, total disability, catastrophic disability, return of premium, waiver, and conversion options. Put subcondition details in coverages[].limits with kind "other" when they belong under a broader benefit.
 - Treat an endorsement as one coverage unit when it contains a schedule. Do not split an endorsement schedule into generic rows like "Aggregate Limit".
 - For coverage schedules, put each claim, aggregate, sublimit, retention, deductible, and retroactive date values in coverages[].limits with labels and source IDs. Keep the legacy coverages[].limit as the primary display value only.
 - Use coverageOrigin: "endorsement" for endorsement units and "core" for declarations/core policy coverage units.

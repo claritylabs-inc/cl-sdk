@@ -111,6 +111,31 @@ describe("source tree v3", () => {
     expect(profile.policyTypes).toContain("life");
   });
 
+  it("prefers policy summary policy numbers over jacket cover numbers", () => {
+    const spans = [
+      buildSourceSpan({
+        documentId: "term-policy",
+        sourceKind: "policy_pdf",
+        text: "Policy number: LI-1234,567-8",
+        pageStart: 1,
+        pageEnd: 1,
+        sourceUnit: "text",
+      }, 0),
+      buildSourceSpan({
+        documentId: "term-policy",
+        sourceKind: "policy_pdf",
+        text: "Policy summary Plan: Sun Critical Illness Insurance - Term 75 Policy number: LI-1234,567-9 Policy date: October 2, 2017 Insured person: John Doe",
+        pageStart: 4,
+        pageEnd: 4,
+        sourceUnit: "text",
+      }, 1),
+    ];
+    const tree = buildDocumentSourceTree(spans, "term-policy");
+    const profile = buildDeterministicOperationalProfile({ sourceTree: tree, sourceSpans: spans });
+
+    expect(profile.policyNumber?.value).toBe("LI-1234,567-9");
+  });
+
   it("infers critical illness, disability, and long term care policy types", () => {
     const row = buildSourceSpan({
       documentId: "term-policy",
