@@ -1,3 +1,10 @@
+## [3.0.29](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.28...v3.0.29) (2026-06-09)
+
+
+### Bug Fixes
+
+* **extraction:** infer personal policy profiles ([56a5495](https://github.com/claritylabs-inc/cl-sdk/commit/56a5495747c335d7b8400b2518b66a95e67d29c9))
+
 ## [3.0.28](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.27...v3.0.28) (2026-06-09)
 
 
