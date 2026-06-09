@@ -1,3 +1,10 @@
+## [3.0.28](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.27...v3.0.28) (2026-06-09)
+
+
+### Bug Fixes
+
+* **extraction:** preserve nullable operational coverage rows ([61154c6](https://github.com/claritylabs-inc/cl-sdk/commit/61154c6ea2801111596ac208d52219e09edf665e))
+
 ## [3.0.27](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.26...v3.0.27) (2026-06-04)
 
 
