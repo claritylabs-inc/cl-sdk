@@ -1,3 +1,10 @@
+## [3.0.31](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.30...v3.0.31) (2026-06-09)
+
+
+### Bug Fixes
+
+* **extraction:** keep deterministic identity facts clean ([194f3fb](https://github.com/claritylabs-inc/cl-sdk/commit/194f3fb2686d5ea6619c0d4162f238680f80ce3f))
+
 ## [3.0.30](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.29...v3.0.30) (2026-06-09)
 
 
