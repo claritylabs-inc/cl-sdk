@@ -31,6 +31,16 @@ function moneyValue(value: string | undefined): string | undefined {
   return clean;
 }
 
+function premiumValue(value: string | undefined): string | undefined {
+  const clean = cleanValue(value);
+  if (!clean) return undefined;
+  if (/\$[A-Z0-9]/i.test(clean)) return clean;
+  if (/\b(?:CAD|USD)\b/i.test(clean) && /(?:\d|X{2,})/i.test(clean)) return clean;
+  if (/^\d{1,3}(?:,\d{3})+\.\d{2}$/.test(clean) || /^\d+\.\d{2}$/.test(clean)) return `$${clean}`;
+  if (/^X{2,}(?:,X{3})*(?:\.X{2})$/i.test(clean)) return clean;
+  return undefined;
+}
+
 function nodeText(node: DocumentSourceNode): string {
   return normalizeWhitespace([
     node.title,
@@ -132,7 +142,11 @@ function cleanNamedInsured(value: string): string | undefined {
     .replace(/\bage\s+nearest\b.*$/i, "")
     .replace(/\bbeneficiary\b.*$/i, ""));
   if (!clean || clean.length > 160) return undefined;
+  if (!/[A-Za-z0-9]/.test(clean)) return undefined;
   if (/^(person|persons)\b/i.test(clean)) return undefined;
+  if (/^(insurance amount|benefit amount|policy number|policy date|owner|beneficiary|premium|coverage|risk classification)\b/i.test(clean)) {
+    return undefined;
+  }
   if (/\b(table of contents|policy wording|provided solely|convenience|not to be construed|actual policy issued)\b/i.test(clean)) {
     return undefined;
   }
@@ -141,7 +155,8 @@ function cleanNamedInsured(value: string): string | undefined {
 
 function namedInsuredFromNodes(nodes: DocumentSourceNode[]): SourceBackedValue | undefined {
   return firstCleanMatch(nodes, [
-    /\b(?:named insured|insured name|insured persons?|insured person)\s*:?\s*(.+?)(?=\s+(?:insurance amount|benefit amount|policy number|policy date|owner|beneficiary|premium|coverage|risk classification|date this)\b|[|;\n]|$)/i,
+    /\b(?:named insured|insured name)\s*:?\s*(.+?)(?=\s+(?:insurance amount|benefit amount|policy number|policy date|owner|beneficiary|premium|coverage|risk classification|date this)\b|[|;\n]|$)/i,
+    /\b(?:insured persons?|insured person)\s*:\s*(.+?)(?=\s+(?:insurance amount|benefit amount|policy number|policy date|owner|beneficiary|premium|coverage|risk classification|date this)\b|[|;\n]|$)/i,
     /\b(?:applicant|policyholder)\s*:?\s*(.+?)(?=\s+(?:coverage|policy number|insurer|carrier|premium|effective|expiration)\b|[|;\n]|$)/i,
   ], cleanNamedInsured);
 }
@@ -218,7 +233,15 @@ function deductibleFromText(text: string): string | undefined {
 }
 
 function premiumFromText(text: string): string | undefined {
-  return moneyValue(text.match(/\b(?:premium|total premium|total cost|amount due)\s*:?\s*(\$?\d[\d,]*(?:\.\d{2})?)/i)?.[1]);
+  return premiumValue(text.match(/\b(?:premium|total premium|total cost|amount due)\b(?:\s*(?:is|:|-))?\s*(\$?(?:\d[\d,]*(?:\.\d{2})?|X{2,}(?:,X{3})*(?:\.X{2})?))/i)?.[1]);
+}
+
+function premiumFromNodes(nodes: DocumentSourceNode[]): SourceBackedValue | undefined {
+  for (const node of compactFactNodes(nodes)) {
+    const value = premiumFromText(nodeText(node));
+    if (value) return valueFromNode(node, value, "high");
+  }
+  return undefined;
 }
 
 function moneyAmount(value: string | undefined): number | undefined {
@@ -717,9 +740,7 @@ export function buildDeterministicOperationalProfile(params: {
     retroactiveDate: firstMatch(nodes, [
       /\bretroactive date\s*:?\s*([0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2,4}|full prior acts|none)/i,
     ]),
-    premium: firstMatch(nodes, [
-      /\b(?:total premium|premium|total cost|amount due)\s*:?\s*(\$?\d[\d,]*(?:\.\d{2})?)/i,
-    ]),
+    premium: premiumFromNodes(nodes),
   };
   const coverages = buildCoverages(nodes);
   const coverageTypes = [...new Set(coverages.map((coverage) => coverage.name))];

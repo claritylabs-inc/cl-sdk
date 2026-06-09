@@ -170,6 +170,32 @@ describe("source tree v3", () => {
     expect(profile.insurer?.value).toBe("Sun Life Assurance Company of Canada");
   });
 
+  it("does not treat adjacent labels or wording as insured names or premiums", () => {
+    const spans = [
+      buildSourceSpan({
+        documentId: "life-policy",
+        sourceKind: "policy_pdf",
+        text: "Joint last-to-die basic insurance coverage Insured persons: Insurance amount: John Doe Mary Doe $X,XXX,XXX",
+        pageStart: 4,
+        pageEnd: 4,
+        sourceUnit: "table_row",
+      }, 0),
+      buildSourceSpan({
+        documentId: "life-policy",
+        sourceKind: "policy_pdf",
+        text: "If the insured person dies during the grace period, we reduce the death benefit by the amount of the missed premium 2.",
+        pageStart: 2,
+        pageEnd: 2,
+        sourceUnit: "text",
+      }, 1),
+    ];
+    const tree = buildDocumentSourceTree(spans, "life-policy");
+    const profile = buildDeterministicOperationalProfile({ sourceTree: tree, sourceSpans: spans });
+
+    expect(profile.namedInsured).toBeUndefined();
+    expect(profile.premium).toBeUndefined();
+  });
+
   it("infers critical illness, disability, and long term care policy types", () => {
     const row = buildSourceSpan({
       documentId: "term-policy",
