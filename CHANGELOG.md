@@ -1,3 +1,10 @@
+## [3.0.30](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.29...v3.0.30) (2026-06-09)
+
+
+### Bug Fixes
+
+* **extraction:** prefer declaration policy facts ([5ca50af](https://github.com/claritylabs-inc/cl-sdk/commit/5ca50af7da0f82f33deb956c0d6ba5509deadb8f))
+
 ## [3.0.29](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.28...v3.0.29) (2026-06-09)
 
 
