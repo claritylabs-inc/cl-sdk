@@ -1711,11 +1711,25 @@ function sourceTreeToOutline(sourceTree: DocumentSourceNode[]) {
   return (byParent.get(root?.id) ?? []).map(visit);
 }
 
+const NORMALIZED_COMPATIBILITY_FIELDS = new Set<keyof PolicyOperationalProfile>([
+  "policyNumber",
+  "namedInsured",
+  "insurer",
+  "broker",
+]);
+
 function valueOf(profile: PolicyOperationalProfile, key: keyof PolicyOperationalProfile): string | undefined {
   const value = profile[key];
-  return value && typeof value === "object" && !Array.isArray(value) && "value" in value
-    ? String(value.value)
-    : undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value) || !("value" in value)) return undefined;
+  if (
+    NORMALIZED_COMPATIBILITY_FIELDS.has(key) &&
+    "normalizedValue" in value &&
+    typeof value.normalizedValue === "string" &&
+    value.normalizedValue.trim()
+  ) {
+    return value.normalizedValue;
+  }
+  return String(value.value);
 }
 
 function materializeDocument(params: {

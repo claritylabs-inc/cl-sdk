@@ -58,6 +58,20 @@ function valueFromNode(node: DocumentSourceNode, value: string, confidence: Sour
   };
 }
 
+function valueFromNodes(
+  nodes: DocumentSourceNode[],
+  value: string,
+  confidence: SourceBackedValue["confidence"] = "medium",
+  normalizedValue?: string,
+): SourceBackedValue {
+  return {
+    value,
+    ...(normalizedValue ? { normalizedValue } : {}),
+    confidence,
+    ...sourceIds(nodes),
+  };
+}
+
 function firstMatch(nodes: DocumentSourceNode[], patterns: RegExp[]): SourceBackedValue | undefined {
   for (const node of nodes) {
     const text = nodeText(node);
@@ -153,8 +167,81 @@ function cleanNamedInsured(value: string): string | undefined {
   return clean;
 }
 
+const PARTY_LABEL_PATTERNS = {
+  namedInsured: /^(?:item\s*\d+[.)]?\s*)?(?:named insured(?:\s+and\s+address)?|insured name)$/i,
+  insurer: /^(?:carrier|insurer|security)$/i,
+  broker: /^(?:broker(?:\s+of\s+record)?|producer|agent)$/i,
+};
+
+function partyLabelKind(value: string): "namedInsured" | "insurer" | "broker" | undefined {
+  const clean = cleanValue(value.replace(/^\s*column\s+\d+\s*:\s*/i, ""));
+  if (!clean) return undefined;
+  if (PARTY_LABEL_PATTERNS.namedInsured.test(clean)) return "namedInsured";
+  if (PARTY_LABEL_PATTERNS.insurer.test(clean)) return "insurer";
+  if (PARTY_LABEL_PATTERNS.broker.test(clean)) return "broker";
+  return undefined;
+}
+
+function isRejectedPartyValue(value: string): boolean {
+  const clean = normalizeWhitespace(value);
+  return /^(?:and address|of record|insurer|carrier|security|broker|producer|agent|the|a|an|is|are|was|were|agrees?|means?|includes?|shall|will)\b/i.test(clean);
+}
+
+function identityWithoutAddress(value: string): string | undefined {
+  const clean = cleanValue(value
+    .replace(/\b(?:phone|tel|telephone|email|e-mail)\b.*$/i, "")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b.*$/i, ""));
+  if (!clean) return undefined;
+  const beforeStreet = clean.match(/^(.+?)\s+\d{1,6}\s+[A-Za-z0-9.'-]+(?:\s+[A-Za-z0-9.'-]+){0,5}\s+(?:street|st\.?|avenue|ave\.?|road|rd\.?|drive|dr\.?|lane|ln\.?|boulevard|blvd\.?|suite|ste\.?|floor|fl\.?|way|court|ct\.?)\b/i)?.[1];
+  const beforeCityState = clean.match(/^(.+?)\s+[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+)*,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/)?.[1];
+  return cleanValue(beforeStreet ?? beforeCityState ?? clean);
+}
+
+function cleanPartyIdentity(value: string, clean: (value: string) => string | undefined): { value: string; normalizedValue?: string } | undefined {
+  const raw = cleanValue(value);
+  if (!raw || isRejectedPartyValue(raw)) return undefined;
+  const identity = identityWithoutAddress(raw);
+  const cleaned = identity ? clean(identity) : undefined;
+  if (!cleaned || isRejectedPartyValue(cleaned)) return undefined;
+  return {
+    value: cleaned,
+    ...(cleaned !== raw ? { normalizedValue: cleaned } : {}),
+  };
+}
+
+function partyFromTableRows(
+  nodes: DocumentSourceNode[],
+  wanted: "namedInsured" | "insurer" | "broker",
+  clean: (value: string) => string | undefined,
+): SourceBackedValue | undefined {
+  const children = childMap(nodes);
+  for (const row of compactFactNodes(nodes).filter((node) => node.kind === "table_row")) {
+    const cells = cellRows(row, children);
+    for (const [index, cell] of cells.entries()) {
+      const labelKind = partyLabelKind(cell.value) ?? partyLabelKind(cell.label);
+      if (labelKind !== wanted) continue;
+      const valueCell = cells.slice(index + 1).find((candidate) => !partyLabelKind(candidate.value) && !partyLabelKind(candidate.label));
+      if (!valueCell) continue;
+      const cleaned = cleanPartyIdentity(valueCell.value, clean);
+      if (cleaned) return valueFromNodes([row, valueCell.node], cleaned.value, "high", cleaned.normalizedValue);
+    }
+
+    const parts = normalizeWhitespace(row.textExcerpt ?? row.description ?? nodeText(row))
+      .split(/\s+\|\s+|\t/)
+      .map(cleanValue)
+      .filter((part): part is string => Boolean(part));
+    for (const [index, part] of parts.entries()) {
+      const labelKind = partyLabelKind(part);
+      if (labelKind !== wanted) continue;
+      const cleaned = cleanPartyIdentity(parts[index + 1] ?? "", clean);
+      if (cleaned) return valueFromNodes([row], cleaned.value, "high", cleaned.normalizedValue);
+    }
+  }
+  return undefined;
+}
+
 function namedInsuredFromNodes(nodes: DocumentSourceNode[]): SourceBackedValue | undefined {
-  return firstCleanMatch(nodes, [
+  return partyFromTableRows(nodes, "namedInsured", cleanNamedInsured) ?? firstCleanMatch(nodes, [
     /\b(?:named insured|insured name)\s*:?\s*(.+?)(?=\s+(?:insurance amount|benefit amount|policy number|policy date|owner|beneficiary|premium|coverage|risk classification|date this)\b|[|;\n]|$)/i,
     /\b(?:insured persons?|insured person)\s*:\s*(.+?)(?=\s+(?:insurance amount|benefit amount|policy number|policy date|owner|beneficiary|premium|coverage|risk classification|date this)\b|[|;\n]|$)/i,
     /\b(?:applicant|policyholder)\s*:?\s*(.+?)(?=\s+(?:coverage|policy number|insurer|carrier|premium|effective|expiration)\b|[|;\n]|$)/i,
@@ -164,13 +251,20 @@ function namedInsuredFromNodes(nodes: DocumentSourceNode[]): SourceBackedValue |
 function cleanInsurer(value: string): string | undefined {
   const clean = cleanValue(value);
   if (!clean || clean.length > 140) return undefined;
-  if (/^(mean|means|we|us|our)\b/i.test(clean)) return undefined;
+  if (/^(mean|means|we|us|our|the|a|an|agrees?|shall|will)\b/i.test(clean)) return undefined;
   if (/\b(table of contents|policy wording|provided solely|convenience)\b/i.test(clean)) return undefined;
   const known = clean.match(/\b(Sun Life Assurance Company of Canada|Manulife|The Manufacturers Life Insurance Company)\b/i)?.[1];
   return known ?? clean;
 }
 
 function insurerFromNodes(nodes: DocumentSourceNode[]): SourceBackedValue | undefined {
+  const tableValue = partyFromTableRows(nodes, "insurer", cleanInsurer);
+  if (tableValue) return tableValue;
+  for (const node of compactFactNodes(nodes)) {
+    const text = nodeText(node);
+    const value = cleanInsurer(text.match(/\b([A-Z][A-Za-z&.,' -]{2,120}?(?:Insurance|Assurance|Indemnity|Casualty|Underwriting|Mutual|Risk|Reinsurance)\s+Company(?:\s+of\s+[A-Z][A-Za-z .'-]+)?)\s*\(\s*the\s+["']?Insurer["']?\s*\)/i)?.[1] ?? "");
+    if (value) return valueFromNode(node, value, "high");
+  }
   return firstCleanMatch(nodes, [
     /\bunderwritten by\s+([^|;\n.]{3,160})/i,
     /\b(?:insurer|carrier|company|security)\s*:?\s*([^|;\n]{3,120})/i,
@@ -666,7 +760,7 @@ function buildParties(profile: Partial<PolicyOperationalProfile>): OperationalPa
   if (profile.namedInsured) {
     parties.push({
       role: "named_insured",
-      name: profile.namedInsured.value,
+      name: profile.namedInsured.normalizedValue ?? profile.namedInsured.value,
       sourceNodeIds: profile.namedInsured.sourceNodeIds,
       sourceSpanIds: profile.namedInsured.sourceSpanIds,
     });
@@ -674,7 +768,7 @@ function buildParties(profile: Partial<PolicyOperationalProfile>): OperationalPa
   if (profile.insurer) {
     parties.push({
       role: "insurer",
-      name: profile.insurer.value,
+      name: profile.insurer.normalizedValue ?? profile.insurer.value,
       sourceNodeIds: profile.insurer.sourceNodeIds,
       sourceSpanIds: profile.insurer.sourceSpanIds,
     });
@@ -682,7 +776,7 @@ function buildParties(profile: Partial<PolicyOperationalProfile>): OperationalPa
   if (profile.broker) {
     parties.push({
       role: "broker",
-      name: profile.broker.value,
+      name: profile.broker.normalizedValue ?? profile.broker.value,
       sourceNodeIds: profile.broker.sourceNodeIds,
       sourceSpanIds: profile.broker.sourceSpanIds,
     });

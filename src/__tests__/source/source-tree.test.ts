@@ -7,6 +7,7 @@ import {
   normalizeDocumentSourceTreePaths,
   normalizeSourceSpans,
 } from "../../source";
+import { runSourceTreeExtraction } from "../../extraction/source-tree-extractor";
 
 describe("source tree v3", () => {
   it("builds a nested hierarchy from page, table row, and table cell spans", () => {
@@ -194,6 +195,109 @@ describe("source tree v3", () => {
 
     expect(profile.namedInsured).toBeUndefined();
     expect(profile.premium).toBeUndefined();
+  });
+
+  it("reads named insured identities from adjacent declaration table cells", () => {
+    const row = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: "Item 1. Named Insured and Address | NextGen Venture Partners, LLC 44 Montgomery Street Suite 4000 San Francisco, CA 94104",
+      pageStart: 2,
+      pageEnd: 2,
+      sourceUnit: "table_row",
+      table: { tableId: "declarations", rowIndex: 1 },
+    }, 0);
+    const label = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: "Item 1. Named Insured and Address",
+      pageStart: 2,
+      pageEnd: 2,
+      sourceUnit: "table_cell",
+      parentSpanId: row.id,
+      table: { tableId: "declarations", rowIndex: 1, columnIndex: 0, rowSpanId: row.id },
+    }, 1);
+    const value = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: "NextGen Venture Partners, LLC 44 Montgomery Street Suite 4000 San Francisco, CA 94104",
+      pageStart: 2,
+      pageEnd: 2,
+      sourceUnit: "table_cell",
+      parentSpanId: row.id,
+      table: { tableId: "declarations", rowIndex: 1, columnIndex: 1, rowSpanId: row.id },
+    }, 2);
+    const sourceTree = buildDocumentSourceTree([row, label, value], "policy-1");
+    const profile = buildDeterministicOperationalProfile({ sourceTree, sourceSpans: [row, label, value] });
+    const rowNode = sourceTree.find((node) => node.kind === "table_row");
+    const valueCellNode = sourceTree.find((node) => node.kind === "table_cell" && node.sourceSpanIds.includes(value.id));
+
+    expect(profile.namedInsured?.value).not.toBe("and Address");
+    expect(profile.namedInsured?.value).toBe("NextGen Venture Partners, LLC");
+    expect(profile.namedInsured?.normalizedValue).toBe("NextGen Venture Partners, LLC");
+    expect(profile.parties).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "named_insured", name: "NextGen Venture Partners, LLC" }),
+    ]));
+    expect(profile.namedInsured?.sourceNodeIds).toEqual(expect.arrayContaining([
+      rowNode?.id,
+      valueCellNode?.id,
+    ]));
+  });
+
+  it("extracts jacket prose insurer identities before the insurer label", () => {
+    const span = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: 'Beacon Hill Assurance Company (the "Insurer") agrees with the Named Insured that this policy applies.',
+      pageStart: 1,
+      pageEnd: 1,
+      sourceUnit: "text",
+    });
+    const sourceTree = buildDocumentSourceTree([span], "policy-1");
+    const profile = buildDeterministicOperationalProfile({ sourceTree, sourceSpans: [span] });
+
+    expect(profile.insurer?.value).toBe("Beacon Hill Assurance Company");
+  });
+
+  it("uses normalized source-backed identities when materializing compatibility document fields", async () => {
+    const row = buildSourceSpan({
+      documentId: "policy-1",
+      sourceKind: "policy_pdf",
+      text: "Named Insured: NextGen Venture Partners, LLC 44 Montgomery Street San Francisco, CA 94104",
+      pageStart: 2,
+      pageEnd: 2,
+      sourceUnit: "table_row",
+      table: { tableId: "declarations", rowIndex: 1 },
+    });
+    const extraction = await runSourceTreeExtraction({
+      id: "policy-1",
+      sourceSpans: [row],
+      generateObject: async ({ taskKind }) => ({
+        object: taskKind === "extraction_operational_profile"
+          ? {
+              namedInsured: {
+                value: "NextGen Venture Partners, LLC 44 Montgomery Street San Francisco, CA 94104",
+                normalizedValue: "NextGen Venture Partners, LLC",
+                confidence: "high",
+                sourceNodeIds: ["policy-1:source_node:row:declarations:1"],
+                sourceSpanIds: [row.id],
+              },
+            }
+          : { labels: [], groups: [] },
+      }),
+      resolveBudget: (taskKind, hintTokens) => ({
+        taskKind,
+        hintTokens,
+        maxTokens: 1000,
+        outputTruncationRisk: "low",
+        warnings: [],
+      }),
+      trackUsage: () => {},
+    });
+
+    expect(extraction.operationalProfile.namedInsured?.value).toContain("44 Montgomery");
+    expect(extraction.operationalProfile.namedInsured?.normalizedValue).toBe("NextGen Venture Partners, LLC");
+    expect(extraction.document.insuredName).toBe("NextGen Venture Partners, LLC");
   });
 
   it("infers critical illness, disability, and long term care policy types", () => {

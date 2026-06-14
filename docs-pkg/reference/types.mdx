@@ -226,6 +226,8 @@ interface PolicyOperationalProfile {
 }
 ```
 
+`SourceBackedValue.value` preserves the extracted source-backed display value. For party and identity fields such as `namedInsured`, `insurer`, `broker`, and `policyNumber`, `normalizedValue` may contain the display-safe canonical identity after removing label fragments or address/contact tails. The compatibility `InsuranceDocument` projection prefers `normalizedValue` for those identity fields when present, while retaining raw `value` for dates, premium, and other fields where the extracted display format is meaningful.
+
 ## Document types
 
 ### `InsuranceDocument`

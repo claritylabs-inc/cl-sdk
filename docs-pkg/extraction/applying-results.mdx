@@ -103,6 +103,8 @@ These fields appear on both `PolicyDocument` and `QuoteDocument`:
 | `individualClaims` | `ClaimRecord[]?` | Individual claim records |
 | `experienceMod` | `ExperienceMod?` | Experience modification |
 
+For v3 source-backed extraction, identity compatibility fields such as `insuredName`, `carrier`, `policyNumber`, and broker/producer names are projected from `operationalProfile`. When the corresponding source-backed value includes `normalizedValue`, the compatibility `document` field uses that normalized identity instead of the raw `value`; date, premium, and other display-format fields keep the raw extracted `value`.
+
 ### Source-native document structure
 
 In v2, `documentMetadata` and `documentOutline` are required on every `PolicyDocument` and `QuoteDocument`. This is a breaking schema change from v1: hosts should persist both fields and render `documentOutline` as the primary policy breakdown whenever it is non-empty.
