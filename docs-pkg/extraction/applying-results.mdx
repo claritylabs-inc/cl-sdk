@@ -71,7 +71,7 @@ These fields appear on both `PolicyDocument` and `QuoteDocument`:
 | `premium` | `string?` | Total premium |
 | `totalCost` | `string?` | Premium + taxes + fees |
 | `summary` | `string?` | AI-generated 1–3 sentence overview (populated by the Summarize phase) |
-| `coverages` | `Coverage[]` | Compatibility coverage rows. In v3 source-backed extraction, prefer `operationalProfile.coverages`, where each coverage unit may include nested `limits[]` terms for each-claim, aggregate, sublimit, retention, deductible, premium, and retroactive-date facts. |
+| `coverages` | `Coverage[]` | Compatibility coverage rows. In v3 source-backed extraction, prefer `operationalProfile.coverages`, where each source-backed coverage unit may include nested `limits[]` terms for each-claim, aggregate, sublimit, retention, deductible, premium, and retroactive-date facts. Declaration rows such as `Item 7. Limits of Liability` and endorsement schedules are represented as separate coverage units. |
 | `enrichedCoverages` | `EnrichedCoverage[]?` | Detailed coverage data |
 | `definitions` | `Definition[]?` | Defined terms with full definition text and page/form provenance |
 | `coveredReasons` | `CoveredReason[]?` | Covered causes, covered losses, inclusions, qualifying reasons, attached conditions/exceptions, and provenance |
@@ -335,7 +335,7 @@ The pipeline's Promote phase bridges a narrow gap between raw extraction and typ
 - **Loss payees and mortgage holders** — Promotes from declarations into `lossPayees[]` and `mortgageHolders[]`
 - **Locations** — Groups location-related declaration fields by location number into `locations[]`
 
-Financial fields such as premium, total cost, taxes, fees, minimum premium, deposit premium, payment plan, and numeric coverage values are owned by focused extractor and review LLM passes. The promotion pass does not infer numeric values from declaration aliases or coverage-name patterns.
+Financial fields such as premium, total cost, taxes, fees, minimum premium, deposit premium, payment plan, and numeric coverage values are owned by focused extractor and review LLM passes. The promotion pass does not infer numeric values from declaration aliases or coverage-name patterns. Source-backed coverage terms also keep item references textual: `shown in Item 7` is provenance text, not `amount: 7`.
 
 All sub-passes are idempotent — they never overwrite values that were directly extracted.
 

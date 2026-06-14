@@ -315,6 +315,25 @@ function coverageNameFromRow(text: string): string | undefined {
   return cleanCoverageLabel(first);
 }
 
+function isDeclarationLimitLabel(value: string | undefined): boolean {
+  const label = normalizeLabel(value);
+  return /\bitem\s*\d+[.)]?\s*limits?\s+of\s+liability\b/.test(label) ||
+    /^limits?\s+of\s+liability$/.test(label) ||
+    /^policy\s+limits?$/.test(label);
+}
+
+function declarationCoverageNameFromRow(row: DocumentSourceNode, children: Map<string | undefined, DocumentSourceNode[]>): string | undefined {
+  const cells = cellRows(row, children);
+  const candidates = [
+    row.title,
+    ...cells.flatMap((cell) => [cell.label, cell.value]),
+  ];
+  if (!candidates.some(isDeclarationLimitLabel)) return undefined;
+  return candidates.some((candidate) => /\blimits?\s+of\s+liability\b/i.test(candidate ?? ""))
+    ? "Limits of Liability"
+    : "Policy Limits";
+}
+
 function limitFromText(text: string): string | undefined {
   return moneyValue(
     text.match(/\b(?:limit|liability|aggregate|occurrence|claim)\s*:?\s*(\$?\d[\d,]*(?:\.\d{2})?|\$?\d[\d,]*\s*(?:each|per|aggregate)[^|;]*)/i)?.[1]
@@ -339,7 +358,15 @@ function premiumFromNodes(nodes: DocumentSourceNode[]): SourceBackedValue | unde
 }
 
 function moneyAmount(value: string | undefined): number | undefined {
-  const match = value?.match(/\$?\s*([0-9][0-9,]*(?:\.\d+)?)/);
+  const clean = cleanValue(value);
+  if (!clean) return undefined;
+  const currency = clean.match(/\$\s*([0-9][0-9,]*(?:\.\d+)?)/);
+  const percent = clean.match(/\b([0-9][0-9,]*(?:\.\d+)?)\s*%/);
+  const explicitNumeric = !/\bitem\s*\d+\b/i.test(clean) &&
+    /\b(?:limit|aggregate|claim|occurrence|loss|retention|deductible|sir|premium|amount)\b/i.test(clean)
+    ? clean.match(/\b([0-9][0-9,]*(?:\.\d+)?)\b/)
+    : undefined;
+  const match = currency ?? percent ?? explicitNumeric;
   if (!match) return undefined;
   const amount = Number(match[1].replace(/,/g, ""));
   return Number.isFinite(amount) ? amount : undefined;
@@ -395,6 +422,11 @@ function isValueCell(label: string, value: string): boolean {
     moneyAmount(value) !== undefined ||
     /\b(full prior acts|none|included|not included|as stated)\b/.test(normalizedValue)
   );
+}
+
+function isCoverageTermLabel(value: string): boolean {
+  const label = normalizeLabel(value);
+  return /\b(limit|aggregate|retention|deductible|sir|retroactive|premium|amount|sub[-\s]?limit)\b/.test(label);
 }
 
 function isNameCell(label: string, value: string): boolean {
@@ -519,6 +551,17 @@ function termFromCell(params: {
 function termsFromRow(row: DocumentSourceNode, children: Map<string | undefined, DocumentSourceNode[]>): OperationalCoverageTerm[] {
   const cells = cellRows(row, children);
   if (cells.length > 0) {
+    const pairedTerms: OperationalCoverageTerm[] = [];
+    for (const [index, cell] of cells.entries()) {
+      const next = cells[index + 1];
+      if (!next) continue;
+      if (!isCoverageTermLabel(cell.value)) continue;
+      if (isCoverageTermLabel(next.value) && moneyAmount(next.value) === undefined) continue;
+      const term = termFromCell({ row, cell: next.node, label: cell.value, value: next.value });
+      if (term) pairedTerms.push(term);
+    }
+    if (pairedTerms.length > 0) return pairedTerms;
+
     return cells
       .filter((cell) => isValueCell(cell.label, cell.value))
       .map((cell) => termFromCell({ row, cell: cell.node, label: cell.label, value: cell.value }))
@@ -550,6 +593,8 @@ function termsFromRow(row: DocumentSourceNode, children: Map<string | undefined,
 }
 
 function nameFromRow(row: DocumentSourceNode, children: Map<string | undefined, DocumentSourceNode[]>): string | undefined {
+  const declarationName = declarationCoverageNameFromRow(row, children);
+  if (declarationName) return declarationName;
   const cells = cellRows(row, children);
   const named = cells.find((cell) => isNameCell(cell.label, cell.value));
   if (named) return cleanValue(named.value);

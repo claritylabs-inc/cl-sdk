@@ -103,7 +103,9 @@ These fields are defined in `CoverageSchema` (`src/schemas/coverage.ts`) and flo
 - Quality reports — missing provenance triggers `coverage_missing_page_number`, `coverage_missing_section_ref`, `coverage_missing_original_content` warnings
 - Source-backed recovery — explicit declaration/schedule table rows can be added deterministically when model extraction misses them, and unrecovered rows trigger `coverage_schedule_row_missing`
 
-For v3 source-backed extraction, `operationalProfile.coverages` is the preferred product projection. Each item is a coverage unit, not just a single coverage/value row. Declaration coverage rows preserve nested `limits[]` terms for each-claim, aggregate, sublimit, retention/deductible, premium, and retroactive-date facts. Endorsement schedules are extracted as one endorsement coverage unit with its own nested terms, so a schedule is not reduced to separate generic rows such as `Aggregate Limit`.
+For v3 source-backed extraction, `operationalProfile.coverages` is the preferred product projection. Each item is a source-backed coverage unit, not just a single coverage/value row. Declaration coverage rows such as `Item 7. Limits of Liability` preserve nested `limits[]` terms for each-claim, aggregate, sublimit, retention/deductible, premium, and retroactive-date facts. Endorsement schedules are extracted as one endorsement coverage unit with adjacent schedule labels paired to their value cells, so a schedule is not reduced to separate generic rows such as `Aggregate Limit`.
+
+Item references remain textual provenance terms. For example, an endorsement value such as `shown in Item 7` or `Limit shown in Item 7` is retained as text and does not receive a fabricated numeric `amount: 7`.
 - Merge — `mergeShallowPreferPresent` preserves provenance when duplicate coverage rows are merged
 
 ### Coverage Value Types
