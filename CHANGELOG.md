@@ -1,3 +1,11 @@
+## [3.0.33](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.32...v3.0.33) (2026-06-15)
+
+
+### Bug Fixes
+
+* **extraction:** normalize source-backed party identities ([00f5f4b](https://github.com/claritylabs-inc/cl-sdk/commit/00f5f4b40e9ec25bd9175c994fb7938b806690a5))
+* **extraction:** preserve declaration coverage schedules ([2397a3d](https://github.com/claritylabs-inc/cl-sdk/commit/2397a3d5b94d4f3cef3792ac3e79fac0d0694ce6))
+
 ## [3.0.32](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.31...v3.0.32) (2026-06-09)
 
 
