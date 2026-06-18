@@ -42,6 +42,85 @@ export const ApplicationFieldSchema = z.object({
 });
 export type ApplicationField = z.infer<typeof ApplicationFieldSchema>;
 
+// ── Versioned Question Graph ──
+
+export const ApplicationQuestionConditionSchema = z.object({
+  dependsOn: z.string(),
+  operator: z.enum(["equals", "not_equals", "in", "not_in", "exists"]).optional(),
+  value: z.string().optional(),
+  whenValue: z.string().optional(),
+  values: z.array(z.string()).optional(),
+});
+export type ApplicationQuestionCondition = z.infer<typeof ApplicationQuestionConditionSchema>;
+
+export const ApplicationRepeatSchema = z.object({
+  min: z.number().int().nonnegative().optional(),
+  max: z.number().int().positive().optional(),
+  label: z.string().optional(),
+});
+export type ApplicationRepeat = z.infer<typeof ApplicationRepeatSchema>;
+
+export interface ApplicationQuestionNode {
+  id: string;
+  nodeType: "group" | "question" | "repeat_group" | "table";
+  fieldId?: string;
+  fieldPath?: string;
+  parentId?: string;
+  order?: number;
+  label: string;
+  section?: string;
+  fieldType?: FieldType;
+  required?: boolean;
+  prompt?: string;
+  options?: string[];
+  columns?: string[];
+  condition?: ApplicationQuestionCondition;
+  repeat?: ApplicationRepeat;
+  children?: ApplicationQuestionNode[];
+}
+
+export const ApplicationQuestionNodeSchema: z.ZodType<ApplicationQuestionNode> = z.lazy(() =>
+  z.object({
+    id: z.string(),
+    nodeType: z.enum(["group", "question", "repeat_group", "table"]),
+    fieldId: z.string().optional(),
+    fieldPath: z.string().optional(),
+    parentId: z.string().optional(),
+    order: z.number().int().nonnegative().optional(),
+    label: z.string(),
+    section: z.string().optional(),
+    fieldType: FieldTypeSchema.optional(),
+    required: z.boolean().optional(),
+    prompt: z.string().optional(),
+    options: z.array(z.string()).optional(),
+    columns: z.array(z.string()).optional(),
+    condition: ApplicationQuestionConditionSchema.optional(),
+    repeat: ApplicationRepeatSchema.optional(),
+    children: z.array(ApplicationQuestionNodeSchema).optional(),
+  }),
+);
+
+export const ApplicationQuestionGraphSchema = z.object({
+  id: z.string(),
+  version: z.string(),
+  title: z.string().optional(),
+  applicationType: z.string().nullable().optional(),
+  source: z.enum(["pdf", "manual", "imported", "generated"]).default("generated"),
+  rootNodeIds: z.array(z.string()).optional(),
+  nodes: z.array(ApplicationQuestionNodeSchema),
+});
+export type ApplicationQuestionGraph = z.infer<typeof ApplicationQuestionGraphSchema>;
+
+export const ApplicationTemplateSchema = z.object({
+  id: z.string(),
+  version: z.string(),
+  title: z.string(),
+  applicationType: z.string().nullable().optional(),
+  questionGraph: ApplicationQuestionGraphSchema,
+  fields: z.array(ApplicationFieldSchema).optional(),
+});
+export type ApplicationTemplate = z.infer<typeof ApplicationTemplateSchema>;
+
 // ── Classify Result ──
 
 export const ApplicationClassifyResultSchema = z.object({
@@ -189,18 +268,77 @@ export const ApplicationQualityReportSchema = z.object({
   qualityGateStatus: QualityGateStatusSchema,
 });
 
+// ── Context Proposals And Packets ──
+
+export const ApplicationContextProposalSchema = z.object({
+  id: z.string(),
+  fieldId: z.string().optional(),
+  key: z.string(),
+  value: z.string(),
+  category: z.string(),
+  source: z.enum(["application", "user", "lookup", "policy", "email", "chat", "imessage", "mcp"]),
+  confidence: z.enum(["confirmed", "high", "medium", "low"]),
+  sourceSpanIds: z.array(z.string()).optional(),
+  userSourceSpanIds: z.array(z.string()).optional(),
+});
+export type ApplicationContextProposal = z.infer<typeof ApplicationContextProposalSchema>;
+
+export const ApplicationPacketAnswerSchema = z.object({
+  fieldId: z.string(),
+  label: z.string(),
+  section: z.string(),
+  value: z.string(),
+  source: z.string(),
+  confidence: z.enum(["confirmed", "high", "medium", "low"]).optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+  userSourceSpanIds: z.array(z.string()).optional(),
+});
+export type ApplicationPacketAnswer = z.infer<typeof ApplicationPacketAnswerSchema>;
+
+export const ApplicationPacketSchema = z.object({
+  id: z.string(),
+  applicationId: z.string(),
+  title: z.string(),
+  status: z.enum(["draft", "broker_ready", "submitted"]),
+  answers: z.array(ApplicationPacketAnswerSchema),
+  missingFieldIds: z.array(z.string()),
+  qualityReport: ApplicationQualityReportSchema,
+  submissionNotes: z.string().optional(),
+  createdAt: z.number(),
+});
+export type ApplicationPacket = z.infer<typeof ApplicationPacketSchema>;
+
 // ── Application State (persistent) ──
 
 export const ApplicationStateSchema = z.object({
   id: z.string(),
   pdfBase64: z.string().optional().describe("Original PDF, omitted after extraction"),
+  templateId: z.string().optional(),
+  templateVersion: z.string().optional(),
+  templateSnapshot: ApplicationTemplateSchema.optional(),
   title: z.string().optional(),
   applicationType: z.string().nullable().optional(),
+  questionGraph: ApplicationQuestionGraphSchema.optional(),
   fields: z.array(ApplicationFieldSchema),
   batches: z.array(z.array(z.string())).optional(),
   currentBatchIndex: z.number().default(0),
+  contextProposals: z.array(ApplicationContextProposalSchema).optional(),
+  packet: ApplicationPacketSchema.optional(),
   qualityReport: ApplicationQualityReportSchema.optional(),
-  status: z.enum(["classifying", "extracting", "auto_filling", "batching", "collecting", "confirming", "mapping", "complete"]),
+  status: z.enum([
+    "classifying",
+    "extracting",
+    "auto_filling",
+    "batching",
+    "collecting",
+    "confirming",
+    "mapping",
+    "broker_review",
+    "packet_ready",
+    "submitted",
+    "cancelled",
+    "complete",
+  ]),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

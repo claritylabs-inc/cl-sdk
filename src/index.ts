@@ -98,12 +98,40 @@ export {
 export { createApplicationPipeline } from "./application/coordinator";
 export type {
   ApplicationPipelineConfig,
+  ApplicationNextQuestions,
+  BuildApplicationPacketInput,
+  BuildApplicationPacketResult,
+  ContextProposalResult,
+  CreateApplicationRunInput,
   ProcessApplicationInput,
   ProcessApplicationResult,
   ProcessReplyInput,
   ProcessReplyResult,
 } from "./application/types";
-export type { ApplicationStore, ApplicationListFilters, BackfillProvider, PriorAnswer } from "./application/store";
+export type {
+  ApplicationStore,
+  ApplicationListFilters,
+  ApplicationTemplateListFilters,
+  ApplicationTemplateStore,
+  BackfillProvider,
+  PriorAnswer,
+} from "./application/store";
+export {
+  applyApplicationAnswers,
+  buildApplicationPacket,
+  createApplicationRun,
+  extractQuestionGraphFromFields,
+  planNextApplicationQuestions,
+  proposeContextWrites,
+  validateApplicationPacket,
+} from "./application/intake";
+export {
+  buildQuestionGraphFromFields,
+  flattenQuestionGraph,
+  getActiveApplicationFields,
+  getNextApplicationQuestions,
+  normalizeApplicationQuestionGraph,
+} from "./application/question-graph";
 export * from "./schemas/application";
 
 // ── Application prompts (for advanced use) ──

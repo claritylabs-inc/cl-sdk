@@ -3,8 +3,15 @@ import type { QualityGateMode } from "../core/quality";
 import type { ModelBudgetConstraint, ModelCapabilities, ModelTaskKind } from "../core/model-budget";
 import type { DocumentStore, MemoryStore } from "../storage/interfaces";
 import type { AgentContext } from "../schemas/platform";
-import type { ApplicationState, ApplicationField } from "../schemas/application";
-import type { ApplicationStore, BackfillProvider } from "./store";
+import type {
+  ApplicationContextProposal,
+  ApplicationPacket,
+  ApplicationQuestionGraph,
+  ApplicationState,
+  ApplicationField,
+  ApplicationTemplate,
+} from "../schemas/application";
+import type { ApplicationStore, ApplicationTemplateStore, BackfillProvider } from "./store";
 import type { ApplicationQualityReport } from "./quality";
 import type { SourceSpan } from "../source";
 
@@ -14,6 +21,9 @@ export interface ApplicationPipelineConfig {
 
   /** Persistent application state storage */
   applicationStore?: ApplicationStore;
+
+  /** Optional template store for broker/carrier application libraries */
+  templateStore?: ApplicationTemplateStore;
 
   /** Document store for policy/quote lookups during auto-fill */
   documentStore?: DocumentStore;
@@ -46,6 +56,10 @@ export interface ProcessApplicationInput {
   sourceSpans?: SourceSpan[];
   /** Application ID (auto-generated if not provided) */
   applicationId?: string;
+  /** Template metadata to pin on the application run */
+  template?: ApplicationTemplate;
+  /** Caller-supplied graph when the template was extracted or authored upstream */
+  questionGraph?: ApplicationQuestionGraph;
   /** Agent context for email formatting */
   context?: AgentContext;
 }
@@ -83,4 +97,38 @@ export interface ProcessReplyResult {
   reviewReport: ApplicationQualityReport;
 }
 
-export type { ApplicationState, ApplicationField };
+export interface CreateApplicationRunInput {
+  applicationId: string;
+  template: ApplicationTemplate;
+  now?: number;
+}
+
+export interface ApplicationNextQuestions {
+  status: "complete" | "needs_answers";
+  fieldIds: string[];
+  fields: ApplicationField[];
+}
+
+export interface BuildApplicationPacketInput {
+  applicationId: string;
+  submissionNotes?: string;
+  now?: number;
+}
+
+export interface BuildApplicationPacketResult {
+  packet: ApplicationPacket;
+  reviewReport: ApplicationQualityReport;
+}
+
+export interface ContextProposalResult {
+  proposals: ApplicationContextProposal[];
+}
+
+export type {
+  ApplicationContextProposal,
+  ApplicationPacket,
+  ApplicationQuestionGraph,
+  ApplicationState,
+  ApplicationField,
+  ApplicationTemplate,
+};

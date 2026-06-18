@@ -3,6 +3,7 @@ import { createApplicationPipeline } from "../../application/coordinator";
 import type { GenerateObject } from "../../core/types";
 import type { ApplicationState } from "../../schemas/application";
 import type { ApplicationStore } from "../../application/store";
+import type { MemoryStore } from "../../storage/interfaces";
 import { buildPageSourceSpans } from "../../source";
 
 describe("application coordinator", () => {
@@ -119,5 +120,75 @@ describe("application coordinator", () => {
       validationStatus: "valid",
     }));
     expect(result.state.fields[0].userSourceSpanIds?.[0]).toMatch(/^app-1:reply:[a-f0-9]+:span:na:0:/);
+  });
+
+  it("uses memory search results as source-backed document backfill", async () => {
+    const generateObject = vi.fn<GenerateObject>(async ({ schema }) => {
+      if (generateObject.mock.calls.length === 1) {
+        return {
+          object: schema.parse({
+            isApplication: true,
+            confidence: 0.99,
+            applicationType: "general_liability",
+          }),
+        };
+      }
+      return {
+        object: schema.parse({
+          fields: [{
+            id: "policy_number",
+            label: "Policy Number",
+            section: "Prior Coverage",
+            fieldType: "text",
+            required: true,
+          }],
+        }),
+      };
+    });
+    const memoryStore: MemoryStore = {
+      addChunks: vi.fn(async () => undefined),
+      search: vi.fn(async () => [{
+        id: "chunk-1",
+        documentId: "policy-1",
+        type: "declaration" as const,
+        text: "Policy Number GL-123",
+        metadata: {
+          fieldId: "policy_number",
+          fieldLabel: "Policy Number",
+          value: "GL-123",
+          source: "Policy declaration page",
+          sourceSpanIds: "policy-1:span:1",
+        },
+      }]),
+      addTurn: vi.fn(async () => undefined),
+      getHistory: vi.fn(async () => []),
+      searchHistory: vi.fn(async () => []),
+    };
+
+    const pipeline = createApplicationPipeline({
+      generateText: vi.fn(),
+      generateObject,
+      memoryStore,
+      documentStore: {
+        save: vi.fn(),
+        get: vi.fn(),
+        query: vi.fn(),
+        delete: vi.fn(),
+      },
+    });
+
+    const result = await pipeline.processApplication({
+      applicationId: "app-memory",
+      pdfBase64: "pdf-base64",
+    });
+
+    expect(memoryStore.search).toHaveBeenCalledWith("Prior Coverage Policy Number", { limit: 3 });
+    expect(result.state.fields[0]).toEqual(expect.objectContaining({
+      value: "GL-123",
+      source: "Policy declaration page",
+      confidence: "high",
+      validationStatus: "valid",
+      sourceSpanIds: ["policy-1:span:1"],
+    }));
   });
 });

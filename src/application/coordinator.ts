@@ -2,10 +2,14 @@ import type { TokenUsage } from "../core/types";
 import type { ModelTaskKind } from "../core/model-budget";
 import { resolveModelBudget } from "../core/model-budget";
 import { pLimit } from "../core/concurrency";
-import { safeGenerateObject } from "../core/safe-generate";
 import type { ApplicationState, ApplicationField } from "../schemas/application";
 import type {
   ApplicationPipelineConfig,
+  BuildApplicationPacketInput,
+  BuildApplicationPacketResult,
+  ContextProposalResult,
+  CreateApplicationRunInput,
+  ApplicationNextQuestions,
   ProcessApplicationInput,
   ProcessApplicationResult,
   ProcessReplyInput,
@@ -24,12 +28,22 @@ import { buildApplicationQualityReport, reviewBatchEmail } from "./quality";
 import { shouldFailQualityGate } from "../core/quality";
 import { planApplicationWorkflow, planReplyActions } from "./workflow";
 import { buildTextSourceSpans, sourceSpanTextHash } from "../source";
+import {
+  buildApplicationPacket as buildApplicationPacketFromState,
+  createApplicationRun as createApplicationRunFromTemplate,
+  planNextApplicationQuestions,
+  proposeContextWrites as proposeContextWritesFromState,
+  validateApplicationPacket,
+} from "./intake";
+import { buildQuestionGraphFromFields, getActiveApplicationFields } from "./question-graph";
+import type { DocumentChunk } from "../storage/chunk-types";
 
 export function createApplicationPipeline(config: ApplicationPipelineConfig) {
   const {
     generateText,
     generateObject,
     applicationStore,
+    templateStore,
     documentStore,
     memoryStore,
     backfillProvider,
@@ -78,13 +92,19 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       : providerOptions;
     const id = input.applicationId ?? `app-${Date.now()}`;
     const now = Date.now();
+    if (input.template) {
+      await templateStore?.saveTemplate(input.template);
+    }
 
-    // Initialize state
     let state: ApplicationState = {
       id,
+      templateId: input.template?.id,
+      templateVersion: input.template?.version,
+      templateSnapshot: input.template,
       pdfBase64: undefined,
       title: undefined,
       applicationType: null,
+      questionGraph: input.questionGraph ?? input.template?.questionGraph,
       fields: [],
       qualityReport: undefined,
       batches: undefined,
@@ -94,9 +114,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       updatedAt: now,
     };
 
-    // -- Phase 1: Classify --
     onProgress?.("Classifying document...");
-    // Save state before LLM call so crashes preserve last good state
     await applicationStore?.save(state);
 
     let classifyResult;
@@ -155,6 +173,14 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     }
 
     state.fields = fields;
+    state.questionGraph = input.questionGraph
+      ?? input.template?.questionGraph
+      ?? buildQuestionGraphFromFields(fields, {
+        id: `${id}:graph`,
+        title: classifyResult.applicationType ?? undefined,
+        applicationType: classifyResult.applicationType,
+        source: "pdf",
+      });
     state.title = classifyResult.applicationType ?? undefined;
     state.status = "auto_filling";
     state.updatedAt = Date.now();
@@ -180,8 +206,10 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
           if (field && !field.value && pa.relevance > 0.8) {
             field.value = pa.value;
             field.source = `backfill: ${pa.source}`;
-            field.confidence = "high";
-            field.validationStatus = "needs_review";
+            field.confidence = pa.confidence ?? "high";
+            field.validationStatus = pa.sourceSpanIds?.length ? "valid" : "needs_review";
+            field.sourceSpanIds = pa.sourceSpanIds;
+            field.userSourceSpanIds = pa.userSourceSpanIds;
           }
         }
       } catch (e) {
@@ -239,7 +267,18 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
           try {
             const searchPromises = workflowPlan.documentSearchFields.map((f) =>
               limit(async () => {
-                await memoryStore.search(f.label, { limit: 3 });
+                const chunks = await memoryStore.search(`${f.section} ${f.label}`, { limit: 3 });
+                const match = selectMemoryBackfillMatch(f, chunks);
+                if (match) {
+                  const field = state.fields.find((candidate) => candidate.id === f.id);
+                  if (field && !field.value) {
+                    field.value = match.value;
+                    field.source = match.source;
+                    field.confidence = match.confidence;
+                    field.validationStatus = match.sourceSpanIds.length > 0 ? "valid" : "needs_review";
+                    field.sourceSpanIds = match.sourceSpanIds.length > 0 ? match.sourceSpanIds : undefined;
+                  }
+                }
               }),
             );
             await Promise.all(searchPromises);
@@ -263,7 +302,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       hasDocumentStore: false,
       hasMemoryStore: false,
     });
-    const unfilledFields = workflowPlan.unfilledFields;
+    const unfilledFields = getActiveApplicationFields(state).filter((field) => !field.value);
     if (workflowPlan.runBatching) {
       onProgress?.(`Batching ${unfilledFields.length} remaining questions...`);
       state.status = "batching";
@@ -289,6 +328,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
       state.status = "confirming";
     }
 
+    state.contextProposals = proposeContextWritesFromState(state);
     state.qualityReport = buildApplicationQualityReport(state);
 
     state.updatedAt = Date.now();
@@ -331,7 +371,8 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
 
     // Get current batch fields
     const currentBatchFieldIds = state.batches?.[state.currentBatchIndex] ?? [];
-    const currentBatchFields = state.fields.filter((f) =>
+    const activeFields = getActiveApplicationFields(state);
+    const currentBatchFields = activeFields.filter((f) =>
       currentBatchFieldIds.includes(f.id),
     );
 
@@ -470,7 +511,8 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     }
 
     // -- Step 5: Advance batch if current batch is complete --
-    const currentBatchComplete = currentBatchFieldIds.every(
+    const activeCurrentBatchFieldIds = currentBatchFields.map((field) => field.id);
+    const currentBatchComplete = activeCurrentBatchFieldIds.every(
       (fid) => state!.fields.find((f) => f.id === fid)?.value,
     );
 
@@ -478,7 +520,8 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     let nextBatchFields: ApplicationField[] | undefined;
     if (state.batches) {
       for (let index = state.currentBatchIndex + 1; index < state.batches.length; index++) {
-        const candidateFields = state.fields.filter((f) => state.batches![index].includes(f.id));
+        const activeCandidateFields = getActiveApplicationFields(state);
+        const candidateFields = activeCandidateFields.filter((f) => state.batches![index].includes(f.id));
         if (candidateFields.some((f) => !f.value)) {
           nextBatchIndex = index;
           nextBatchFields = candidateFields;
@@ -539,7 +582,8 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     }
 
     state.updatedAt = Date.now();
-    state.qualityReport = state.qualityReport ?? buildApplicationQualityReport(state);
+    state.contextProposals = proposeContextWritesFromState(state);
+    state.qualityReport = buildApplicationQualityReport(state);
     await applicationStore?.save(state);
 
     if (shouldFailQualityGate(qualityGate, state.qualityReport.qualityGateStatus)) {
@@ -570,7 +614,7 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     if (!state.batches?.length) throw new Error("No batches available");
 
     const batchFieldIds = state.batches[state.currentBatchIndex];
-    const batchFields = state.fields.filter((f) => batchFieldIds.includes(f.id));
+    const batchFields = getActiveApplicationFields(state).filter((f) => batchFieldIds.includes(f.id));
     const filledCount = state.fields.filter((f) => f.value).length;
 
     const { text, usage } = await generateBatchEmail(
@@ -629,10 +673,97 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
     return { text, tokenUsage: totalUsage };
   }
 
+  async function createApplicationRun(input: CreateApplicationRunInput): Promise<ApplicationState> {
+    const state = createApplicationRunFromTemplate(input);
+    await applicationStore?.save(state);
+    return state;
+  }
+
+  async function planNextQuestions(applicationId: string, limit?: number): Promise<ApplicationNextQuestions> {
+    const state = await applicationStore?.get(applicationId);
+    if (!state) throw new Error(`Application ${applicationId} not found`);
+    return planNextApplicationQuestions(state, limit);
+  }
+
+  async function proposeContextWrites(applicationId: string): Promise<ContextProposalResult> {
+    const state = await applicationStore?.get(applicationId);
+    if (!state) throw new Error(`Application ${applicationId} not found`);
+    const proposals = proposeContextWritesFromState(state);
+    await applicationStore?.save({
+      ...state,
+      contextProposals: proposals,
+      updatedAt: Date.now(),
+    });
+    return { proposals };
+  }
+
+  async function buildApplicationPacket(input: BuildApplicationPacketInput): Promise<BuildApplicationPacketResult> {
+    const state = await applicationStore?.get(input.applicationId);
+    if (!state) throw new Error(`Application ${input.applicationId} not found`);
+    const packet = buildApplicationPacketFromState(state, {
+      submissionNotes: input.submissionNotes,
+      now: input.now,
+    });
+    const reviewReport = validateApplicationPacket(packet);
+    await applicationStore?.save({
+      ...state,
+      packet: { ...packet, qualityReport: reviewReport },
+      status: reviewReport.qualityGateStatus === "failed" ? "broker_review" : "packet_ready",
+      qualityReport: reviewReport,
+      updatedAt: Date.now(),
+    });
+    return { packet: { ...packet, qualityReport: reviewReport }, reviewReport };
+  }
+
   return {
     processApplication,
     processReply,
     generateCurrentBatchEmail,
     getConfirmationSummary,
+    createApplicationRun,
+    planNextQuestions,
+    proposeContextWrites,
+    buildApplicationPacket,
   };
+}
+
+function selectMemoryBackfillMatch(
+  field: ApplicationField,
+  chunks: DocumentChunk[],
+): { value: string; source: string; confidence: "high" | "medium"; sourceSpanIds: string[] } | null {
+  for (const chunk of chunks) {
+    const value = chunk.metadata.value
+      ?? chunk.metadata.answer
+      ?? chunk.metadata.fieldValue;
+    if (!value) continue;
+
+    const metadataFieldId = chunk.metadata.fieldId ?? chunk.metadata.applicationFieldId;
+    const metadataLabel = chunk.metadata.fieldLabel?.toLowerCase();
+    const labelMatches = metadataLabel === field.label.toLowerCase();
+    if (metadataFieldId && metadataFieldId !== field.id && !labelMatches) continue;
+
+    return {
+      value,
+      source: chunk.metadata.source ?? `memory: ${chunk.documentId}`,
+      confidence: metadataFieldId === field.id || labelMatches ? "high" : "medium",
+      sourceSpanIds: parseSourceSpanIds(chunk.metadata.sourceSpanIds),
+    };
+  }
+
+  return null;
+}
+
+function parseSourceSpanIds(value: string | undefined): string[] {
+  if (!value) return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+  return trimmed.split(",").map((item) => item.trim()).filter(Boolean);
 }

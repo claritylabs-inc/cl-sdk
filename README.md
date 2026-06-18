@@ -15,7 +15,7 @@ npm install @claritylabs/cl-sdk pdf-lib zod
 - **Document Extraction** — Source-tree extraction that turns parser-provided PDF spans into a canonical hierarchy of document, page group, form, endorsement, section, schedule, clause, table, row, cell, and text nodes. Form-inventory page ranges and parser title elements guide the hierarchy, but every node remains backed by real source spans. Operational policy facts are projections from that tree, not the canonical source of truth.
 - **Source Grounding** — Shared source spans, source nodes, hierarchical table row/cell evidence, source stores, quoted evidence validation, and deterministic evidence ordering across extraction, query, application, PCE, and case workflows.
 - **Query Agent** — Citation-backed question answering over stored source nodes, exact source spans, and inbound photos/PDFs/text with sub-question decomposition, bounded retrieval planning, attachment-only reasoning when retrieval is unnecessary, and grounding verification.
-- **Application Processing** — Bounded workflows handle intake with deterministic planning — field extraction, prior-answer backfill, context auto-fill, document lookup gating, topic-based question batching, reply parsing, source-backed field provenance, and PDF mapping
+- **Application Processing** — Bounded workflows handle intake with deterministic planning — versioned question graphs, conditional/repeatable question projection, prior-answer backfill, context auto-fill, source-backed document backfill, topic-based question batching, reply parsing, context proposals, packet assembly, and PDF mapping helpers
 - **Policy Change Endorsements** — PCE intake, evidence collection, missing-info handling, quality gates, execution mode selection, and reviewable submission packets
 - **Case Workflows** — Shared primitives for evidence-backed proposals, missing information, validation issues, stable IDs, and packet artifacts
 - **Agent System** — Composable prompt modules for building insurance-aware agents across email, chat, SMS, Slack, and Discord with human-reviewable behavior
@@ -152,7 +152,7 @@ CL-SDK uses deterministic scaffolding with agentic decision points rather than f
 - Page mapping, focused extractors, referential lookup, and formatting use separate concurrency controls. Page-scoped PDF and image ranges are cached so overlapping extractor tasks do not repeatedly slice or render the same pages.
 - Formatting skips the LLM cleanup pass for plain prose and formats long or noisy markdown/table/list content in parallel batches.
 - `reviewMode: "auto"` skips the expensive LLM review pass when deterministic checks are clean and source spans are available. Use `"always"` for maximum review coverage or `"skip"` when the host owns quality review separately.
-- Application processing plans optional backfill, context auto-fill, document search, batching, reply parsing, lookup, explanations, and next-batch email generation based on current state.
+- Application processing plans optional backfill, context auto-fill, document search, batching, reply parsing, lookup, explanations, and next-batch email generation based on current active question state. Conditional fields that are not active are skipped until their parent answers trigger them.
 
 These gates reduce unnecessary provider calls while preserving reliability for edge cases where additional focused extraction or retrieval is needed.
 

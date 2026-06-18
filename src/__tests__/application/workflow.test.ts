@@ -84,4 +84,21 @@ describe("application workflow planner", () => {
       generateNextEmail: true,
     });
   });
+
+  it("advances past inactive conditional batches when later active questions remain", () => {
+    const intent: ReplyIntent = {
+      primaryIntent: "answers_only",
+      hasAnswers: false,
+    };
+
+    const plan = planReplyActions({
+      intent,
+      currentBatchFields: [],
+      nextBatchFields: [field({ id: "field-2", label: "Revenue" })],
+      hasDocumentStore: false,
+    });
+
+    expect(plan.advanceBatch).toBe(true);
+    expect(plan.generateNextEmail).toBe(true);
+  });
 });

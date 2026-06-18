@@ -3,12 +3,17 @@ title: Application Processing
 description: Agentic pipeline for insurance application intake, auto-fill, and form completion
 ---
 
-CL SDK provides a full agentic pipeline for processing insurance applications. Small, focused agents handle classification, field extraction, auto-fill, question batching, reply routing, and PDF mapping. A bounded workflow planner decides which optional agents are useful from the current state, so the pipeline can handle edge cases without running every storage lookup or provider call on every application.
+CL SDK provides a full agentic pipeline for processing insurance applications. Small, focused agents handle classification, field extraction, auto-fill, question batching, reply routing, and PDF mapping. Deterministic helpers turn extracted fields into versioned question graphs, filter inactive conditional questions, propose reusable context writes, and assemble broker-ready packets. A bounded workflow planner decides which optional agents are useful from the current state, so the pipeline can handle edge cases without running every storage lookup or provider call on every application.
 
 ## Quick start
 
 ```typescript
-import { createApplicationPipeline } from "@claritylabs/cl-sdk";
+import {
+  buildApplicationPacket,
+  createApplicationPipeline,
+  extractQuestionGraphFromFields,
+  planNextApplicationQuestions,
+} from "@claritylabs/cl-sdk/application";
 
 const pipeline = createApplicationPipeline({
   generateText,
@@ -28,6 +33,13 @@ const { state } = await pipeline.processApplication({
   applicationId: "app-123",
   sourceSpans, // optional page/field evidence from the application PDF
 });
+
+const graph = extractQuestionGraphFromFields(state.fields, {
+  id: "template-1:graph",
+  title: state.title,
+});
+const next = planNextApplicationQuestions({ ...state, questionGraph: graph });
+const packet = buildApplicationPacket(state);
 
 // Generate email for current batch of questions
 const { text: emailBody } = await pipeline.generateCurrentBatchEmail("app-123");
@@ -73,11 +85,11 @@ The planner looks at extracted fields, available stores, org context, and curren
 
 Selected fill strategies run in parallel to maximize pre-filled fields before asking the user anything.
 
-When `sourceSpans` are passed to `processApplication`, the pipeline forwards them to classification, field extraction, auto-fill, lookup, and explanation calls. This lets fields retain page or field-level evidence and gives downstream review surfaces a source-backed audit trail.
+When `sourceSpans` are passed to `processApplication`, the pipeline forwards them to classification and field extraction. Reply answers preserve caller-provided `replySourceSpanIds`, and source-backed backfill can preserve `sourceSpanIds` returned by host stores. Hosts should keep those spans attached to review and packet surfaces.
 
 ### Phase 4: Batch questions if needed
 
-Groups remaining unfilled fields into topic-based batches (3-8 batches). Keeps related fields together (address components, conditional fields with their parents). Orders by importance: company info first, declarations last.
+Groups remaining active unfilled fields into topic-based batches (3-8 batches). Related fields stay together, but inactive conditional fields are skipped until their parent answer triggers them. Orders by importance: company info first, declarations last.
 
 ### Phase 5: Reply loop
 
@@ -124,9 +136,20 @@ interface ApplicationStore {
 }
 ```
 
-`ApplicationState` tracks: fields (with values and sources), batches, current batch index, and status (`classifying` → `extracting` → `auto_filling` → `batching` → `collecting` → `confirming` → `mapping` → `complete`).
+`ApplicationState` tracks: pinned template metadata, optional `questionGraph`, fields with values and sources, batches, current batch index, context proposals, optional packet, and status (`classifying` → `extracting` → `auto_filling` → `batching` → `collecting` → `confirming` → `mapping` → `packet_ready` / `submitted` / `complete`).
 
 Fields can also carry source span IDs for values derived from PDF text, prior answers, user replies, or lookup evidence. Hosts should display those references beside auto-filled answers before final PDF mapping.
+
+## Question graphs, context proposals, and packets
+
+Application fields remain available for backwards compatibility, but new intake flows should pin a versioned `ApplicationQuestionGraph` on every run. Graph helpers provide:
+
+- `extractQuestionGraphFromFields(fields, options)` / `buildQuestionGraphFromFields(fields, options)`
+- `flattenQuestionGraph(graph)`
+- `getActiveApplicationFields(state)`
+- `planNextApplicationQuestions(state)`
+
+After answers are collected, use `proposeContextWrites(state)` to produce host-reviewable facts for org memory. Use `buildApplicationPacket(state)` and `validateApplicationPacket(packet)` to produce a broker-ready answer packet with missing-field and quality status. Packets are `draft` until active required fields are answered and the quality report has no blocking issues.
 
 ## Vector-based answer backfill
 
@@ -142,6 +165,8 @@ interface BackfillProvider {
 ```
 
 This is how the pipeline gets faster over time — each completed application makes future applications faster by providing more answers for backfill.
+
+The pipeline can also use `MemoryStore.search()` for selected high-value fields. Chunks only auto-fill fields when they carry an explicit `metadata.value`, `metadata.answer`, or `metadata.fieldValue`; `metadata.sourceSpanIds` is preserved as citable evidence.
 
 ## Individual prompt functions
 
@@ -163,3 +188,5 @@ import {
   buildLookupFillPrompt,
 } from "@claritylabs/cl-sdk";
 ```
+
+For Convex functions, browser-like runtimes, or consumers that only need the application intake engine, import graph/state/packet helpers from `@claritylabs/cl-sdk/application`. The root SDK entrypoint remains available for extraction, PDF, query, source-grounding, and prompt-builder APIs.

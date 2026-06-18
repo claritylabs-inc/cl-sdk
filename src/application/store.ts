@@ -1,4 +1,4 @@
-import type { ApplicationState, ApplicationField } from "../schemas/application";
+import type { ApplicationState, ApplicationField, ApplicationTemplate } from "../schemas/application";
 
 /**
  * Persistent storage for application processing state.
@@ -18,9 +18,21 @@ export interface ApplicationStore {
   delete(id: string): Promise<void>;
 }
 
+export interface ApplicationTemplateStore {
+  saveTemplate(template: ApplicationTemplate): Promise<void>;
+  getTemplate(id: string, version?: string): Promise<ApplicationTemplate | null>;
+  listTemplates(filters?: ApplicationTemplateListFilters): Promise<ApplicationTemplate[]>;
+  deleteTemplate(id: string, version?: string): Promise<void>;
+}
+
 export interface ApplicationListFilters {
   status?: ApplicationState["status"];
   /** Fuzzy match on title */
+  title?: string;
+}
+
+export interface ApplicationTemplateListFilters {
+  applicationType?: string;
   title?: string;
 }
 
@@ -48,4 +60,7 @@ export interface PriorAnswer {
   value: string;
   source: string;
   relevance: number;
+  confidence?: "confirmed" | "high" | "medium" | "low";
+  sourceSpanIds?: string[];
+  userSourceSpanIds?: string[];
 }

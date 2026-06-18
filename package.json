@@ -11,6 +11,11 @@
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
     },
+    "./application": {
+      "types": "./dist/application.d.ts",
+      "import": "./dist/application.mjs",
+      "require": "./dist/application.js"
+    },
     "./storage/sqlite": {
       "types": "./dist/storage-sqlite.d.ts",
       "import": "./dist/storage-sqlite.mjs",

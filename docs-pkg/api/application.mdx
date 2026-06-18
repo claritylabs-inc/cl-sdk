@@ -10,7 +10,7 @@ description: Complete reference for the application processing pipeline and prom
 Create an application processing pipeline with persistent state, bounded workflow planning, optional auto-fill, and vector-based backfill.
 
 ```typescript
-import { createApplicationPipeline } from "@claritylabs/cl-sdk";
+import { createApplicationPipeline } from "@claritylabs/cl-sdk/application";
 
 const pipeline = createApplicationPipeline({
   generateText, generateObject,
@@ -20,7 +20,7 @@ const pipeline = createApplicationPipeline({
 });
 ```
 
-**Returns:** `{ processApplication, processReply, generateCurrentBatchEmail, getConfirmationSummary }`
+**Returns:** `{ processApplication, processReply, generateCurrentBatchEmail, getConfirmationSummary, createApplicationRun, planNextQuestions, proposeContextWrites, buildApplicationPacket }`
 
 ### `pipeline.processApplication(input)`
 
@@ -31,6 +31,8 @@ Process a new PDF: classify -> extract -> plan optional backfill/auto-fill/searc
 | `input.pdfBase64` | `string` | Base64-encoded application PDF |
 | `input.sourceSpans` | `SourceSpan[]?` | Optional page/field evidence for the application PDF |
 | `input.applicationId` | `string?` | Application ID |
+| `input.template` | `ApplicationTemplate?` | Template snapshot to pin on the run |
+| `input.questionGraph` | `ApplicationQuestionGraph?` | Pre-authored or extracted graph |
 | `input.context` | `AgentContext?` | Platform context |
 
 **Returns:** `Promise<{ state: ApplicationState; tokenUsage: TokenUsage; reviewReport: ApplicationQualityReport }>`
@@ -50,7 +52,7 @@ Process a user reply: classify intent -> plan actions -> parse answers / handle 
 
 Application workflow gates optional work from the current state. Backfill requires an available backfill provider and unfilled fields, context auto-fill requires relevant org context, document search targets selected high-value fields, and reply handling runs only the agents needed for the classified intent.
 
-Source grounding is optional but recommended. `sourceSpans` are forwarded into provider calls during application processing, and `replySourceSpanIds` preserve provenance for user-supplied answers.
+Source grounding is optional but recommended. `sourceSpans` are forwarded to classification and field extraction. `replySourceSpanIds` preserve provenance for user-supplied answers, while backfill providers and memory chunks can attach source spans to auto-filled values.
 
 ### `pipeline.generateCurrentBatchEmail(applicationId, opts?)`
 
@@ -60,11 +62,61 @@ Generate the email for the current question batch. **Returns:** `Promise<{ text,
 
 Generate a formatted summary for user review. **Returns:** `Promise<{ text, tokenUsage }>`
 
+### `pipeline.createApplicationRun(input)`
+
+Create a persistent run from a pinned `ApplicationTemplate` without reprocessing a PDF. The run stores `templateId`, `templateVersion`, `templateSnapshot`, `questionGraph`, and flattened fields.
+
+### `pipeline.planNextQuestions(applicationId, limit?)`
+
+Return active unanswered fields for the current run. Inactive conditional fields are skipped until their parent answers make them active.
+
+### `pipeline.proposeContextWrites(applicationId)`
+
+Return reusable org-context proposals from confirmed/high-confidence application answers and persist them on state as `contextProposals`.
+
+### `pipeline.buildApplicationPacket(input)`
+
+Build and persist an `ApplicationPacket` with source-backed answers, missing required field IDs, quality report, and optional submission notes. The run status becomes `packet_ready` only when packet validation has no blocking issues.
+
+---
+
+## Graph and packet helpers
+
+### `extractQuestionGraphFromFields(fields, options)`
+
+Build a versioned `ApplicationQuestionGraph` from flat extracted fields. The graph preserves sections, field paths, conditional rules, repeat metadata, and stable field anchors.
+
+### `getActiveApplicationFields(state)`
+
+Return only fields whose field-level or graph-level conditions are currently satisfied.
+
+### `planNextApplicationQuestions(state, limit?)`
+
+Return `{ status, fieldIds, fields }` for active unanswered questions.
+
+### `applyApplicationAnswers(state, answers, now?)`
+
+Apply host-provided answers to a state object and recompute quality plus completion status.
+
+### `proposeContextWrites(state)`
+
+Build host-reviewable context proposals from source-backed or user-confirmed answers.
+
+### `buildApplicationPacket(state, options?)`
+
+Build a deterministic packet artifact. Packet status is `draft` when active required fields are missing or quality has blocking issues, otherwise `broker_ready`.
+
+### `validateApplicationPacket(packet)`
+
+Return the packet quality report with packet-level missing-answer validation.
+
 ---
 
 ## Prompt builders (advanced)
 
 All application processing functions are also exported as prompt builders — they return prompt strings for use with any LLM.
+
+Use the `@claritylabs/cl-sdk/application` subpath when a host runtime only needs application intake helpers. The root SDK export also includes extraction and PDF utilities, while this subpath keeps application state, question graph, context proposal, and packet logic isolated for browser-like/serverless runtimes such as Convex functions.
 
 ## Detection
 

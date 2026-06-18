@@ -60,7 +60,8 @@ export function planReplyActions(input: ReplyActionPlanInput): ReplyActionPlan {
     runLookup: hasLookupRequests && input.hasDocumentStore,
     answerQuestion: Boolean(input.intent.questionText)
       && (input.intent.primaryIntent === "question" || input.intent.primaryIntent === "mixed"),
-    advanceBatch: hasCurrentFields && input.currentBatchFields.every((field) => !isUnfilled(field)),
+    advanceBatch: (hasCurrentFields && input.currentBatchFields.every((field) => !isUnfilled(field)))
+      || (!hasCurrentFields && nextBatchNeedsAnswers),
     generateNextEmail: nextBatchNeedsAnswers,
   };
 }
