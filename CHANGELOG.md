@@ -1,3 +1,10 @@
+# [3.1.0](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.33...v3.1.0) (2026-06-18)
+
+
+### Features
+
+* **application:** add reusable intake engine ([9105f01](https://github.com/claritylabs-inc/cl-sdk/commit/9105f01dd276a8657d1acfe9d91484d9c22bd7ed))
+
 ## [3.0.33](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.32...v3.0.33) (2026-06-15)
 
 
