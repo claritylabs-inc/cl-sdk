@@ -1,3 +1,10 @@
+## [3.1.3](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.2...v3.1.3) (2026-06-24)
+
+
+### Bug Fixes
+
+* **extraction:** clean operational profile projections ([23c6a62](https://github.com/claritylabs-inc/cl-sdk/commit/23c6a629a97f00ef7d9b5817ec92c52b1c6ec740))
+
 ## [3.1.2](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.1...v3.1.2) (2026-06-24)
 
 
