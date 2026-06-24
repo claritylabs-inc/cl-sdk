@@ -1,3 +1,10 @@
+## [3.1.1](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.0...v3.1.1) (2026-06-24)
+
+
+### Bug Fixes
+
+* **extraction:** normalize coverage schedule table terms ([3852f7c](https://github.com/claritylabs-inc/cl-sdk/commit/3852f7c2ef6515e0658bc1d1196561768ef0120b))
+
 # [3.1.0](https://github.com/claritylabs-inc/cl-sdk/compare/v3.0.33...v3.1.0) (2026-06-18)
 
 
