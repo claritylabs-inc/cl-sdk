@@ -362,17 +362,12 @@ describe("source tree v3", () => {
           label: "Retention (Each Claim)",
           value: "$25,000 each Claim",
         }),
-        expect.objectContaining({
-          label: "Limit Reference",
-          value: "shown in Item 7)",
-        }),
       ]),
     }));
-    expect(endorsementCoverage?.limits.filter((term) => term.value.includes("Item 7"))).toEqual(expect.arrayContaining([
-      expect.not.objectContaining({ amount: 7 }),
-      expect.objectContaining({ label: "Limit Reference", value: "shown in Item 7)" }),
-    ]));
-    expect(endorsementCoverage?.limits.find((term) => term.value === "shown in Item 7)")).not.toHaveProperty("amount");
+    expect(endorsementCoverage?.limits.some((term) => term.value === "shown in Item 7)")).toBe(false);
+    for (const term of endorsementCoverage?.limits.filter((limitTerm) => limitTerm.value.includes("Item 7")) ?? []) {
+      expect(term).not.toEqual(expect.objectContaining({ amount: 7 }));
+    }
     expect(endorsementCoverage?.limits).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "retention", value: "Retention (Each Claim)" }),
     ]));
@@ -1149,6 +1144,90 @@ describe("source tree v3", () => {
     expect(profile.coverages.map((coverage) => coverage.name)).toEqual([
       "Coverage Part A. Technology Errors & Omissions Liability",
     ]);
+  });
+
+  it("uses table header context for declaration sublimit rows", () => {
+    const documentId = "policy-1";
+    const node = (
+      id: string,
+      kind: "document" | "table" | "table_row" | "table_cell",
+      title: string,
+      text: string,
+      order: number,
+      parentId?: string,
+      metadata?: Record<string, unknown>,
+    ) => ({
+      id,
+      documentId,
+      ...(parentId ? { parentId } : {}),
+      kind,
+      title,
+      description: text,
+      textExcerpt: kind === "document" || kind === "table" ? undefined : text,
+      sourceSpanIds: [`span-${id}`],
+      pageStart: 5,
+      pageEnd: 5,
+      order,
+      path: "",
+      metadata,
+    });
+    const sourceTree = normalizeDocumentSourceTreePaths([
+      node("doc", "document", "Policy", "Policy", 0),
+      node("table", "table", "Declarations schedule", "Declarations schedule", 1, "doc"),
+      node("header-1", "table_row", "Header row", "Coverage Part | Limit of Liability | Deductible | Retroactive Date", 2, "table", { isHeader: true }),
+      node("header-1-a", "table_cell", "Column 1", "Coverage Part", 3, "header-1"),
+      node("header-1-b", "table_cell", "Column 2", "Limit of Liability", 4, "header-1"),
+      node("header-1-c", "table_cell", "Column 3", "Deductible", 5, "header-1"),
+      node("header-1-d", "table_cell", "Column 4", "Retroactive Date", 6, "header-1"),
+      node("row-a", "table_row", "Row 1", "Coverage Part: A. Technology Professional Liability | Limit of Liability: $2,000,000 Each Claim | Deductible: $10,000 | Retroactive Date: 01/01/2024", 7, "table"),
+      node("row-a-name", "table_cell", "Coverage Part", "A. Technology Professional Liability", 8, "row-a"),
+      node("row-a-limit", "table_cell", "Limit of Liability", "$2,000,000 Each Claim", 9, "row-a"),
+      node("row-a-ded", "table_cell", "Deductible", "$10,000", 10, "row-a"),
+      node("row-a-retro", "table_cell", "Retroactive Date", "01/01/2024", 11, "row-a"),
+      node("row-b", "table_row", "Row 2", "Coverage Part: B. Network Security and Privacy Liability | Limit of Liability: $1,000,000 Each Claim / | Deductible: $5,000 Each | Retroactive Date: 05/01/2025", 12, "table"),
+      node("row-b-name", "table_cell", "Coverage Part", "B. Network Security and Privacy Liability", 13, "row-b"),
+      node("row-b-limit", "table_cell", "Limit of Liability", "$1,000,000 Each Claim /", 14, "row-b"),
+      node("row-b-ded", "table_cell", "Deductible", "$5,000 Each", 15, "row-b"),
+      node("row-b-retro", "table_cell", "Retroactive Date", "05/01/2025", 16, "row-b"),
+      node("header-2", "table_row", "Header row", "Aggregate (sub-limit, part of and not in addition to Aggregate Policy Limit) | Claim", 17, "table", { isHeader: true }),
+      node("header-2-a", "table_cell", "Column 1", "Aggregate (sub-limit, part of and not in addition to Aggregate Policy Limit)", 18, "header-2"),
+      node("header-2-b", "table_cell", "Column 2", "Claim", 19, "header-2"),
+      node("row-c", "table_row", "Row 3", "Aggregate (sub-limit, part of and not in addition to Aggregate Policy Limit): C. Regulatory Proceedings Sub-Limit | Claim: $100,000 Each Proceeding / | Column 3: $5,000 Each | Column 4: 05/01/2025", 20, "table"),
+      node("row-c-name", "table_cell", "Aggregate (sub-limit, part of and not in addition to Aggregate Policy Limit)", "C. Regulatory Proceedings Sub-Limit", 21, "row-c"),
+      node("row-c-limit", "table_cell", "Claim", "$100,000 Each Proceeding /", 22, "row-c"),
+      node("row-c-ded", "table_cell", "Column 3", "$5,000 Each", 23, "row-c"),
+      node("row-c-retro", "table_cell", "Column 4", "05/01/2025", 24, "row-c"),
+      node("header-3", "table_row", "Header row", "Aggregate (sub-limit, part of | Proceeding", 25, "table", { isHeader: true }),
+      node("header-3-a", "table_cell", "Aggregate (sub-limit, part of and not in addition to Aggregate Policy Limit)", "Aggregate (sub-limit, part of", 26, "header-3"),
+      node("header-3-b", "table_cell", "Claim", "Proceeding", 27, "header-3"),
+      node("row-d", "table_row", "Row 4", "Aggregate (sub-limit, part of: D. Social Engineering Fraud | Proceeding: $250,000 Each Loss / | Column 3: $5,000 Each | Column 4: 05/01/2026", 28, "table"),
+      node("row-d-name", "table_cell", "Aggregate (sub-limit, part of", "D. Social Engineering Fraud", 29, "row-d"),
+      node("row-d-limit", "table_cell", "Proceeding", "$250,000 Each Loss /", 30, "row-d"),
+      node("row-d-ded", "table_cell", "Column 3", "$5,000 Each", 31, "row-d"),
+      node("row-d-retro", "table_cell", "Column 4", "05/01/2026", 32, "row-d"),
+    ]);
+
+    const profile = buildDeterministicOperationalProfile({ sourceTree, sourceSpans: [] });
+
+    expect(profile.coverages.map((coverage) => coverage.name)).toEqual([
+      "A. Technology Professional Liability",
+      "B. Network Security and Privacy Liability",
+      "C. Regulatory Proceedings Sub-Limit",
+      "D. Social Engineering Fraud",
+    ]);
+    expect(profile.coverages.flatMap((coverage) => coverage.limits).map((term) => term.label)).not.toContain("Column 3");
+    expect(profile.coverages.flatMap((coverage) => coverage.limits).map((term) => term.label)).not.toContain("Column 4");
+    expect(profile.coverages[1].limit).toBe("$1,000,000 Each Claim");
+    expect(profile.coverages[2].limits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "sublimit", label: "Claim", value: "$100,000 Each Proceeding" }),
+      expect.objectContaining({ kind: "deductible", label: "Deductible", value: "$5,000 Each" }),
+      expect.objectContaining({ kind: "retroactive_date", label: "Retroactive Date", value: "05/01/2025" }),
+    ]));
+    expect(profile.coverages[3].limits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "each_loss_limit", label: "Proceeding", value: "$250,000 Each Loss" }),
+      expect.objectContaining({ kind: "deductible", label: "Deductible", value: "$5,000 Each" }),
+      expect.objectContaining({ kind: "retroactive_date", label: "Retroactive Date", value: "05/01/2026" }),
+    ]));
   });
 
   it("uses visual title spans to split page content", () => {

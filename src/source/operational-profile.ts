@@ -376,6 +376,14 @@ function normalizeLabel(value: string | undefined): string {
   return normalizeWhitespace(value ?? "").toLowerCase();
 }
 
+function isGenericColumnLabel(value: string | undefined): boolean {
+  return /^column\s+\d+$/i.test(cleanValue(value) ?? "");
+}
+
+function isHeaderRow(row: DocumentSourceNode): boolean {
+  return row.metadata?.isHeader === true || row.metadata?.isHeader === "true";
+}
+
 const OPERATIONAL_COVERAGE_TERM_KINDS = new Set<OperationalCoverageTerm["kind"]>([
   "each_claim_limit",
   "each_occurrence_limit",
@@ -397,6 +405,7 @@ function termKind(label: string, value: string): OperationalCoverageTerm["kind"]
   if (/\bpremium\b/.test(text)) return "premium";
   if (/\bsub[-\s]?limit\b/.test(text)) return "sublimit";
   if (/\baggregate\b/.test(text)) return "aggregate_limit";
+  if (/\beach\s+proceeding|per\s+proceeding\b/.test(text)) return "sublimit";
   if (/\beach\s+claim|per\s+claim\b/.test(text)) return "each_claim_limit";
   if (/\beach\s+occurrence|per\s+occurrence\b/.test(text)) return "each_occurrence_limit";
   if (/\beach\s+loss|per\s+loss\b/.test(text)) return "each_loss_limit";
@@ -433,7 +442,13 @@ function isNameCell(label: string, value: string): boolean {
   const normalizedLabel = normalizeLabel(label);
   const normalizedValue = normalizeLabel(value);
   if (!value || moneyAmount(value) !== undefined) return false;
+  if (/^item\s+\d+[.)]?\s*limits?\s+of\s+liability\b/.test(normalizedValue)) return false;
   if (/\b(coverage|coverage part|insuring agreement|description|item|name)\b/.test(normalizedLabel)) {
+    return true;
+  }
+  if (/\b(sub[-\s]?limit|aggregate(?:\s+policy)?\s+limit|limit\s+of\s+liability)\b/.test(normalizedLabel) &&
+    /\b[a-z][a-z0-9&/ -]{2,}\b/.test(normalizedValue) &&
+    !/\bcoverage\s+part\s+[a-z]\)?$/.test(normalizedValue)) {
     return true;
   }
   if (/^column\s+1$/.test(normalizedLabel) && !/^(item\s+\d+|nwc-|iso-|cg |il |form\b|page\b)/i.test(normalizedValue)) {
@@ -456,7 +471,7 @@ function childMap(nodes: DocumentSourceNode[]): Map<string | undefined, Document
   return children;
 }
 
-function cellRows(row: DocumentSourceNode, children: Map<string | undefined, DocumentSourceNode[]>) {
+function rawCellRows(row: DocumentSourceNode, children: Map<string | undefined, DocumentSourceNode[]>) {
   return (children.get(row.id) ?? [])
     .filter((child) => child.kind === "table_cell")
     .map((cell) => ({
@@ -465,6 +480,33 @@ function cellRows(row: DocumentSourceNode, children: Map<string | undefined, Doc
       node: cell,
     }))
     .filter((cell) => cell.value);
+}
+
+function headerLabelsForRow(row: DocumentSourceNode, children: Map<string | undefined, DocumentSourceNode[]>): string[] {
+  if (!row.parentId) return [];
+  const labels: string[] = [];
+  const siblingRows = (children.get(row.parentId) ?? [])
+    .filter((candidate) => candidate.kind === "table_row" && candidate.order < row.order)
+    .sort((left, right) => left.order - right.order);
+  for (const sibling of siblingRows) {
+    if (!isHeaderRow(sibling)) continue;
+    for (const [index, cell] of rawCellRows(sibling, children).entries()) {
+      const label = cleanValue(cell.value) ?? cleanValue(cell.label);
+      if (label && !isGenericColumnLabel(label)) labels[index] = label;
+    }
+  }
+  return labels;
+}
+
+function cellRows(
+  row: DocumentSourceNode,
+  children: Map<string | undefined, DocumentSourceNode[]>,
+  headerLabels: string[] = [],
+) {
+  return rawCellRows(row, children).map((cell, index) => ({
+    ...cell,
+    label: isGenericColumnLabel(cell.label) && headerLabels[index] ? headerLabels[index] : cell.label,
+  }));
 }
 
 function directChildren(parent: DocumentSourceNode, children: Map<string | undefined, DocumentSourceNode[]>): DocumentSourceNode[] {
@@ -533,8 +575,9 @@ function termFromCell(params: {
   value: string;
   appliesTo?: string;
 }): OperationalCoverageTerm | undefined {
-  const value = cleanValue(params.value);
+  const value = cleanCoverageTermValue(params.value);
   if (!value) return undefined;
+  if (isRejectedCoverageTermValue(params.label, value)) return undefined;
   const nodes = [params.row, params.cell].filter((node): node is DocumentSourceNode => Boolean(node));
   const kind = termKind(params.label, value);
   const amount = moneyAmount(value);
@@ -548,24 +591,46 @@ function termFromCell(params: {
   };
 }
 
+function cleanCoverageTermValue(value: string | undefined): string | undefined {
+  return cleanValue(value)?.replace(/\s+\/\s*$/, "").trim();
+}
+
+function isRejectedCoverageTermValue(label: string, value: string): boolean {
+  if (/\bshown\s+in\s+item\s*\d+\b/i.test(value) && moneyAmount(value) === undefined) return true;
+  if (/\b(does not afford coverage|doesn't afford coverage|no coverage|remains excluded|is excluded|are excluded|shall not cover|will not cover)\b/i.test(value) &&
+    moneyAmount(value) === undefined) {
+    return true;
+  }
+  if (/^for:\s*\(\d+\)/i.test(label) && moneyAmount(value) === undefined) return true;
+  if (value.length > 80 && /\b(exclusion|excluded|shall not|will not|does not|failure to)\b/i.test(value) && moneyAmount(value) === undefined) return true;
+  return false;
+}
+
 function termsFromRow(row: DocumentSourceNode, children: Map<string | undefined, DocumentSourceNode[]>): OperationalCoverageTerm[] {
-  const cells = cellRows(row, children);
+  const cells = cellRows(row, children, headerLabelsForRow(row, children));
   if (cells.length > 0) {
     const pairedTerms: OperationalCoverageTerm[] = [];
+    const pairedIndexes = new Set<number>();
     for (const [index, cell] of cells.entries()) {
       const next = cells[index + 1];
       if (!next) continue;
+      if (!isGenericColumnLabel(cell.label) && isNameCell(cell.label, cell.value)) continue;
       if (!isCoverageTermLabel(cell.value)) continue;
       if (isCoverageTermLabel(next.value) && moneyAmount(next.value) === undefined) continue;
       const term = termFromCell({ row, cell: next.node, label: cell.value, value: next.value });
-      if (term) pairedTerms.push(term);
+      if (term) {
+        pairedTerms.push(term);
+        pairedIndexes.add(index);
+        pairedIndexes.add(index + 1);
+      }
     }
-    if (pairedTerms.length > 0) return pairedTerms;
 
-    return cells
+    const valueTerms = cells
+      .filter((_, index) => !pairedIndexes.has(index))
       .filter((cell) => isValueCell(cell.label, cell.value))
       .map((cell) => termFromCell({ row, cell: cell.node, label: cell.label, value: cell.value }))
       .filter((term): term is OperationalCoverageTerm => Boolean(term));
+    return [...pairedTerms, ...valueTerms];
   }
 
   const text = normalizeWhitespace(row.textExcerpt ?? row.description ?? nodeText(row));
@@ -593,11 +658,11 @@ function termsFromRow(row: DocumentSourceNode, children: Map<string | undefined,
 }
 
 function nameFromRow(row: DocumentSourceNode, children: Map<string | undefined, DocumentSourceNode[]>): string | undefined {
-  const declarationName = declarationCoverageNameFromRow(row, children);
-  if (declarationName) return declarationName;
-  const cells = cellRows(row, children);
+  const cells = cellRows(row, children, headerLabelsForRow(row, children));
   const named = cells.find((cell) => isNameCell(cell.label, cell.value));
   if (named) return cleanValue(named.value);
+  const declarationName = declarationCoverageNameFromRow(row, children);
+  if (declarationName) return declarationName;
   return coverageNameFromRow(row.textExcerpt ?? row.description ?? nodeText(row));
 }
 
@@ -637,7 +702,7 @@ function isOperationalCoverageRow(coverage: OperationalCoverageLine): boolean {
   if (coverage.name.split(/\s+/).length > 16 && !/\b(coverage|liability|sub[-\s]?limit|aggregate|each\s+(claim|loss|occurrence)|limit)\b/i.test(coverage.name)) {
     return false;
   }
-  return /\b(coverage|coverage part|liability|sub[-\s]?limit|aggregate|each\s+(claim|loss|occurrence)|bricking|cyber|privacy|media|regulatory|defense|ai\/ml|errors?\s*&?\s*omissions|technology)\b/i.test(coverage.name);
+  return /\b(coverage|coverage part|liability|sub[-\s]?limit|aggregate|each\s+(claim|loss|occurrence|proceeding)|bricking|cyber|privacy|media|regulatory|defense|fraud|social engineering|ai\/ml|errors?\s*&?\s*omissions|technology)\b/i.test(coverage.name);
 }
 
 function uniqueTerms(terms: OperationalCoverageTerm[]): OperationalCoverageTerm[] {
@@ -657,7 +722,7 @@ function coverageFromTableRow(
   children: Map<string | undefined, DocumentSourceNode[]>,
   byId: Map<string, DocumentSourceNode>,
 ): OperationalCoverageLine | undefined {
-  if (row.metadata?.isHeader === true || row.metadata?.isHeader === "true") return undefined;
+  if (isHeaderRow(row)) return undefined;
   const name = nameFromRow(row, children);
   const terms = uniqueTerms(termsFromRow(row, children));
   if (!name || terms.length === 0) return undefined;
