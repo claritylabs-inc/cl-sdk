@@ -1,3 +1,10 @@
+## [3.1.2](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.1...v3.1.2) (2026-06-24)
+
+
+### Bug Fixes
+
+* **release:** delete failed release tags through api ([525a786](https://github.com/claritylabs-inc/cl-sdk/commit/525a78662e863a79d17b0d252c1dc44ef5f54df3))
+
 ## [3.1.1](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.0...v3.1.1) (2026-06-24)
 
 
