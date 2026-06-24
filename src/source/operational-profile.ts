@@ -558,16 +558,6 @@ function sourceIds(nodes: DocumentSourceNode[]) {
   };
 }
 
-function relabelGenericTerm(term: OperationalCoverageTerm, label: string | undefined): OperationalCoverageTerm {
-  const cleanLabel = cleanValue(label);
-  if (!cleanLabel || !/^column\s+\d+$/i.test(term.label)) return term;
-  return {
-    ...term,
-    kind: termKind(cleanLabel, term.value),
-    label: cleanLabel,
-  };
-}
-
 function termFromCell(params: {
   row: DocumentSourceNode;
   cell?: DocumentSourceNode;
@@ -751,10 +741,7 @@ function coverageFromEndorsement(
   const terms = uniqueTerms(rows.flatMap((row) =>
     termsFromRow(row, children).map((term) => {
       const appliesTo = nameFromRow(row, children);
-      const labelled = relabelGenericTerm(term, appliesTo);
-      return appliesTo && labelled.label !== appliesTo
-        ? { ...labelled, appliesTo }
-        : labelled;
+      return appliesTo && term.label !== appliesTo ? { ...term, appliesTo } : term;
     }),
   ));
   if (terms.length === 0) return undefined;

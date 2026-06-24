@@ -13,6 +13,14 @@ const resolveBudget = (taskKind: "extraction_source_tree" | "extraction_operatio
 
 function modelStub(): GenerateObject {
   return vi.fn(async (params) => {
+    if (params.prompt.includes("Review and clean a source-backed operational profile projection")) {
+      return {
+        object: {
+          coverageDecisions: [],
+          warnings: [],
+        },
+      };
+    }
     if (params.taskKind === "extraction_operational_profile") {
       return {
         object: {
@@ -211,5 +219,112 @@ describe("source-tree extraction", () => {
       pageStart: 11,
       pageEnd: 11,
     }));
+  });
+
+  it("runs a model cleanup pass over malformed operational profile projections", async () => {
+    const evidence = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      text: "Evidence packet row A $25,000 shown in Item 7.",
+      pageStart: 3,
+      pageEnd: 3,
+      sourceUnit: "text",
+    });
+    let cleanupPromptSeen = false;
+    const generateObject = vi.fn(async (params) => {
+      if (params.prompt.includes("Review and clean a source-backed operational profile projection")) {
+        cleanupPromptSeen = true;
+        return {
+          object: {
+            coverageDecisions: [{
+              coverageIndex: 0,
+              action: "update",
+              reason: "The schedule heading is not the coverage name and the item reference is not an amount.",
+              name: "Cyber Liability",
+              sourceSpanIds: ["not-a-real-span"],
+              termDecisions: [
+                {
+                  termIndex: 0,
+                  action: "update",
+                  reason: "The value is a deductible, not a generic column value.",
+                  kind: "deductible",
+                  label: "Deductible",
+                  value: "$25,000",
+                  sourceSpanIds: ["also-not-real"],
+                },
+                {
+                  termIndex: 1,
+                  action: "drop",
+                  reason: "The item reference is not a source-backed amount.",
+                },
+              ],
+            }],
+            warnings: ["cleaned malformed coverage projection"],
+          },
+        };
+      }
+      if (params.taskKind === "extraction_operational_profile") {
+        return {
+          object: {
+            documentType: "policy",
+            policyTypes: ["cyber"],
+            coverageTypes: ["Limits of Liability"],
+            coverages: [{
+              name: "Limits of Liability",
+              limit: "$25,000 /",
+              coverageOrigin: "core",
+              limits: [
+                {
+                  kind: "other",
+                  label: "Column 3",
+                  value: "$25,000 /",
+                  amount: 25000,
+                  sourceNodeIds: [],
+                  sourceSpanIds: [evidence.id],
+                },
+                {
+                  kind: "other",
+                  label: "Limit Reference",
+                  value: "shown in Item 7)",
+                  amount: 7,
+                  sourceNodeIds: [],
+                  sourceSpanIds: [evidence.id],
+                },
+              ],
+              sourceNodeIds: [],
+              sourceSpanIds: [evidence.id],
+            }],
+          },
+        };
+      }
+      return { object: { labels: [], groups: [] } };
+    }) as GenerateObject;
+
+    const result = await runSourceTreeExtraction({
+      id: "doc-1",
+      sourceSpans: [evidence],
+      generateObject,
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    expect(cleanupPromptSeen).toBe(true);
+    expect(result.operationalProfile.coverages).toHaveLength(1);
+    expect(result.operationalProfile.coverages[0]).toEqual(expect.objectContaining({
+      name: "Cyber Liability",
+      deductible: "$25,000",
+    }));
+    expect(result.operationalProfile.coverages[0].limit).toBeUndefined();
+    expect(result.operationalProfile.coverages[0].limits).toEqual([
+      expect.objectContaining({
+        kind: "deductible",
+        label: "Deductible",
+        value: "$25,000",
+        amount: 25000,
+        sourceSpanIds: [evidence.id],
+      }),
+    ]);
+    expect(result.operationalProfile.sourceSpanIds).toEqual([evidence.id]);
+    expect(result.operationalProfile.warnings).toContain("Operational profile cleanup warning: cleaned malformed coverage projection");
   });
 });

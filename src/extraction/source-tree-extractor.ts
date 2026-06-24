@@ -19,6 +19,13 @@ import {
   normalizeSourceSpans,
 } from "../source";
 import type { FormInventoryResult } from "../prompts/coordinator/form-inventory";
+import {
+  applyOperationalProfileCleanup,
+  buildOperationalProfileCleanupPrompt,
+  OperationalCoverageTermKindSchema,
+  OperationalProfileCleanupSchema,
+  type OperationalProfileCleanup,
+} from "./operational-profile-cleanup";
 
 const ORGANIZABLE_KINDS = [
   "page_group",
@@ -103,18 +110,7 @@ const OperationalProfilePromptSchema = z.object({
     coverageOrigin: z.enum(["core", "endorsement"]).optional(),
     endorsementNumber: z.string().optional(),
     limits: z.array(z.object({
-      kind: z.enum([
-        "each_claim_limit",
-        "each_occurrence_limit",
-        "each_loss_limit",
-        "aggregate_limit",
-        "sublimit",
-        "retention",
-        "deductible",
-        "retroactive_date",
-        "premium",
-        "other",
-      ]).optional(),
+      kind: OperationalCoverageTermKindSchema.optional(),
       label: z.string(),
       value: z.string(),
       amount: z.number().optional(),
@@ -1994,6 +1990,46 @@ export async function runSourceTreeExtraction(params: {
     );
   } catch (error) {
     warnings.push(`Operational profile model pass failed; deterministic profile used (${error instanceof Error ? error.message : String(error)})`);
+  }
+
+  if (operationalProfile.coverages.length > 0) {
+    try {
+      const validNodeIds = new Set(sourceTree.map((node) => node.id));
+      const validSpanIds = new Set(sourceSpans.map((span) => span.id));
+      const budget = params.resolveBudget("extraction_operational_profile", 4096);
+      const startedAt = Date.now();
+      const response = await safeGenerateObject(
+        params.generateObject,
+        {
+          prompt: buildOperationalProfileCleanupPrompt(sourceTree, operationalProfile),
+          schema: OperationalProfileCleanupSchema,
+          maxTokens: budget.maxTokens,
+          taskKind: "extraction_operational_profile",
+          budgetDiagnostics: budget,
+          providerOptions: params.providerOptions,
+        },
+        {
+          fallback: { coverageDecisions: [], warnings: [] },
+          log: params.log,
+        },
+      );
+      localTrack(response.usage, {
+        taskKind: "extraction_operational_profile",
+        label: "operational_profile_cleanup",
+        maxTokens: budget.maxTokens,
+        durationMs: Date.now() - startedAt,
+      });
+      operationalProfile = applyOperationalProfileCleanup(
+        operationalProfile,
+        response.object as OperationalProfileCleanup,
+        validNodeIds,
+        validSpanIds,
+      );
+    } catch (error) {
+      warnings.push(`Operational profile cleanup pass failed; uncleaned profile used (${error instanceof Error ? error.message : String(error)})`);
+    }
+  } else {
+    await params.log?.("Operational profile has no coverage rows; skipped model cleanup");
   }
 
   const document = materializeDocument({
