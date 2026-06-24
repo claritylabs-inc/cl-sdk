@@ -135,8 +135,12 @@ jobs:
           # Delete the GitHub release
           gh release delete "v$VERSION" --yes || echo "Release may not exist"
 
-          # Delete the tag
-          git push origin --delete "refs/tags/v$VERSION" || echo "Tag may not exist"
+          # Delete the tag. checkout uses persist-credentials: false, so use
+          # the authenticated GitHub API instead of unauthenticated git push.
+          gh api \
+            --method DELETE \
+            "repos/${GITHUB_REPOSITORY}/git/refs/tags/v$VERSION" \
+            || echo "Tag may not exist"
 
           echo "Rollback complete. Fix the npm issue and retry."
         env:
