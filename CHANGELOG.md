@@ -1,3 +1,10 @@
+## [3.1.4](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.3...v3.1.4) (2026-06-25)
+
+
+### Bug Fixes
+
+* **extraction:** require source-backed identity records ([cde5c49](https://github.com/claritylabs-inc/cl-sdk/commit/cde5c498d96d3f703c5add4ff96038ba4ff0b950))
+
 ## [3.1.3](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.2...v3.1.3) (2026-06-24)
 
 
