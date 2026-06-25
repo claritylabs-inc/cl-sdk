@@ -1,9 +1,24 @@
 import type { InsuranceDocument } from "../schemas/document";
+import type { SourceProvenance } from "../schemas/shared";
 
 // ── Helpers ──
 
 type RawRecord = Record<string, unknown>;
 type RawFieldPromotion = { from: string; to: string };
+
+function sourceProvenance(raw: RawRecord): SourceProvenance | undefined {
+  const sourceSpanIds = Array.isArray(raw.sourceSpanIds)
+    ? raw.sourceSpanIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+    : [];
+  if (sourceSpanIds.length === 0) return undefined;
+  return {
+    sourceSpanIds,
+    ...(typeof raw.documentNodeId === "string" ? { documentNodeId: raw.documentNodeId } : {}),
+    ...(typeof raw.sourceTextHash === "string" ? { sourceTextHash: raw.sourceTextHash } : {}),
+    ...(typeof raw.pageStart === "number" ? { pageStart: raw.pageStart } : {}),
+    ...(typeof raw.pageEnd === "number" ? { pageEnd: raw.pageEnd } : {}),
+  };
+}
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
@@ -35,6 +50,7 @@ function promoteRawFields(raw: RawRecord, mappings: RawFieldPromotion[]): void {
  */
 function promoteCarrierFields(doc: InsuranceDocument): void {
   const raw = doc as RawRecord;
+  const provenance = sourceProvenance(raw);
 
   promoteRawFields(raw, [
     { from: "naicNumber", to: "carrierNaicNumber" },
@@ -42,13 +58,13 @@ function promoteCarrierFields(doc: InsuranceDocument): void {
     { from: "admittedStatus", to: "carrierAdmittedStatus" },
   ]);
 
-  // Also build the structured insurer sub-object if we have legal name
-  if (!raw.insurer && raw.carrierLegalName) {
+  if (!raw.insurer && raw.carrierLegalName && provenance) {
     raw.insurer = {
       legalName: raw.carrierLegalName,
       ...(raw.carrierNaicNumber ? { naicNumber: raw.carrierNaicNumber } : {}),
       ...(raw.carrierAmBestRating ? { amBestRating: raw.carrierAmBestRating } : {}),
       ...(raw.carrierAdmittedStatus ? { admittedStatus: raw.carrierAdmittedStatus } : {}),
+      ...provenance,
     };
   }
 }
@@ -57,21 +73,21 @@ function promoteCarrierFields(doc: InsuranceDocument): void {
 
 function promoteBroker(doc: InsuranceDocument): void {
   const raw = doc as RawRecord;
+  const provenance = sourceProvenance(raw);
   const brokerAgency = findRawString(raw, ["brokerAgency"]);
   const brokerContact = findRawString(raw, ["brokerContactName"]);
   const brokerLicense = findRawString(raw, ["brokerLicenseNumber"]);
   const brokerPhone = findRawString(raw, ["brokerPhone"]);
   const brokerEmail = findRawString(raw, ["brokerEmail"]);
-  const brokerAddress = findRawString(raw, ["brokerAddress"]);
 
-  if (!raw.producer && brokerAgency) {
+  if (!raw.producer && brokerAgency && provenance) {
     raw.producer = {
       agencyName: brokerAgency,
       ...(brokerContact ? { contactName: brokerContact } : {}),
       ...(brokerLicense ? { licenseNumber: brokerLicense } : {}),
       ...(brokerPhone ? { phone: brokerPhone } : {}),
       ...(brokerEmail ? { email: brokerEmail } : {}),
-      ...(brokerAddress ? { address: { street1: brokerAddress } } : {}),
+      ...provenance,
     };
   }
 }

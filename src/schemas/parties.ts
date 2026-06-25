@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AdmittedStatusSchema } from "./enums";
-import { AddressSchema } from "./shared";
+import { AddressSchema, SourceProvenanceSchema } from "./shared";
 
 export const InsurerInfoSchema = z.object({
   legalName: z.string(),
@@ -9,7 +9,7 @@ export const InsurerInfoSchema = z.object({
   amBestNumber: z.string().optional(),
   admittedStatus: AdmittedStatusSchema.optional(),
   stateOfDomicile: z.string().optional(),
-});
+}).merge(SourceProvenanceSchema);
 export type InsurerInfo = z.infer<typeof InsurerInfoSchema>;
 
 export const ProducerInfoSchema = z.object({
@@ -19,5 +19,5 @@ export const ProducerInfoSchema = z.object({
   phone: z.string().optional(),
   email: z.string().optional(),
   address: AddressSchema.optional(),
-});
+}).merge(SourceProvenanceSchema);
 export type ProducerInfo = z.infer<typeof ProducerInfoSchema>;

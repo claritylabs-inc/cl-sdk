@@ -63,6 +63,7 @@ describe("document schemas", () => {
         city: "Springfield",
         state: "IL",
         zip: "62701",
+        sourceSpanIds: ["span-insured-address"],
       },
       cancellationNoticeDays: 30,
       supplementaryFacts: [
@@ -73,6 +74,42 @@ describe("document schemas", () => {
     expect(result.carrierLegalName).toBe("Acme Insurance Co.");
     expect(result.cancellationNoticeDays).toBe(30);
     expect(result.supplementaryFacts).toHaveLength(1);
+  });
+
+  it("requires source-backed identity records", () => {
+    const result = PolicyDocumentSchema.parse({
+      ...minimalPolicy,
+      insurer: {
+        legalName: "Acme Insurance Co.",
+        naicNumber: "12345",
+        sourceSpanIds: ["span-insurer"],
+      },
+      producer: {
+        agencyName: "Smith Agency",
+        phone: "555-0100",
+        sourceSpanIds: ["span-producer"],
+      },
+      additionalNamedInsureds: [
+        { name: "Test Corp Holdings LLC", sourceSpanIds: ["span-named-insured"] },
+      ],
+      lossPayees: [
+        { name: "Example Bank", role: "loss_payee", sourceSpanIds: ["span-loss-payee"] },
+      ],
+    });
+
+    expect(result.insurer?.sourceSpanIds).toEqual(["span-insurer"]);
+    expect(result.producer?.sourceSpanIds).toEqual(["span-producer"]);
+    expect(result.additionalNamedInsureds?.[0]?.sourceSpanIds).toEqual(["span-named-insured"]);
+    expect(result.lossPayees?.[0]?.sourceSpanIds).toEqual(["span-loss-payee"]);
+  });
+
+  it("rejects identity records without source spans", () => {
+    expect(() =>
+      PolicyDocumentSchema.parse({
+        ...minimalPolicy,
+        producer: { agencyName: "Smith Agency" },
+      }),
+    ).toThrow();
   });
 
   it("accepts base document definitions and covered reasons", () => {

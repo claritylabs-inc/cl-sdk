@@ -1,12 +1,5 @@
 import { z } from "zod";
-
-const ContactSchema = z.object({
-  name: z.string().optional().describe("Organization or person name"),
-  phone: z.string().optional().describe("Phone number"),
-  email: z.string().optional().describe("Email address"),
-  address: z.string().optional().describe("Mailing address"),
-  type: z.string().optional().describe("Contact type, e.g. 'State Department of Insurance'"),
-});
+import { ContactSchema } from "../../schemas/shared";
 
 export const AuxiliaryFactSchema = z.object({
   key: z.string().describe("Normalized machine-readable fact key, e.g. 'policyholder_age' or 'insured_name'"),
@@ -52,7 +45,7 @@ export function buildSupplementaryPrompt(alreadyExtractedSummary?: string): stri
   return `You are an expert insurance document analyst. Extract supplementary, retrieval-only information from this document that is NOT already captured in the structured extraction results.
 ${exclusionBlock}
 Focus on:
-- Regulatory contacts: state department of insurance, regulatory bodies, ombudsman offices — with phone, email, address
+- Regulatory contacts: state department of insurance, regulatory bodies, ombudsman offices — with phone, email, structured address
 - Claims contacts: how to report claims, claims department contact info, hours of operation
 - Third-party administrators (TPAs) for claims handling
 - Cancellation notice period in days
@@ -62,6 +55,8 @@ Focus on:
 - Additional policy-specific facts that are useful for memory and retrieval even if they do not belong in the strict primary schema
 
 Look for regulatory notices, complaint contact sections, claims reporting instructions, and cancellation/nonrenewal provisions throughout the document.
+
+Every regulatoryContacts, claimsContacts, and thirdPartyAdministrators row must include sourceSpanIds from the source evidence. Omit contacts when source spans are unavailable.
 
 For auxiliaryFacts:
 - ONLY capture facts that are NOT already present in the structured extraction results above.

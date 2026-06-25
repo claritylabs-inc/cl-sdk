@@ -1,6 +1,15 @@
 import { z } from "zod";
 import { RatingBasisTypeSchema } from "./enums";
 
+export const SourceProvenanceSchema = z.object({
+  sourceSpanIds: z.array(z.string().min(1)).min(1),
+  documentNodeId: z.string().optional(),
+  sourceTextHash: z.string().optional(),
+  pageStart: z.number().int().positive().optional(),
+  pageEnd: z.number().int().positive().optional(),
+});
+export type SourceProvenance = z.infer<typeof SourceProvenanceSchema>;
+
 export const AddressSchema = z.object({
   street1: z.string(),
   street2: z.string().optional(),
@@ -11,6 +20,9 @@ export const AddressSchema = z.object({
 });
 export type Address = z.infer<typeof AddressSchema>;
 
+export const SourceBackedAddressSchema = AddressSchema.merge(SourceProvenanceSchema);
+export type SourceBackedAddress = z.infer<typeof SourceBackedAddressSchema>;
+
 export const ContactSchema = z.object({
   name: z.string().optional(),
   title: z.string().optional(),
@@ -20,7 +32,7 @@ export const ContactSchema = z.object({
   email: z.string().optional(),
   address: AddressSchema.optional(),
   hours: z.string().optional(),
-});
+}).merge(SourceProvenanceSchema);
 export type Contact = z.infer<typeof ContactSchema>;
 
 export const FormReferenceSchema = z.object({
@@ -81,5 +93,5 @@ export const NamedInsuredSchema = z.object({
   name: z.string(),
   relationship: z.string().optional(),
   address: AddressSchema.optional(),
-});
+}).merge(SourceProvenanceSchema);
 export type NamedInsured = z.infer<typeof NamedInsuredSchema>;

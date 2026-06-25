@@ -79,7 +79,7 @@ Fields present on ALL insurance documents regardless of line of business. These 
 |-------|------|-------------|----------------|-------------|-------------|
 | `insured_name` | `string` | First/primary named insured exactly as shown on the policy. This is the party with the most rights under the policy. | Declarations | high | `company_name` |
 | `insured_dba` | `string \| null` | Doing-business-as name if the insured operates under a trade name different from the legal name. | Declarations | medium | `dba_name` |
-| `insured_address` | `Address` | Mailing address of the primary named insured. See `Address` type in Shared Types appendix. | Declarations | high | `company_address` |
+| `insured_address` | `SourceBackedAddress` | Mailing address of the primary named insured, with source span provenance. See shared types appendix. | Declarations | high | `company_address` |
 | `insured_entity_type` | `"corporation" \| "llc" \| "partnership" \| "sole_proprietor" \| "joint_venture" \| "trust" \| "nonprofit" \| "municipality" \| "other"` | Legal entity type of the primary named insured. Affects coverage scope and certain endorsements. | Declarations / application | medium | `entity_type` |
 | `additional_named_insureds` | `NamedInsured[]` | All additional named insureds listed on declarations or by endorsement. These parties have full insured rights, unlike additional insureds added by endorsement. See `NamedInsured` type. | Declarations / endorsement | medium | — |
 | `insured_sic_code` | `string \| null` | Standard Industrial Classification code. Used for rating and underwriting. | Declarations | low | `sic_code` |
@@ -393,6 +393,8 @@ All entities with a role in the policy, organized for quick lookup.
 
 **TypeScript Interface:** `InsurerInfo`, `ProducerInfo`, `Contact` in `src/types/document.ts`
 
+Structured party and contact records are source-backed records. `insurer`, `producer`, `claims_contacts`, `regulatory_contacts`, `third_party_administrators`, `additional_insureds`, `loss_payees`, `mortgage_holders`, and `additional_named_insureds` must include non-empty `sourceSpanIds`.
+
 | Field | Type | Description | Source Section | Reliability |
 |-------|------|-------------|----------------|-------------|
 | `insurer` | `InsurerInfo` | Full insurer entity details. | Declarations / footer | high |
@@ -587,6 +589,7 @@ interface Contact {
   email?: string;
   address?: Address;
   hours?: string;          // e.g., "24/7" or "Monday-Friday 8AM-5PM CST"
+  sourceSpanIds: string[];
 }
 ```
 
@@ -703,6 +706,7 @@ interface NamedInsured {
   name: string;
   relationship?: string;    // "Subsidiary", "Affiliate", "Parent Company", etc.
   address?: Address;
+  sourceSpanIds: string[];
 }
 ```
 

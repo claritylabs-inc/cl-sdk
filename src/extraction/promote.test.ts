@@ -58,6 +58,7 @@ describe("promoteCarrierFields", () => {
       naicNumber: "12345",
       amBestRating: "A+",
       admittedStatus: "admitted",
+      sourceSpanIds: ["span-carrier"],
     });
     promoteCarrierFields(doc);
     expect((doc as any).insurer).toEqual({
@@ -65,7 +66,14 @@ describe("promoteCarrierFields", () => {
       naicNumber: "12345",
       amBestRating: "A+",
       admittedStatus: "admitted",
+      sourceSpanIds: ["span-carrier"],
     });
+  });
+
+  it("does not build insurer sub-object without source spans", () => {
+    const doc = makeDoc({ carrierLegalName: "Test Carrier Inc." });
+    promoteCarrierFields(doc);
+    expect((doc as any).insurer).toBeUndefined();
   });
 });
 
@@ -77,6 +85,7 @@ describe("promoteBroker", () => {
       brokerAgency: "ABC Agency",
       brokerPhone: "555-1234",
       brokerLicenseNumber: "LIC-789",
+      sourceSpanIds: ["span-broker"],
     });
     promoteBroker(doc);
     expect((doc as any).brokerAgency).toBe("ABC Agency");
@@ -85,6 +94,7 @@ describe("promoteBroker", () => {
       agencyName: "ABC Agency",
       licenseNumber: "LIC-789",
       phone: "555-1234",
+      sourceSpanIds: ["span-broker"],
     });
   });
 
@@ -119,6 +129,7 @@ describe("promoteExtractedFields (integration)", () => {
       carrierLegalName: "Test Carrier Underwriters",
       brokerAgency: "Smith Insurance Agency",
       brokerPhone: "555-0100",
+      sourceSpanIds: ["span-parties"],
       coverages: [
         { name: "Each Occurrence", limit: "$1,000,000", deductible: "$2,500" },
         { name: "General Aggregate", limit: "$2,000,000", deductible: "$2,500" },
@@ -147,11 +158,13 @@ describe("promoteExtractedFields (integration)", () => {
 
     // Insurer sub-object
     expect((doc as any).insurer.legalName).toBe("Test Carrier Underwriters");
+    expect((doc as any).insurer.sourceSpanIds).toEqual(["span-parties"]);
 
     // Broker
     expect((doc as any).brokerAgency).toBe("Smith Insurance Agency");
     expect((doc as any).producer.agencyName).toBe("Smith Insurance Agency");
     expect((doc as any).producer.phone).toBe("555-0100");
+    expect((doc as any).producer.sourceSpanIds).toEqual(["span-parties"]);
 
     // Declaration rows are preserved for LLM review but not promoted into facts.
     expect((doc as any).lossPayees).toBeUndefined();

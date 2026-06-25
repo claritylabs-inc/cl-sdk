@@ -278,7 +278,7 @@ interface BaseDocument {
 
   // Insured details
   insuredDba?: string;
-  insuredAddress?: Address;
+  insuredAddress?: SourceBackedAddress;
   insuredEntityType?: EntityType;
   insuredFein?: string;
   insuredSicCode?: string;
@@ -613,6 +613,11 @@ interface EndorsementParty {
   address?: Address;
   relationship?: string;
   scope?: string;
+  sourceSpanIds: string[];
+  documentNodeId?: string;
+  sourceTextHash?: string;
+  pageStart?: number;
+  pageEnd?: number;
 }
 ```
 
@@ -758,6 +763,11 @@ interface InsurerInfo {
   amBestNumber?: string;
   admittedStatus?: AdmittedStatus;
   stateOfDomicile?: string;
+  sourceSpanIds: string[];
+  documentNodeId?: string;
+  sourceTextHash?: string;
+  pageStart?: number;
+  pageEnd?: number;
 }
 ```
 
@@ -771,6 +781,11 @@ interface ProducerInfo {
   phone?: string;
   email?: string;
   address?: Address;
+  sourceSpanIds: string[];
+  documentNodeId?: string;
+  sourceTextHash?: string;
+  pageStart?: number;
+  pageEnd?: number;
 }
 ```
 
@@ -858,6 +873,16 @@ interface Address {
   country?: string;
 }
 
+interface SourceProvenance {
+  sourceSpanIds: string[];
+  documentNodeId?: string;
+  sourceTextHash?: string;
+  pageStart?: number;
+  pageEnd?: number;
+}
+
+type SourceBackedAddress = Address & SourceProvenance;
+
 interface Contact {
   name?: string;
   title?: string;
@@ -867,12 +892,22 @@ interface Contact {
   email?: string;
   address?: Address;
   hours?: string;
+  sourceSpanIds: string[];
+  documentNodeId?: string;
+  sourceTextHash?: string;
+  pageStart?: number;
+  pageEnd?: number;
 }
 
 interface NamedInsured {
   name: string;
   relationship?: string;
   address?: Address;
+  sourceSpanIds: string[];
+  documentNodeId?: string;
+  sourceTextHash?: string;
+  pageStart?: number;
+  pageEnd?: number;
 }
 
 interface FormReference {

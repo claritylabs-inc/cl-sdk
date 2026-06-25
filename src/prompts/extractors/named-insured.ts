@@ -1,16 +1,21 @@
 import { z } from "zod";
+import { SourceBackedAddressSchema, SourceProvenanceSchema } from "../../schemas/shared";
 
-const AddressSchema = z.object({
-  street1: z.string(),
-  city: z.string(),
-  state: z.string(),
-  zip: z.string(),
-});
+const AdditionalNamedInsuredSchema = z.object({
+  name: z.string(),
+  relationship: z.string().optional().describe("e.g. subsidiary, affiliate"),
+  address: SourceBackedAddressSchema.optional(),
+}).merge(SourceProvenanceSchema);
+
+const ScheduledPartySchema = z.object({
+  name: z.string(),
+  address: SourceBackedAddressSchema.optional(),
+}).merge(SourceProvenanceSchema);
 
 export const NamedInsuredSchema = z.object({
   insuredName: z.string().describe("Name of primary named insured"),
   insuredDba: z.string().optional().describe("Doing-business-as name"),
-  insuredAddress: AddressSchema.optional().describe("Primary insured mailing address"),
+  insuredAddress: SourceBackedAddressSchema.optional().describe("Primary insured mailing address"),
   insuredEntityType: z
     .enum([
       "corporation",
@@ -31,31 +36,15 @@ export const NamedInsuredSchema = z.object({
   insuredSicCode: z.string().optional().describe("SIC code"),
   insuredNaicsCode: z.string().optional().describe("NAICS code"),
   additionalNamedInsureds: z
-    .array(
-      z.object({
-        name: z.string(),
-        relationship: z.string().optional().describe("e.g. subsidiary, affiliate"),
-        address: AddressSchema.optional(),
-      }),
-    )
+    .array(AdditionalNamedInsuredSchema)
     .optional()
     .describe("Additional named insureds listed on the policy"),
   lossPayees: z
-    .array(
-      z.object({
-        name: z.string(),
-        address: AddressSchema.optional(),
-      }),
-    )
+    .array(ScheduledPartySchema)
     .optional()
     .describe("Loss payees listed on the policy"),
   mortgageHolders: z
-    .array(
-      z.object({
-        name: z.string(),
-        address: AddressSchema.optional(),
-      }),
-    )
+    .array(ScheduledPartySchema)
     .optional()
     .describe("Mortgage holders / lienholders listed on the policy"),
 });
@@ -77,6 +66,7 @@ Focus on:
 Look on the declarations page, named insured schedule, loss payee schedule, mortgagee schedule, and any endorsements that add or modify named insureds, loss payees, or mortgage holders.
 
 Critical rules:
+- Every insuredAddress, additionalNamedInsureds row, lossPayees row, and mortgageHolders row must include sourceSpanIds from the source evidence. Omit the row if source spans are unavailable.
 - Prefer declaration-table labels such as "Named Insured", "Named Insured and Address", "Applicant", or "Insured" over contact blocks, notice contacts, authorized officers, licensing statements, signatures, and corporate-authority wording.
 - Do not use an authorized officer, broker, producer, contact person, officer title, email address owner, or licensing/entity-status statement as the primary insured unless that exact person/entity is explicitly labeled as the named insured.
 - If a row combines the insured name with a mailing address, put the legal name in insuredName and the mailing address in insuredAddress.

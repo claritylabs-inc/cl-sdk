@@ -95,6 +95,7 @@ describe("chunkDocument", () => {
         name: "Landlord LLC",
         role: "additional_insured",
         address: { street1: "456 Oak Ave", city: "Springfield", state: "IL", zip: "62702" },
+        sourceSpanIds: ["span-additional-insured"],
       },
     ],
     lossPayees: [
@@ -102,6 +103,7 @@ describe("chunkDocument", () => {
         name: "First National Bank",
         role: "loss_payee",
         address: { street1: "789 Bank St", city: "Springfield", state: "IL", zip: "62703" },
+        sourceSpanIds: ["span-loss-payee"],
       },
     ],
     taxesAndFees: [

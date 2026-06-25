@@ -140,7 +140,7 @@ describe("mergeExtractorResult", () => {
           { key: "policyholder_age", value: "42", subject: "Jane Doe", context: "Driver Schedule" },
         ],
         claimsContacts: [
-          { name: "Claims Dept", phone: "800-555-1212" },
+          { name: "Claims Dept", phone: "800-555-1212", sourceSpanIds: ["span-claims"] },
         ],
       },
       {
@@ -149,12 +149,12 @@ describe("mergeExtractorResult", () => {
           { key: "insured_name", value: "John Doe", context: "Named Insured" },
         ],
         claimsContacts: [
-          { name: "Claims Dept", phone: "800-555-1212" },
+          { name: "Claims Dept", phone: "800-555-1212", sourceSpanIds: ["span-claims"] },
         ],
       },
     ) as {
       auxiliaryFacts: Array<{ key: string; value: string }>;
-      claimsContacts: Array<{ name: string; phone: string }>;
+      claimsContacts: Array<{ name: string; phone: string; sourceSpanIds: string[] }>;
     };
 
     expect(merged.auxiliaryFacts).toHaveLength(2);

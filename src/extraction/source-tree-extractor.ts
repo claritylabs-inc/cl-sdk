@@ -3,10 +3,12 @@ import type { GenerateObject, PerformanceReport, TokenUsage } from "../core/type
 import type { ModelBudgetResolution } from "../core/model-budget";
 import { safeGenerateObject } from "../core/safe-generate";
 import type { InsuranceDocument } from "../schemas/document";
+import type { SourceProvenance } from "../schemas/shared";
 import type {
   DocumentSourceNode,
   DocumentSourceNodeKind,
   PolicyOperationalProfile,
+  SourceBackedValue,
   SourceChunk,
   SourceSpan,
 } from "../source";
@@ -1728,6 +1730,14 @@ function valueOf(profile: PolicyOperationalProfile, key: keyof PolicyOperational
   return String(value.value);
 }
 
+function provenanceOf(value: SourceBackedValue | undefined): SourceProvenance | undefined {
+  if (!value?.sourceSpanIds.length) return undefined;
+  return {
+    sourceSpanIds: value.sourceSpanIds,
+    ...(value.sourceNodeIds[0] ? { documentNodeId: value.sourceNodeIds[0] } : {}),
+  };
+}
+
 function materializeDocument(params: {
   id: string;
   sourceTree: DocumentSourceNode[];
@@ -1741,6 +1751,9 @@ function materializeDocument(params: {
   const effectiveDate = valueOf(profile, "effectiveDate") ?? "Unknown";
   const expirationDate = valueOf(profile, "expirationDate") ?? "Unknown";
   const premium = valueOf(profile, "premium");
+  const insurerProvenance = provenanceOf(profile.insurer);
+  const broker = valueOf(profile, "broker");
+  const brokerProvenance = provenanceOf(profile.broker);
   const coverages = profile.coverages.map((coverage) => ({
     name: coverage.name,
     coverageCode: coverage.coverageCode,
@@ -1795,6 +1808,15 @@ function materializeDocument(params: {
     security: carrier,
     insuredName,
     premium,
+    ...(insurerProvenance
+      ? { insurer: { legalName: carrier, ...insurerProvenance } }
+      : {}),
+    ...(broker && brokerProvenance
+      ? {
+          brokerAgency: broker,
+          producer: { agencyName: broker, ...brokerProvenance },
+        }
+      : {}),
     policyTypes: profile.policyTypes,
     formInventory: params.formInventory
       .filter((form): form is SourceTreeFormHint & { formNumber: string } => typeof form.formNumber === "string" && form.formNumber.trim().length > 0)

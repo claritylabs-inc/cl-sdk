@@ -112,3 +112,7 @@ const chunks = chunkSourceSpans(spans, { maxChars: 6000 });
 ```
 
 Each chunk stores the source span IDs it was built from. Retrieval can return a chunk for context while the final citation still points to the original span. When row spans exist, child cells are not duplicated into source chunks ahead of their parent rows.
+
+## Source-backed identity records
+
+Persisted party and contact records are source-backed records. `InsurerInfo`, `ProducerInfo`, `Contact`, `NamedInsured`, `EndorsementParty`, and standalone `insuredAddress` values require non-empty `sourceSpanIds`. Omit these records when a parser/model path cannot identify the source span that supports them.

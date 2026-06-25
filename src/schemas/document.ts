@@ -13,6 +13,7 @@ import {
   RatingBasisSchema,
   NamedInsuredSchema,
   ExtendedReportingPeriodSchema,
+  SourceBackedAddressSchema,
 } from "./shared";
 import { CoverageSchema, EnrichedCoverageSchema } from "./coverage";
 import { EndorsementSchema, EndorsementPartySchema } from "./endorsement";
@@ -248,7 +249,7 @@ const BaseDocumentFields = {
   isPackage: z.boolean().optional(),
 
   insuredDba: z.string().optional(),
-  insuredAddress: AddressSchema.optional(),
+  insuredAddress: SourceBackedAddressSchema.optional(),
   insuredEntityType: EntityTypeSchema.optional(),
   additionalNamedInsureds: z.array(NamedInsuredSchema).optional(),
   insuredSicCode: z.string().optional(),

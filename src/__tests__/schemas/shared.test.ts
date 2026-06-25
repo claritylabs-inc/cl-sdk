@@ -13,7 +13,11 @@ describe("shared schemas", () => {
   it("rejects address missing required fields", () => {
     expect(() => AddressSchema.parse({ street1: "123 Main" })).toThrow();
   });
-  it("validates contact with minimal fields", () => {
-    expect(ContactSchema.parse({})).toEqual({});
+  it("validates source-backed contact records", () => {
+    const contact = { name: "Claims Desk", sourceSpanIds: ["span-contact"] };
+    expect(ContactSchema.parse(contact)).toEqual(contact);
+  });
+  it("rejects contact records without source spans", () => {
+    expect(() => ContactSchema.parse({ name: "Claims Desk" })).toThrow();
   });
 });

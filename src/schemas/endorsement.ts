@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { EndorsementTypeSchema, EndorsementPartyRoleSchema } from "./enums";
-import { AddressSchema } from "./shared";
+import { AddressSchema, SourceProvenanceSchema } from "./shared";
 
 export const EndorsementPartySchema = z.object({
   name: z.string(),
@@ -8,7 +8,7 @@ export const EndorsementPartySchema = z.object({
   address: AddressSchema.optional(),
   relationship: z.string().optional(),
   scope: z.string().optional(),
-});
+}).merge(SourceProvenanceSchema);
 export type EndorsementParty = z.infer<typeof EndorsementPartySchema>;
 
 export const EndorsementSchema = z.object({

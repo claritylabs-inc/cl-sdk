@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { GenerateObject } from "../../core/types";
 import { buildPageSourceSpans, buildSourceSpan } from "../../source";
 import { runSourceTreeExtraction } from "../../extraction/source-tree-extractor";
+import { InsurerInfoSchema, ProducerInfoSchema } from "../../schemas/parties";
 
 const resolveBudget = (taskKind: "extraction_source_tree" | "extraction_operational_profile", hintTokens: number) => ({
   taskKind,
@@ -269,6 +270,16 @@ describe("source-tree extraction", () => {
             documentType: "policy",
             policyTypes: ["cyber"],
             coverageTypes: ["Limits of Liability"],
+            insurer: {
+              value: "Northwoods Continental Insurance Company",
+              sourceNodeIds: [],
+              sourceSpanIds: [evidence.id],
+            },
+            broker: {
+              value: "Halverson Risk Advisors, LLC",
+              sourceNodeIds: [],
+              sourceSpanIds: [evidence.id],
+            },
             coverages: [{
               name: "Limits of Liability",
               limit: "$25,000 /",
@@ -326,5 +337,13 @@ describe("source-tree extraction", () => {
     ]);
     expect(result.operationalProfile.sourceSpanIds).toEqual([evidence.id]);
     expect(result.operationalProfile.warnings).toContain("Operational profile cleanup warning: cleaned malformed coverage projection");
+    expect(InsurerInfoSchema.parse(result.document.insurer)).toEqual({
+      legalName: "Northwoods Continental Insurance Company",
+      sourceSpanIds: [evidence.id],
+    });
+    expect(ProducerInfoSchema.parse(result.document.producer)).toEqual({
+      agencyName: "Halverson Risk Advisors, LLC",
+      sourceSpanIds: [evidence.id],
+    });
   });
 });
