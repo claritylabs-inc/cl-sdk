@@ -1,3 +1,10 @@
+## [3.1.5](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.4...v3.1.5) (2026-06-25)
+
+
+### Bug Fixes
+
+* **core:** recurse strict schema defaults ([52d0030](https://github.com/claritylabs-inc/cl-sdk/commit/52d00309e191b2c9bec5cb4266b5f00b90b19c6b))
+
 ## [3.1.4](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.3...v3.1.4) (2026-06-25)
 
 
