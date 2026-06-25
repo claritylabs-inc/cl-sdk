@@ -48,4 +48,50 @@ describe("safeGenerateObject", () => {
       }],
     });
   });
+
+  it("recurses through default wrappers before sending schemas to the provider", async () => {
+    const schema = z.object({
+      decisions: z.array(z.object({
+        decisionId: z.string(),
+        reason: z.string().optional(),
+      })).default([]),
+    });
+    const generateObject = vi.fn(async (params) => {
+      expect(() =>
+        params.schema.parse({
+          decisions: null,
+        }),
+      ).not.toThrow();
+      expect(() =>
+        params.schema.parse({
+          decisions: [{
+            decisionId: "decision-1",
+            reason: null,
+          }],
+        }),
+      ).not.toThrow();
+
+      return {
+        object: {
+          decisions: [{
+            decisionId: "decision-1",
+            reason: null,
+          }],
+        },
+      };
+    }) as unknown as GenerateObject<z.input<typeof schema>>;
+
+    const result = await safeGenerateObject(generateObject, {
+      prompt: "test",
+      schema,
+      maxTokens: 128,
+    });
+
+    expect(result.object).toEqual({
+      decisions: [{
+        decisionId: "decision-1",
+        reason: undefined,
+      }],
+    });
+  });
 });

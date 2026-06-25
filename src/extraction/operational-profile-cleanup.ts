@@ -131,6 +131,8 @@ Rules:
 - Keep a coverage when it is a real operational coverage/benefit even if only one term needs cleanup.
 - When changing a term's semantic meaning, set kind to the corrected normalized term kind.
 - Do not add new coverage rows or new terms; this pass cleans the existing projection.
+- Include every JSON key in each decision. Use null for scalar fields you are not changing and [] for source ID lists you are not changing.
+- For each coverage decision, always include termDecisions. Use [] when no terms need cleanup.
 - Keep reasons concise and factual.
 
 Candidate projection:
@@ -140,10 +142,6 @@ Source nodes:
 ${JSON.stringify(nodes, null, 2)}
 
 Return JSON with coverageDecisions and warnings only.`;
-}
-
-function hasOwn(object: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(object, key);
 }
 
 function uniqueStrings(values: string[]): string[] {
@@ -253,19 +251,17 @@ function applyTermCleanupDecision(
   };
   if (next.sourceNodeIds.length === 0 && next.sourceSpanIds.length === 0) return term;
 
-  if (hasOwn(decision, "amount")) {
-    if (typeof decision.amount === "number" && Number.isFinite(decision.amount)) next.amount = decision.amount;
-    else delete next.amount;
+  if (typeof decision.amount === "number" && Number.isFinite(decision.amount)) {
+    next.amount = decision.amount;
   } else if (decision.value || decision.kind) {
     const amount = next.kind === "retroactive_date" ? undefined : amountFromOperationalValue(next.value);
     if (amount === undefined) delete next.amount;
     else next.amount = amount;
   }
 
-  if (hasOwn(decision, "appliesTo")) {
+  if (decision.appliesTo != null) {
     const appliesTo = cleanProfileValue(decision.appliesTo);
     if (appliesTo) next.appliesTo = appliesTo;
-    else delete next.appliesTo;
   }
 
   return next;
@@ -301,25 +297,21 @@ function applyCoverageCleanupDecision(
   if (name) next.name = name;
   if (decision.coverageOrigin) next.coverageOrigin = decision.coverageOrigin;
 
-  if (hasOwn(decision, "limit")) {
+  if (decision.limit != null) {
     const value = cleanProfileValue(decision.limit);
     if (value) next.limit = value;
-    else delete next.limit;
   }
-  if (hasOwn(decision, "deductible")) {
+  if (decision.deductible != null) {
     const value = cleanProfileValue(decision.deductible);
     if (value) next.deductible = value;
-    else delete next.deductible;
   }
-  if (hasOwn(decision, "premium")) {
+  if (decision.premium != null) {
     const value = cleanProfileValue(decision.premium);
     if (value) next.premium = value;
-    else delete next.premium;
   }
-  if (hasOwn(decision, "retroactiveDate")) {
+  if (decision.retroactiveDate != null) {
     const value = cleanProfileValue(decision.retroactiveDate);
     if (value) next.retroactiveDate = value;
-    else delete next.retroactiveDate;
   }
 
   const termDecisions = (decision.termDecisions ?? []).filter((termDecision) => termDecision.termIndex < coverage.limits.length);
@@ -329,22 +321,22 @@ function applyCoverageCleanupDecision(
     .filter((term): term is OperationalCoverageTerm => Boolean(term));
 
   if (termDecisions.length > 0) {
-    if (!hasOwn(decision, "limit") && termDecisionsTouch(coverage, termDecisions, isLimitTerm)) {
+    if (decision.limit == null && termDecisionsTouch(coverage, termDecisions, isLimitTerm)) {
       const value = primaryLimitFromTerms(next.limits);
       if (value) next.limit = value;
       else delete next.limit;
     }
-    if (!hasOwn(decision, "deductible") && termDecisionsTouch(coverage, termDecisions, isDeductibleTerm)) {
+    if (decision.deductible == null && termDecisionsTouch(coverage, termDecisions, isDeductibleTerm)) {
       const value = deductibleFromTerms(next.limits);
       if (value) next.deductible = value;
       else delete next.deductible;
     }
-    if (!hasOwn(decision, "premium") && termDecisionsTouch(coverage, termDecisions, isPremiumTerm)) {
+    if (decision.premium == null && termDecisionsTouch(coverage, termDecisions, isPremiumTerm)) {
       const value = premiumFromTerms(next.limits);
       if (value) next.premium = value;
       else delete next.premium;
     }
-    if (!hasOwn(decision, "retroactiveDate") && termDecisionsTouch(coverage, termDecisions, isRetroactiveDateTerm)) {
+    if (decision.retroactiveDate == null && termDecisionsTouch(coverage, termDecisions, isRetroactiveDateTerm)) {
       const value = retroactiveDateFromTerms(next.limits);
       if (value) next.retroactiveDate = value;
       else delete next.retroactiveDate;

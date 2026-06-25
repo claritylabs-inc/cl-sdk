@@ -1,5 +1,36 @@
 import { z, type ZodTypeAny } from "zod";
 
+function schemaDef(schema: ZodTypeAny): Record<string, any> {
+  return (schema as any)._zod?.def ?? (schema as any)._def ?? {};
+}
+
+function schemaKind(schema: ZodTypeAny): string | undefined {
+  const def = schemaDef(schema);
+  const raw = typeof def.type === "string"
+    ? def.type
+    : typeof def.typeName === "string"
+      ? def.typeName
+      : typeof (schema as any).type === "string"
+        ? (schema as any).type
+        : undefined;
+  return raw?.replace(/^Zod/, "").toLowerCase();
+}
+
+function schemaDescription(schema: ZodTypeAny): string | undefined {
+  const def = schemaDef(schema);
+  return (schema as any).description ?? def.description;
+}
+
+function objectShape(schema: ZodTypeAny): Record<string, ZodTypeAny> | undefined {
+  const def = schemaDef(schema);
+  const shape = (schema as any).shape ?? def.shape;
+  return typeof shape === "function" ? shape() : shape;
+}
+
+function withDescription<T extends ZodTypeAny>(schema: T, description: string | undefined): T {
+  return description ? schema.describe(description) as T : schema;
+}
+
 /**
  * Transform a Zod schema so all `.optional()` properties become `.nullable()`
  * (required but accepting null). This makes schemas compatible with OpenAI's
@@ -10,35 +41,30 @@ import { z, type ZodTypeAny } from "zod";
  * Non-object schemas (string, number, etc.) are returned as-is.
  */
 export function toStrictSchema(schema: ZodTypeAny): ZodTypeAny {
-  const def = (schema as any)._zod?.def;
-  const typeName: string | undefined = def?.type ?? (schema as any).type;
+  const kind = schemaKind(schema);
+  const def = schemaDef(schema);
 
-  if (typeName === "object") {
-    const shape: Record<string, ZodTypeAny> | undefined = (schema as any).shape;
+  if (kind === "object") {
+    const shape = objectShape(schema);
     if (!shape) return schema;
 
     const newShape: Record<string, ZodTypeAny> = {};
 
     for (const [key, value] of Object.entries(shape)) {
       const field = value as ZodTypeAny;
-      const fieldDef = (field as any)._zod?.def;
-      const fieldType: string | undefined = fieldDef?.type ?? (field as any).type;
+      const fieldDef = schemaDef(field);
+      const fieldKind = schemaKind(field);
 
-      if (fieldType === "optional") {
+      if (fieldKind === "optional") {
         // Convert .optional() → .nullable() (required but accepts null)
         // Preserve .describe() metadata — it lives on the optional wrapper, not the inner type
         const innerType: ZodTypeAny | undefined = fieldDef?.innerType;
-        const description: string | undefined =
-          (field as any).description ?? fieldDef?.description ?? (field as any)._zod?.def?.description;
+        const description = schemaDescription(field);
         if (innerType) {
           const transformed = toStrictSchema(innerType);
-          let nullable = z.nullable(transformed);
-          if (description) nullable = nullable.describe(description) as typeof nullable;
-          newShape[key] = nullable;
+          newShape[key] = withDescription(z.nullable(transformed), description);
         } else {
-          let nullable = z.nullable(field);
-          if (description) nullable = nullable.describe(description) as typeof nullable;
-          newShape[key] = nullable;
+          newShape[key] = withDescription(z.nullable(field), description);
         }
       } else {
         // Recurse into non-optional fields
@@ -46,30 +72,29 @@ export function toStrictSchema(schema: ZodTypeAny): ZodTypeAny {
       }
     }
 
-    const objDesc: string | undefined =
-      (schema as any).description ?? def?.description ?? (schema as any)._zod?.def?.description;
-    const result = z.object(newShape);
-    return objDesc ? result.describe(objDesc) : result;
+    return withDescription(z.object(newShape), schemaDescription(schema));
   }
 
-  if (typeName === "array") {
-    const element: ZodTypeAny | undefined = def?.element ?? (schema as any).element;
+  if (kind === "array") {
+    const element: ZodTypeAny | undefined = def.element ?? def.type ?? (schema as any).element;
     if (element) {
-      const arrDesc: string | undefined =
-        (schema as any).description ?? def?.description ?? (schema as any)._zod?.def?.description;
-      const result = z.array(toStrictSchema(element));
-      return arrDesc ? result.describe(arrDesc) : result;
+      return withDescription(z.array(toStrictSchema(element)), schemaDescription(schema));
     }
     return schema;
   }
 
-  if (typeName === "nullable") {
+  if (kind === "nullable") {
     const innerType: ZodTypeAny | undefined = def?.innerType;
     if (innerType) {
-      const nullDesc: string | undefined =
-        (schema as any).description ?? def?.description ?? (schema as any)._zod?.def?.description;
-      const result = z.nullable(toStrictSchema(innerType));
-      return nullDesc ? result.describe(nullDesc) : result;
+      return withDescription(z.nullable(toStrictSchema(innerType)), schemaDescription(schema));
+    }
+    return schema;
+  }
+
+  if (kind === "default") {
+    const innerType: ZodTypeAny | undefined = def?.innerType;
+    if (innerType) {
+      return withDescription(z.nullable(toStrictSchema(innerType)), schemaDescription(schema));
     }
     return schema;
   }

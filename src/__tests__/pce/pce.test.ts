@@ -13,6 +13,40 @@ const policyEvidence: PceEvidenceSource = {
   text: "Named insured mailing address: 10 Old St, Boston, MA 02110.",
 };
 
+function strictCitation(overrides: Record<string, unknown>) {
+  return {
+    sourceId: "src-policy-1",
+    quote: "",
+    page: null,
+    fieldPath: null,
+    ...overrides,
+  };
+}
+
+function strictPceItem(overrides: Record<string, unknown>) {
+  return {
+    id: null,
+    kind: null,
+    action: "update",
+    affectedPolicyId: null,
+    fieldPath: "",
+    label: "",
+    beforeValue: null,
+    afterValue: null,
+    requestedValue: null,
+    effectiveDate: null,
+    reason: null,
+    sourceIds: null,
+    sourceSpanIds: null,
+    userSourceSpanIds: null,
+    citations: null,
+    confidence: null,
+    confidenceScore: null,
+    status: null,
+    ...overrides,
+  };
+}
+
 describe("PCE agent", () => {
   it("normalizes change requests with stable IDs and validates quoted evidence", async () => {
     const taskKinds: Array<string | undefined> = [];
@@ -21,22 +55,22 @@ describe("PCE agent", () => {
       return {
         object: schema.parse({
           summary: "Update mailing address",
-          items: [{
+          items: [strictPceItem({
             action: "update",
             fieldPath: "insured.address",
             label: "Mailing address",
             beforeValue: "10 Old St, Boston, MA 02110",
             afterValue: "25 New Ave, Boston, MA 02111",
             sourceIds: ["src-policy-1"],
-            citations: [{
+            citations: [strictCitation({
               sourceId: "src-policy-1",
               quote: "10 Old St, Boston, MA 02110",
               page: 2,
               fieldPath: "insured.address",
-            }],
+            })],
             confidence: "high",
             confidenceScore: 0.92,
-          }],
+          })],
           missingInfoQuestions: [],
         }),
         usage: { inputTokens: 10, outputTokens: 20 },
@@ -68,17 +102,17 @@ describe("PCE agent", () => {
     const generateObject: GenerateObject = async ({ schema }) => ({
       object: schema.parse({
         summary: "Update mailing address",
-        items: [{
+        items: [strictPceItem({
           action: "update",
           fieldPath: "insured.address",
           label: "Mailing address",
           beforeValue: "99 Missing Rd",
           afterValue: "25 New Ave",
           sourceIds: ["src-policy-1"],
-          citations: [{ sourceId: "src-policy-1", quote: "99 Missing Rd" }],
+          citations: [strictCitation({ sourceId: "src-policy-1", quote: "99 Missing Rd" })],
           confidence: "medium",
           confidenceScore: 0.8,
-        }],
+        })],
         missingInfoQuestions: [],
       }),
     });
@@ -222,7 +256,7 @@ describe("PCE agent", () => {
     const generateObject: GenerateObject = async ({ schema }) => ({
       object: schema.parse({
         summary: "Increase property limits",
-        items: [{
+        items: [strictPceItem({
           kind: "limit_change",
           action: "update",
           fieldPath: "coverage.limit",
@@ -232,7 +266,7 @@ describe("PCE agent", () => {
           sourceSpanIds: ["src-cp-0010", "src-cp-1030"],
           confidence: "medium",
           confidenceScore: 0.7,
-        }],
+        })],
         missingInfoQuestions: [],
       }),
     });
