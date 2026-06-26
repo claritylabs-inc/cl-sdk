@@ -1,3 +1,10 @@
+## [3.1.7](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.6...v3.1.7) (2026-06-26)
+
+
+### Bug Fixes
+
+* **extraction:** generalize visual table repair selection ([9f4dee0](https://github.com/claritylabs-inc/cl-sdk/commit/9f4dee084711ab9efbf2b7f98d8e10e4731342dc))
+
 ## [3.1.6](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.5...v3.1.6) (2026-06-26)
 
 
