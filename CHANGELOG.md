@@ -1,3 +1,10 @@
+## [3.1.6](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.5...v3.1.6) (2026-06-26)
+
+
+### Bug Fixes
+
+* repair visual table source rows ([f6d21df](https://github.com/claritylabs-inc/cl-sdk/commit/f6d21dffdce7f2a4b60bd7550d77ac180176c6d1))
+
 ## [3.1.5](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.4...v3.1.5) (2026-06-25)
 
 
