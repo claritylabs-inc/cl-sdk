@@ -1643,8 +1643,6 @@ Return JSON for the operational profile.`;
 const VISUAL_TABLE_REPAIR_MAX_TABLES = 4;
 const VISUAL_TABLE_REPAIR_MAX_ROWS = 28;
 const VISUAL_TABLE_REPAIR_MAX_CELLS = 140;
-const VISUAL_TABLE_REPAIR_KEYWORDS =
-  /\b(coverage|limit|limits?|deductible|retroactive|premium|tax|fee|sublimit|sub-limit|aggregate|claim|occurrence|retention|declarations?)\b/i;
 
 function isSourceTreeHeaderRow(row: DocumentSourceNode): boolean {
   return row.metadata?.isHeader === true || row.metadata?.isHeader === "true";
@@ -1713,16 +1711,12 @@ function primaryHeaderColumnCount(rows: VisualTableCandidate["rows"]): number {
   return Math.max(0, ...rows.map(({ cells }) => cells.length));
 }
 
-function shouldRepairVisualTable(candidate: VisualTableCandidate): boolean {
+function visualTableRepairScore(candidate: VisualTableCandidate): number {
   const rows = candidate.rows;
-  if (rows.length < 3) return false;
-  const tableText = rows
-    .map(({ row, cells }) => tableRowTextForPrompt(row, cells))
-    .join(" ");
-  if (!VISUAL_TABLE_REPAIR_KEYWORDS.test(tableText)) return false;
+  if (rows.length < 3) return 0;
 
   const headerCount = primaryHeaderColumnCount(rows);
-  if (headerCount < 2) return false;
+  if (headerCount < 2) return 0;
 
   const firstHeaderIndex = rows.findIndex(({ row, cells }) => isSourceTreeHeaderRow(row) && cells.length > 1);
   const repeatedHeader = firstHeaderIndex >= 0 &&
@@ -1744,7 +1738,12 @@ function shouldRepairVisualTable(candidate: VisualTableCandidate): boolean {
     /\/\s*$/.test(tableRowTextForPrompt(row, cells)),
   );
 
-  return repeatedHeader || shortContinuation || genericDataLabels || danglingSlash;
+  return (
+    (repeatedHeader ? 4 : 0) +
+    (danglingSlash ? 3 : 0) +
+    (shortContinuation ? 3 : 0) +
+    (genericDataLabels ? 2 : 0)
+  );
 }
 
 function visualTableCandidates(sourceTree: DocumentSourceNode[]): VisualTableCandidate[] {
@@ -1756,13 +1755,16 @@ function visualTableCandidates(sourceTree: DocumentSourceNode[]): VisualTableCan
       page: table.pageStart!,
       rows: tableRowsWithCells(table, byParent),
     }))
-    .filter(shouldRepairVisualTable)
+    .map((candidate) => ({ ...candidate, repairScore: visualTableRepairScore(candidate) }))
+    .filter((candidate) => candidate.repairScore > 0)
     .sort((left, right) =>
+      right.repairScore - left.repairScore ||
       left.page - right.page ||
       left.table.order - right.table.order ||
       left.table.id.localeCompare(right.table.id),
     )
-    .slice(0, VISUAL_TABLE_REPAIR_MAX_TABLES);
+    .slice(0, VISUAL_TABLE_REPAIR_MAX_TABLES)
+    .map(({ repairScore: _repairScore, ...candidate }) => candidate);
 }
 
 function compactVisualTableCandidate(candidate: VisualTableCandidate) {

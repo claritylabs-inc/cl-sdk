@@ -271,31 +271,31 @@ describe("source-tree extraction", () => {
     const page = buildPageSourceSpans([{
       documentId,
       pageNumber: 5,
-      text: "DECLARATIONS Coverage Part Limit of Liability Deductible Retroactive Date",
+      text: "SOURCE SCHEDULE Schedule Item Description Amount Effective Date",
     }])[0]!;
-    const header = rowSpan("Coverage Part | Limit of Liability | Deductible | Retroactive Date", 0, true, 120);
-    const rowB = rowSpan("B. Network Security and Privacy Liability | $1,000,000 Each Claim / | $5,000 Each | 05/01/2025", 1, false, 160);
-    const wrapped = rowSpan("Aggregate (sub-limit, part of and not in addition to Aggregate Policy Limit) | Claim", 2, true, 178);
-    const rowC = rowSpan("C. Regulatory Proceedings Sub-Limit | $100,000 Each Proceeding / | $5,000 Each | 05/01/2025", 3, false, 205);
+    const header = rowSpan("Schedule Item | Description | Amount | Effective Date", 0, true, 120);
+    const rowB = rowSpan("B. Secondary Location | Equipment breakdown reimbursement / | $5,000 | 05/01/2025", 1, false, 160);
+    const wrapped = rowSpan("including temporary relocation expense | extension", 2, true, 178);
+    const rowC = rowSpan("C. Warehouse Location | Inventory cleanup reimbursement / | $3,000 | 05/01/2025", 3, false, 205);
 
     const sourceSpans = [
       page,
       header,
-      cellSpan(header, "Coverage Part", 0, 0, "Coverage Part", 40, 120),
-      cellSpan(header, "Limit of Liability", 0, 1, "Limit of Liability", 180, 120),
-      cellSpan(header, "Deductible", 0, 2, "Deductible", 320, 120),
-      cellSpan(header, "Retroactive Date", 0, 3, "Retroactive Date", 430, 120),
+      cellSpan(header, "Schedule Item", 0, 0, "Schedule Item", 40, 120),
+      cellSpan(header, "Description", 0, 1, "Description", 180, 120),
+      cellSpan(header, "Amount", 0, 2, "Amount", 320, 120),
+      cellSpan(header, "Effective Date", 0, 3, "Effective Date", 430, 120),
       rowB,
-      cellSpan(rowB, "B. Network Security and Privacy Liability", 1, 0, "Coverage Part", 40, 160, 130),
-      cellSpan(rowB, "$1,000,000 Each Claim /", 1, 1, "Limit of Liability", 180, 160, 130),
-      cellSpan(rowB, "$5,000 Each", 1, 2, "Deductible", 320, 160),
-      cellSpan(rowB, "05/01/2025", 1, 3, "Retroactive Date", 430, 160),
+      cellSpan(rowB, "B. Secondary Location", 1, 0, "Schedule Item", 40, 160, 130),
+      cellSpan(rowB, "Equipment breakdown reimbursement /", 1, 1, "Description", 180, 160, 130),
+      cellSpan(rowB, "$5,000", 1, 2, "Amount", 320, 160),
+      cellSpan(rowB, "05/01/2025", 1, 3, "Effective Date", 430, 160),
       wrapped,
-      cellSpan(wrapped, "Aggregate (sub-limit, part of and not in addition to Aggregate Policy Limit)", 2, 0, "Column 1", 180, 178, 240),
-      cellSpan(wrapped, "Claim", 2, 1, "Column 2", 260, 178, 80),
+      cellSpan(wrapped, "including temporary relocation expense", 2, 0, "Column 1", 180, 178, 240),
+      cellSpan(wrapped, "extension", 2, 1, "Column 2", 260, 178, 80),
       rowC,
-      cellSpan(rowC, "C. Regulatory Proceedings Sub-Limit", 3, 0, "Aggregate (sub-limit, part of and not in addition to Aggregate Policy Limit)", 40, 205, 130),
-      cellSpan(rowC, "$100,000 Each Proceeding /", 3, 1, "Claim", 180, 205, 130),
+      cellSpan(rowC, "C. Warehouse Location", 3, 0, "including temporary relocation expense", 40, 205, 130),
+      cellSpan(rowC, "Inventory cleanup reimbursement /", 3, 1, "extension", 180, 205, 130),
       cellSpan(rowC, "$5,000 Each", 3, 2, "Column 3", 320, 205),
       cellSpan(rowC, "05/01/2025", 3, 3, "Column 4", 430, 205),
     ];
@@ -309,24 +309,24 @@ describe("source-tree extraction", () => {
           tableNodeId: string;
           rows: Array<{ rowNodeId: string; text: string }>;
         };
-        const wrappedRow = table.rows.find((row) => row.text.includes("Aggregate (sub-limit"))!;
-        const targetRow = table.rows.find((row) => row.text.includes("Network Security"))!;
+        const wrappedRow = table.rows.find((row) => row.text.includes("temporary relocation"))!;
+        const targetRow = table.rows.find((row) => row.text.includes("Secondary Location"))!;
         return {
           object: {
             tables: [{
               tableNodeId: table.tableNodeId,
               columnLabels: [
-                { columnIndex: 0, label: "Coverage Part" },
-                { columnIndex: 1, label: "Limit of Liability" },
-                { columnIndex: 2, label: "Deductible" },
-                { columnIndex: 3, label: "Retroactive Date" },
+                { columnIndex: 0, label: "Schedule Item" },
+                { columnIndex: 1, label: "Description" },
+                { columnIndex: 2, label: "Amount" },
+                { columnIndex: 3, label: "Effective Date" },
               ],
               continuationRows: [{
                 sourceRowNodeId: wrappedRow.rowNodeId,
                 targetRowNodeId: targetRow.rowNodeId,
                 targetColumnIndex: 1,
-                targetColumnLabel: "Limit of Liability",
-                reason: "The row is visually wrapped inside the prior limit cell.",
+                targetColumnLabel: "Description",
+                reason: "The row is visually wrapped inside the prior description cell.",
               }],
             }],
             warnings: [],
@@ -377,9 +377,9 @@ describe("source-tree extraction", () => {
     const repairedLimitCell = result.sourceTree.find((node) =>
       node.kind === "table_cell" &&
       node.parentId === repairedRow?.id &&
-      node.title === "Limit of Liability"
+      node.title === "Description"
     );
-    expect(repairedLimitCell?.textExcerpt).toContain("Aggregate (sub-limit");
+    expect(repairedLimitCell?.textExcerpt).toContain("temporary relocation");
     expect(repairedLimitCell?.sourceSpanIds).toContain(wrapped.id);
 
     const rowCNode = result.sourceTree.find((node) =>
@@ -390,10 +390,10 @@ describe("source-tree extraction", () => {
       .filter((node) => node.kind === "table_cell" && node.parentId === rowCNode?.id)
       .map((node) => node.title);
     expect(rowCTitles).toEqual([
-      "Coverage Part",
-      "Limit of Liability",
-      "Deductible",
-      "Retroactive Date",
+      "Schedule Item",
+      "Description",
+      "Amount",
+      "Effective Date",
     ]);
   });
 
