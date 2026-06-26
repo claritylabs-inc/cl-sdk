@@ -1,4 +1,4 @@
-import type { GenerateObject, TokenUsage, LogFn } from "./types";
+import type { GenerateObject, TokenUsage, LogFn, ModelCallTrace } from "./types";
 import type { ModelBudgetResolution, ModelTaskKind } from "./model-budget";
 import { sanitizeNulls } from "./sanitize";
 import { withRetry } from "./retry";
@@ -21,6 +21,7 @@ export interface SafeGenerateParams {
   maxTokens: number;
   taskKind?: ModelTaskKind;
   budgetDiagnostics?: ModelBudgetResolution;
+  trace?: ModelCallTrace;
   providerOptions?: Record<string, unknown>;
 }
 

@@ -80,6 +80,24 @@ const SourceTreeOrganizationSchema = z.object({
   })),
 });
 
+const SourceTreeVisualTableRepairSchema = z.object({
+  tables: z.array(z.object({
+    tableNodeId: z.string(),
+    columnLabels: z.array(z.object({
+      columnIndex: z.number().int().nonnegative(),
+      label: z.string(),
+    })).default([]),
+    continuationRows: z.array(z.object({
+      sourceRowNodeId: z.string(),
+      targetRowNodeId: z.string(),
+      targetColumnIndex: z.number().int().nonnegative().optional(),
+      targetColumnLabel: z.string().optional(),
+      reason: z.string().optional(),
+    })).default([]),
+  })).default([]),
+  warnings: z.array(z.string()).default([]),
+});
+
 const SourceBackedValueForPromptSchema = z.object({
   value: z.string(),
   normalizedValue: z.string().optional(),
@@ -156,10 +174,19 @@ type TrackUsage = (
 ) => void;
 
 type SourceTreeOrganization = z.infer<typeof SourceTreeOrganizationSchema>;
+type SourceTreeVisualTableRepair = z.infer<typeof SourceTreeVisualTableRepairSchema>;
 type OrganizationBatch = {
   label: string;
   topLevelNodeIds: string[];
   nodes: DocumentSourceNode[];
+};
+type VisualTableCandidate = {
+  table: DocumentSourceNode;
+  page: number;
+  rows: Array<{
+    row: DocumentSourceNode;
+    cells: DocumentSourceNode[];
+  }>;
 };
 
 function formatFormHintsForPrompt(forms: SourceTreeFormHint[]): string {
@@ -1613,6 +1640,410 @@ ${JSON.stringify(nodes, null, 2)}
 Return JSON for the operational profile.`;
 }
 
+const VISUAL_TABLE_REPAIR_MAX_TABLES = 4;
+const VISUAL_TABLE_REPAIR_MAX_ROWS = 28;
+const VISUAL_TABLE_REPAIR_MAX_CELLS = 140;
+const VISUAL_TABLE_REPAIR_KEYWORDS =
+  /\b(coverage|limit|limits?|deductible|retroactive|premium|tax|fee|sublimit|sub-limit|aggregate|claim|occurrence|retention|declarations?)\b/i;
+
+function isSourceTreeHeaderRow(row: DocumentSourceNode): boolean {
+  return row.metadata?.isHeader === true || row.metadata?.isHeader === "true";
+}
+
+function tableCellText(cell: DocumentSourceNode): string {
+  return cleanText(cell.textExcerpt ?? cell.description ?? cell.title, "");
+}
+
+function tableRowTextForPrompt(row: DocumentSourceNode, cells: DocumentSourceNode[]): string {
+  return cleanText(
+    cells.length
+      ? cells.map(tableCellText).filter(Boolean).join(" | ")
+      : row.textExcerpt ?? row.description ?? row.title,
+    row.title,
+  );
+}
+
+function tableCellColumnIndex(cell: DocumentSourceNode, fallbackIndex: number): number {
+  const metadataIndex = cell.metadata?.columnIndex;
+  return typeof metadataIndex === "number" && Number.isInteger(metadataIndex)
+    ? metadataIndex
+    : fallbackIndex;
+}
+
+function isGenericColumnTitle(value: string | undefined): boolean {
+  const title = cleanText(value, "");
+  return !title || /^(?:column\s+\d+|table cell|value)$/i.test(title);
+}
+
+function bboxSummary(node: DocumentSourceNode): Record<string, number> | undefined {
+  const box = node.bbox?.[0];
+  if (!box) return undefined;
+  const round = (value: number) => Math.round(value * 10) / 10;
+  return {
+    page: box.page,
+    x: round(box.x),
+    y: round(box.y),
+    width: round(box.width),
+    height: round(box.height),
+  };
+}
+
+function tableRowsWithCells(
+  table: DocumentSourceNode,
+  byParent: Map<string | undefined, DocumentSourceNode[]>,
+): VisualTableCandidate["rows"] {
+  return (byParent.get(table.id) ?? [])
+    .filter((node) => node.kind === "table_row")
+    .map((row) => ({
+      row,
+      cells: (byParent.get(row.id) ?? [])
+        .filter((child) => child.kind === "table_cell")
+        .sort((left, right) =>
+          tableCellColumnIndex(left, 0) - tableCellColumnIndex(right, 0) ||
+          left.order - right.order ||
+          left.id.localeCompare(right.id),
+        ),
+    }))
+    .sort((left, right) => left.row.order - right.row.order || left.row.id.localeCompare(right.row.id));
+}
+
+function primaryHeaderColumnCount(rows: VisualTableCandidate["rows"]): number {
+  const header = rows.find(({ row, cells }) => isSourceTreeHeaderRow(row) && cells.length > 1);
+  if (header) return header.cells.length;
+  return Math.max(0, ...rows.map(({ cells }) => cells.length));
+}
+
+function shouldRepairVisualTable(candidate: VisualTableCandidate): boolean {
+  const rows = candidate.rows;
+  if (rows.length < 3) return false;
+  const tableText = rows
+    .map(({ row, cells }) => tableRowTextForPrompt(row, cells))
+    .join(" ");
+  if (!VISUAL_TABLE_REPAIR_KEYWORDS.test(tableText)) return false;
+
+  const headerCount = primaryHeaderColumnCount(rows);
+  if (headerCount < 2) return false;
+
+  const firstHeaderIndex = rows.findIndex(({ row, cells }) => isSourceTreeHeaderRow(row) && cells.length > 1);
+  const repeatedHeader = firstHeaderIndex >= 0 &&
+    rows.some(({ row }, index) => index > firstHeaderIndex && isSourceTreeHeaderRow(row));
+  const shortContinuation = rows.some(({ row, cells }, index) =>
+    index > 0 &&
+    !isSourceTreeHeaderRow(row) &&
+    cells.length > 0 &&
+    cells.length < headerCount &&
+    !/^(?:item\s+\d+|[A-Z]\.)\b/i.test(tableCellText(cells[0])),
+  );
+  const genericDataLabels = rows.some(({ row, cells }) =>
+    !isSourceTreeHeaderRow(row) &&
+    cells.length >= 2 &&
+    cells.some((cell) => isGenericColumnTitle(cell.title)),
+  );
+  const danglingSlash = rows.some(({ row, cells }) =>
+    !isSourceTreeHeaderRow(row) &&
+    /\/\s*$/.test(tableRowTextForPrompt(row, cells)),
+  );
+
+  return repeatedHeader || shortContinuation || genericDataLabels || danglingSlash;
+}
+
+function visualTableCandidates(sourceTree: DocumentSourceNode[]): VisualTableCandidate[] {
+  const byParent = nodesByParent(sourceTree);
+  return sourceTree
+    .filter((node) => node.kind === "table" && typeof node.pageStart === "number")
+    .map((table) => ({
+      table,
+      page: table.pageStart!,
+      rows: tableRowsWithCells(table, byParent),
+    }))
+    .filter(shouldRepairVisualTable)
+    .sort((left, right) =>
+      left.page - right.page ||
+      left.table.order - right.table.order ||
+      left.table.id.localeCompare(right.table.id),
+    )
+    .slice(0, VISUAL_TABLE_REPAIR_MAX_TABLES);
+}
+
+function compactVisualTableCandidate(candidate: VisualTableCandidate) {
+  let cellCount = 0;
+  const rows = candidate.rows.slice(0, VISUAL_TABLE_REPAIR_MAX_ROWS).map(({ row, cells }) => {
+    const compactCells = cells
+      .slice(0, Math.max(0, VISUAL_TABLE_REPAIR_MAX_CELLS - cellCount))
+      .map((cell, index) => ({
+        cellNodeId: cell.id,
+        columnIndex: tableCellColumnIndex(cell, index),
+        currentColumnName: cell.title,
+        text: tableCellText(cell),
+        bbox: bboxSummary(cell),
+      }));
+    cellCount += compactCells.length;
+    return {
+      rowNodeId: row.id,
+      order: row.order,
+      isHeader: isSourceTreeHeaderRow(row),
+      text: tableRowTextForPrompt(row, cells),
+      bbox: bboxSummary(row),
+      cells: compactCells,
+    };
+  });
+
+  return {
+    tableNodeId: candidate.table.id,
+    page: candidate.page,
+    title: candidate.table.title,
+    bbox: bboxSummary(candidate.table),
+    rows,
+  };
+}
+
+function buildVisualTableRepairPrompt(candidate: VisualTableCandidate): string {
+  return `Compare a parsed insurance source table against the original page visual layout.
+
+If a page image is attached, use it as the primary reference. If no image is available, use the bbox coordinates below as the visual layout reference.
+
+Task:
+- Identify rows that are not real standalone rows because they are visually wrapped continuation text for a nearby row.
+- Identify the primary printed column labels for the table.
+
+Rules:
+- Return only high-confidence repairs.
+- Use only rowNodeId/tableNodeId/cellNodeId values from the provided JSON.
+- Do not invent policy facts, values, row text, source spans, or page numbers.
+- continuationRows.sourceRowNodeId must be a parsed row that should be removed as a standalone row.
+- continuationRows.targetRowNodeId must be the row that visually owns that wrapped text, usually the immediately previous non-header row.
+- targetColumnIndex/targetColumnLabel should point to the visual column that owns the wrapped text, usually the limit/amount/value column.
+- Do not mark actual data rows as continuations when they begin a new item, coverage part, endorsement, form, location, person, or premium/tax row.
+- columnLabels should be the primary visual header labels, not later wrapped cell text that the parser misread as a header.
+
+Parsed table with visual coordinates:
+${JSON.stringify(compactVisualTableCandidate(candidate), null, 2)}
+
+Return JSON with tables[].columnLabels and tables[].continuationRows. Return empty arrays if no repair is needed.`;
+}
+
+function sourceSpanIdsForNodes(nodes: DocumentSourceNode[]): string[] {
+  return [...new Set(nodes.flatMap((node) => node.sourceSpanIds))];
+}
+
+function appendDistinctText(base: string | undefined, addition: string | undefined): string | undefined {
+  const current = cleanText(base, "");
+  const next = cleanText(addition, "");
+  if (!current) return next || undefined;
+  if (!next) return current;
+  if (current.toLowerCase().includes(next.toLowerCase())) return current;
+  const delimiter = /(?:[/(:;-]|,\s*)$/.test(current) ? " " : " / ";
+  return cleanText(`${current}${delimiter}${next}`, current);
+}
+
+function mergedBbox(nodes: DocumentSourceNode[]): DocumentSourceNode["bbox"] {
+  const boxes = nodes.flatMap((node) => node.bbox ?? []);
+  return boxes.length ? boxes.slice(0, 12) : undefined;
+}
+
+function normalizedRepairLabel(value: string | undefined): string | undefined {
+  const label = cleanText(value, "");
+  if (!label || label.length > 80) return undefined;
+  if (/^(?:source|page|row|table)$/i.test(label)) return undefined;
+  return label;
+}
+
+function findCellForContinuation(params: {
+  cells: DocumentSourceNode[];
+  targetColumnIndex?: number;
+  targetColumnLabel?: string;
+}): DocumentSourceNode | undefined {
+  if (typeof params.targetColumnIndex === "number") {
+    const byIndex = params.cells.find((cell, index) =>
+      tableCellColumnIndex(cell, index) === params.targetColumnIndex
+    );
+    if (byIndex) return byIndex;
+  }
+  const label = normalizedRepairLabel(params.targetColumnLabel);
+  if (label) {
+    const byLabel = params.cells.find((cell) =>
+      cleanText(cell.title, "").toLowerCase() === label.toLowerCase()
+    );
+    if (byLabel) return byLabel;
+  }
+  return params.cells[1] ?? params.cells[params.cells.length - 1];
+}
+
+function applyVisualTableRepair(
+  sourceTree: DocumentSourceNode[],
+  repair: SourceTreeVisualTableRepair,
+): DocumentSourceNode[] {
+  if (repair.tables.length === 0) return sourceTree;
+
+  const byId = new Map(sourceTree.map((node) => [node.id, node]));
+  const byParent = nodesByParent(sourceTree);
+  const updates = new Map<string, DocumentSourceNode>();
+  const removeIds = new Set<string>();
+
+  const currentNode = (id: string) => updates.get(id) ?? byId.get(id);
+
+  for (const tableRepair of repair.tables) {
+    const table = byId.get(tableRepair.tableNodeId);
+    if (!table || table.kind !== "table") continue;
+    const rows = tableRowsWithCells(table, byParent);
+    const rowIds = new Set(rows.map(({ row }) => row.id));
+    const rowOrder = new Map(rows.map(({ row }, index) => [row.id, index]));
+    const columnLabels = new Map<number, string>();
+    for (const label of tableRepair.columnLabels) {
+      const normalized = normalizedRepairLabel(label.label);
+      if (normalized) columnLabels.set(label.columnIndex, normalized);
+    }
+
+    if (columnLabels.size > 0) {
+      for (const { row, cells } of rows) {
+        if (removeIds.has(row.id)) continue;
+        for (const [fallbackIndex, cell] of cells.entries()) {
+          const columnIndex = tableCellColumnIndex(cell, fallbackIndex);
+          const label = columnLabels.get(columnIndex);
+          if (!label || cell.title === label) continue;
+          updates.set(cell.id, {
+            ...(currentNode(cell.id) ?? cell),
+            title: label,
+            metadata: {
+              ...(cell.metadata ?? {}),
+              visualTableRepairColumnLabel: label,
+            },
+          });
+        }
+      }
+    }
+
+    for (const continuation of tableRepair.continuationRows) {
+      if (!rowIds.has(continuation.sourceRowNodeId) || !rowIds.has(continuation.targetRowNodeId)) continue;
+      if (continuation.sourceRowNodeId === continuation.targetRowNodeId) continue;
+      const sourceIndex = rowOrder.get(continuation.sourceRowNodeId);
+      const targetIndex = rowOrder.get(continuation.targetRowNodeId);
+      if (sourceIndex === undefined || targetIndex === undefined) continue;
+      if (Math.abs(sourceIndex - targetIndex) > 3) continue;
+
+      const sourceRow = currentNode(continuation.sourceRowNodeId);
+      const targetRow = currentNode(continuation.targetRowNodeId);
+      if (!sourceRow || !targetRow || sourceRow.kind !== "table_row" || targetRow.kind !== "table_row") continue;
+      if (isSourceTreeHeaderRow(targetRow)) continue;
+
+      const sourceCells = (byParent.get(sourceRow.id) ?? [])
+        .filter((node) => node.kind === "table_cell")
+        .map((node) => currentNode(node.id) ?? node);
+      const targetCells = (byParent.get(targetRow.id) ?? [])
+        .filter((node) => node.kind === "table_cell")
+        .map((node) => currentNode(node.id) ?? node);
+      const sourceText = tableRowTextForPrompt(sourceRow, sourceCells);
+      if (!sourceText) continue;
+
+      const targetCell = findCellForContinuation({
+        cells: targetCells,
+        targetColumnIndex: continuation.targetColumnIndex,
+        targetColumnLabel: continuation.targetColumnLabel,
+      });
+      const sourceNodes = [sourceRow, ...sourceCells];
+      const sourceSpanIds = sourceSpanIdsForNodes(sourceNodes);
+
+      if (targetCell) {
+        const nextCellText = appendDistinctText(tableCellText(targetCell), sourceText);
+        if (nextCellText) {
+          const mergedNodes = [targetCell, ...sourceNodes];
+          updates.set(targetCell.id, {
+            ...(currentNode(targetCell.id) ?? targetCell),
+            textExcerpt: nextCellText,
+            description: cleanText([targetCell.title, nextCellText].filter(Boolean).join(" | "), targetCell.description),
+            sourceSpanIds: [...new Set([...targetCell.sourceSpanIds, ...sourceSpanIds])],
+            bbox: mergedBbox(mergedNodes),
+            metadata: {
+              ...(targetCell.metadata ?? {}),
+              visualTableRepair: "merged_continuation",
+            },
+          });
+        }
+      }
+
+      const nextRowText = appendDistinctText(targetRow.textExcerpt ?? targetRow.description, sourceText);
+      updates.set(targetRow.id, {
+        ...(currentNode(targetRow.id) ?? targetRow),
+        textExcerpt: nextRowText,
+        description: cleanText([targetRow.title, nextRowText].filter(Boolean).join(" | "), targetRow.description),
+        sourceSpanIds: [...new Set([...targetRow.sourceSpanIds, ...sourceSpanIds])],
+        bbox: mergedBbox([targetRow, ...sourceNodes]),
+        metadata: {
+          ...(targetRow.metadata ?? {}),
+          visualTableRepair: "merged_continuation",
+        },
+      });
+
+      removeIds.add(sourceRow.id);
+      for (const sourceCell of sourceCells) removeIds.add(sourceCell.id);
+    }
+  }
+
+  if (updates.size === 0 && removeIds.size === 0) return sourceTree;
+  const repaired = sourceTree
+    .filter((node) => !removeIds.has(node.id))
+    .map((node) => updates.get(node.id) ?? node);
+  return normalizeDocumentSourceTreePaths(normalizeContainerEvidenceFromChildren(repaired));
+}
+
+async function runVisualTableRepair(params: {
+  sourceTree: DocumentSourceNode[];
+  generateObject: GenerateObject;
+  resolveBudget: (taskKind: "extraction_source_tree" | "extraction_operational_profile", hintTokens: number) => ModelBudgetResolution;
+  trackUsage: TrackUsage;
+  log?: (message: string) => Promise<void>;
+}): Promise<{ sourceTree: DocumentSourceNode[]; warnings: string[] }> {
+  const candidates = visualTableCandidates(params.sourceTree);
+  if (candidates.length === 0) return { sourceTree: params.sourceTree, warnings: [] };
+
+  let sourceTree = params.sourceTree;
+  const warnings: string[] = [];
+  for (const [index, candidate] of candidates.entries()) {
+    try {
+      const budget = params.resolveBudget("extraction_source_tree", 1800);
+      const maxTokens = Math.min(budget.maxTokens, 2400);
+      const startedAt = Date.now();
+      const response = await safeGenerateObject(
+        params.generateObject,
+        {
+          prompt: buildVisualTableRepairPrompt(candidate),
+          schema: SourceTreeVisualTableRepairSchema,
+          maxTokens,
+          taskKind: "extraction_source_tree",
+          budgetDiagnostics: { ...budget, maxTokens },
+          trace: {
+            label: `source_tree_visual_table_repair_p${candidate.page}`,
+            startPage: candidate.page,
+            endPage: candidate.page,
+            batchIndex: index + 1,
+            batchCount: candidates.length,
+            sourceBacked: true,
+          },
+        },
+        {
+          fallback: { tables: [], warnings: [] },
+          log: params.log,
+        },
+      );
+      params.trackUsage(response.usage, {
+        taskKind: "extraction_source_tree",
+        label: `source_tree_visual_table_repair_p${candidate.page}`,
+        maxTokens,
+        durationMs: Date.now() - startedAt,
+      });
+      const repair = response.object as SourceTreeVisualTableRepair;
+      sourceTree = applyVisualTableRepair(sourceTree, repair);
+      warnings.push(...repair.warnings.map((warning) =>
+        `Visual table repair warning on page ${candidate.page}: ${warning}`,
+      ));
+    } catch (error) {
+      warnings.push(`Visual table repair skipped on page ${candidate.page}; parsed table kept (${error instanceof Error ? error.message : String(error)})`);
+    }
+  }
+
+  return { sourceTree, warnings };
+}
+
 function groupNodeId(documentId: string, group: { kind: string; title: string; childNodeIds: string[] }) {
   return [
     documentId.replace(/[^a-zA-Z0-9_.:-]/g, "_"),
@@ -1972,6 +2403,16 @@ export async function runSourceTreeExtraction(params: {
       warnings.push(`Source-tree outline cleanup failed; deterministic tree used (${error instanceof Error ? error.message : String(error)})`);
     }
   }
+
+  const visualTableRepair = await runVisualTableRepair({
+    sourceTree,
+    generateObject: params.generateObject,
+    resolveBudget: params.resolveBudget,
+    trackUsage: localTrack,
+    log: params.log,
+  });
+  sourceTree = visualTableRepair.sourceTree;
+  warnings.push(...visualTableRepair.warnings);
 
   const deterministicProfile = buildDeterministicOperationalProfile({
     sourceTree,

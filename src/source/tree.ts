@@ -279,7 +279,30 @@ function sortSpans(left: SourceSpan, right: SourceSpan): number {
   const leftCol = left.table?.columnIndex ?? Number(left.metadata?.columnIndex ?? 0);
   const rightCol = right.table?.columnIndex ?? Number(right.metadata?.columnIndex ?? 0);
   if (leftCol !== rightCol) return leftCol - rightCol;
+  if (tableId(left) && tableId(left) === tableId(right)) {
+    const leftUnitRank = sourceUnitSortRank(left);
+    const rightUnitRank = sourceUnitSortRank(right);
+    if (leftUnitRank !== rightUnitRank) return leftUnitRank - rightUnitRank;
+  }
   return left.id.localeCompare(right.id);
+}
+
+function sourceUnitSortRank(span: SourceSpan): number {
+  switch (sourceUnit(span)) {
+    case "page":
+      return 0;
+    case "table":
+      return 1;
+    case "table_row":
+      return 2;
+    case "table_cell":
+      return 3;
+    case "section":
+    case "key_value":
+    case "text":
+    default:
+      return 4;
+  }
 }
 
 export function normalizeDocumentSourceTreePaths(nodes: DocumentSourceNode[]): DocumentSourceNode[] {
