@@ -274,31 +274,35 @@ describe("source-tree extraction", () => {
       pageNumber: 5,
       text: "SOURCE SCHEDULE Schedule Item Description Amount Effective Date",
     }])[0]!;
-    const header = rowSpan("Schedule Item | Description | Amount | Effective Date", 0, true, 120);
-    const rowB = rowSpan("B. Secondary Location | Equipment breakdown reimbursement / | $5,000 | 05/01/2025", 1, false, 160);
-    const wrapped = rowSpan("including temporary relocation expense | extension", 2, true, 178);
-    const rowC = rowSpan("C. Warehouse Location | Inventory cleanup reimbursement / | $3,000 | 05/01/2025", 3, false, 205);
+    const preHeader = rowSpan("Item 1. Named Insured | Example Labs Inc.", 0, false, 95);
+    const header = rowSpan("Schedule Item | Description | Amount | Effective Date", 1, true, 120);
+    const rowB = rowSpan("B. Secondary Location | Equipment breakdown reimbursement / | $5,000 | 05/01/2025", 2, false, 160);
+    const wrapped = rowSpan("including temporary relocation expense | extension", 3, true, 178);
+    const rowC = rowSpan("C. Warehouse Location | Inventory cleanup reimbursement / | $3,000 | 05/01/2025", 4, false, 205);
 
     const sourceSpans = [
       page,
+      preHeader,
+      cellSpan(preHeader, "Item 1. Named Insured", 0, 0, "Column 1", 40, 95, 130),
+      cellSpan(preHeader, "Example Labs Inc.", 0, 1, "Column 2", 180, 95, 130),
       header,
-      cellSpan(header, "Schedule Item", 0, 0, "Schedule Item", 40, 120),
-      cellSpan(header, "Description", 0, 1, "Description", 180, 120),
-      cellSpan(header, "Amount", 0, 2, "Amount", 320, 120),
-      cellSpan(header, "Effective Date", 0, 3, "Effective Date", 430, 120),
+      cellSpan(header, "Schedule Item", 1, 0, "Schedule Item", 40, 120),
+      cellSpan(header, "Description", 1, 1, "Description", 180, 120),
+      cellSpan(header, "Amount", 1, 2, "Amount", 320, 120),
+      cellSpan(header, "Effective Date", 1, 3, "Effective Date", 430, 120),
       rowB,
-      cellSpan(rowB, "B. Secondary Location", 1, 0, "Schedule Item", 40, 160, 130),
-      cellSpan(rowB, "Equipment breakdown reimbursement /", 1, 1, "Description", 180, 160, 130),
-      cellSpan(rowB, "$5,000", 1, 2, "Amount", 320, 160),
-      cellSpan(rowB, "05/01/2025", 1, 3, "Effective Date", 430, 160),
+      cellSpan(rowB, "B. Secondary Location", 2, 0, "Schedule Item", 40, 160, 130),
+      cellSpan(rowB, "Equipment breakdown reimbursement /", 2, 1, "Description", 180, 160, 130),
+      cellSpan(rowB, "$5,000", 2, 2, "Amount", 320, 160),
+      cellSpan(rowB, "05/01/2025", 2, 3, "Effective Date", 430, 160),
       wrapped,
-      cellSpan(wrapped, "including temporary relocation expense", 2, 0, "Column 1", 180, 178, 240),
-      cellSpan(wrapped, "extension", 2, 1, "Column 2", 260, 178, 80),
+      cellSpan(wrapped, "including temporary relocation expense", 3, 0, "Column 1", 180, 178, 240),
+      cellSpan(wrapped, "extension", 3, 1, "Column 2", 260, 178, 80),
       rowC,
-      cellSpan(rowC, "C. Warehouse Location", 3, 0, "including temporary relocation expense", 40, 205, 130),
-      cellSpan(rowC, "Inventory cleanup reimbursement /", 3, 1, "extension", 180, 205, 130),
-      cellSpan(rowC, "$5,000 Each", 3, 2, "Column 3", 320, 205),
-      cellSpan(rowC, "05/01/2025", 3, 3, "Column 4", 430, 205),
+      cellSpan(rowC, "C. Warehouse Location", 4, 0, "including temporary relocation expense", 40, 205, 130),
+      cellSpan(rowC, "Inventory cleanup reimbursement /", 4, 1, "extension", 180, 205, 130),
+      cellSpan(rowC, "$5,000 Each", 4, 2, "Column 3", 320, 205),
+      cellSpan(rowC, "05/01/2025", 4, 3, "Column 4", 430, 205),
     ];
 
     const generateObjectMock = vi.fn(async (params) => {
@@ -364,6 +368,15 @@ describe("source-tree extraction", () => {
     }));
     expect(visualCall).not.toHaveProperty("providerOptions");
 
+    const preHeaderRow = result.sourceTree.find((node) =>
+      node.kind === "table_row" &&
+      node.sourceSpanIds.includes(preHeader.id)
+    );
+    const preHeaderTitles = result.sourceTree
+      .filter((node) => node.kind === "table_cell" && node.parentId === preHeaderRow?.id)
+      .map((node) => node.title);
+    expect(preHeaderTitles).toEqual(["Column 1", "Column 2"]);
+
     expect(result.sourceTree.some((node) =>
       node.kind === "table_row" &&
       node.sourceSpanIds.includes(wrapped.id) &&
@@ -387,10 +400,16 @@ describe("source-tree extraction", () => {
       node.kind === "table_row" &&
       node.sourceSpanIds.includes(rowC.id)
     );
-    const rowCTitles = result.sourceTree
-      .filter((node) => node.kind === "table_cell" && node.parentId === rowCNode?.id)
-      .map((node) => node.title);
+    const rowCCells = result.sourceTree
+      .filter((node) => node.kind === "table_cell" && node.parentId === rowCNode?.id);
+    const rowCTitles = rowCCells.map((node) => node.title);
     expect(rowCTitles).toEqual([
+      "Schedule Item",
+      "Description",
+      "Amount",
+      "Effective Date",
+    ]);
+    expect(rowCCells.map((node) => node.metadata?.columnName)).toEqual([
       "Schedule Item",
       "Description",
       "Amount",

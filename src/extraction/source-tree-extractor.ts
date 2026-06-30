@@ -1896,6 +1896,41 @@ function findCellForContinuation(params: {
   return params.cells[1] ?? params.cells[params.cells.length - 1];
 }
 
+function columnLabelStartIndex(rows: VisualTableCandidate["rows"]): number {
+  const headerIndex = rows.findIndex(({ row, cells }) =>
+    isSourceTreeHeaderRow(row) && cells.length > 1
+  );
+  return headerIndex >= 0 ? headerIndex : 0;
+}
+
+function metadataWithColumnLabel(
+  metadata: DocumentSourceNode["metadata"],
+  label: string,
+): DocumentSourceNode["metadata"] {
+  const next: Record<string, unknown> = {
+    ...(metadata ?? {}),
+    columnName: label,
+    visualTableRepairColumnLabel: label,
+  };
+  if (metadata?.table && typeof metadata.table === "object" && !Array.isArray(metadata.table)) {
+    next.table = {
+      ...metadata.table,
+      columnName: label,
+    };
+  }
+  return next;
+}
+
+function tableCellDescription(cell: DocumentSourceNode, label: string): string {
+  const text = tableCellText(cell);
+  return cleanText(
+    text && text.toLowerCase() !== label.toLowerCase()
+      ? `${label} | ${text}`
+      : label,
+    cell.description,
+  );
+}
+
 function applyVisualTableRepair(
   sourceTree: DocumentSourceNode[],
   repair: SourceTreeVisualTableRepair,
@@ -1922,8 +1957,10 @@ function applyVisualTableRepair(
     }
 
     if (columnLabels.size > 0) {
-      for (const { row, cells } of rows) {
+      const firstLabelRowIndex = columnLabelStartIndex(rows);
+      for (const [rowIndex, { row, cells }] of rows.entries()) {
         if (removeIds.has(row.id)) continue;
+        if (rowIndex < firstLabelRowIndex) continue;
         for (const [fallbackIndex, cell] of cells.entries()) {
           const columnIndex = tableCellColumnIndex(cell, fallbackIndex);
           const label = columnLabels.get(columnIndex);
@@ -1931,10 +1968,8 @@ function applyVisualTableRepair(
           updates.set(cell.id, {
             ...(currentNode(cell.id) ?? cell),
             title: label,
-            metadata: {
-              ...(cell.metadata ?? {}),
-              visualTableRepairColumnLabel: label,
-            },
+            description: tableCellDescription(cell, label),
+            metadata: metadataWithColumnLabel(cell.metadata, label),
           });
         }
       }
