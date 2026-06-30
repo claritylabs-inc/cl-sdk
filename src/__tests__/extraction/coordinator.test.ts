@@ -294,6 +294,19 @@ describe("createExtractor", () => {
         if (params.taskKind === "extraction_source_tree") {
           return { object: { labels: [], groups: [] } };
         }
+        if (params.taskKind === "extraction_operational_profile") {
+          return {
+            object: {
+              documentType: "policy",
+              policyTypes: ["general_liability"],
+              policyNumber: {
+                value: "POL-0001",
+                confidence: "high",
+                sourceSpanIds: [sourceSpans[0].id],
+              },
+            },
+          };
+        }
         return {
           object: { documentType: "policy", policyTypes: ["general_liability"], confidence: 0.95 },
         };

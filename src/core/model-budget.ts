@@ -7,6 +7,7 @@ export type ModelTaskKind =
   | "extraction_focused"
   | "extraction_long_list"
   | "extraction_referential_lookup"
+  | "extraction_coverage_cleanup"
   | "extraction_review"
   | "extraction_summary"
   | "extraction_format"

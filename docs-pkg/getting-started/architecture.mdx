@@ -7,7 +7,7 @@ CL SDK is organized into eight systems: **document extraction**, **source ground
 
 ## Document extraction pipeline
 
-The core of CL SDK is a source-tree pipeline that turns parser-provided insurance PDF spans into a canonical hierarchy plus source-backed operational facts. When source spans are available, the extractor builds deterministic document/page/table/row/cell nodes, uses form-inventory page ranges as a conservative skeleton, promotes title elements into section/schedule hierarchy across page breaks, runs bounded organizer cleanup over existing node IDs, extracts only cited operational facts, and returns a compatibility `InsuranceDocument` projection for existing hosts.
+The core of CL SDK is a source-tree pipeline that turns parser-provided insurance PDF spans into a canonical hierarchy plus source-backed operational facts. When source spans are available, the extractor builds deterministic document/page/table/row/cell nodes, uses form-inventory page ranges as a conservative skeleton, promotes title elements into section/schedule hierarchy across page breaks, runs bounded organizer cleanup over existing node IDs, asks the configured model to extract only cited operational facts, and returns a compatibility `InsuranceDocument` projection for existing hosts.
 
 ```mermaid
 flowchart LR

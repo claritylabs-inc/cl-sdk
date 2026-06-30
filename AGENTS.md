@@ -38,7 +38,7 @@ The primary extraction path is v3 source-tree extraction when source spans are a
 1. **Normalize parser input**: hosts pass parser-neutral `SourceSpan[]` from LiteParse, Docling, PDF.js, OCR, or another parser. Spans carry page ranges, table row/cell metadata, parent span IDs, stable text hashes, and optional bounding boxes.
 2. **Build source tree** (`source/tree.ts`): deterministic construction creates `DocumentSourceNode[]` for document, page, page group/form/endorsement/section/schedule/clause, table, row, cell, and text levels. Nodes preserve `sourceSpanIds`, page range, bbox, order, and hierarchy path.
 3. **Organize labels/groups** (`extraction/source-tree-extractor.ts`): a small model pass may relabel existing nodes or group adjacent existing nodes. It cannot invent node IDs, text, pages, source spans, or bbox locations.
-4. **Operational profile** (`source/operational-profile.ts`): deterministic heuristics plus a bounded model pass extract only product-critical facts: policy metadata, parties, coverage lines, limits, deductibles, premiums, key dates, and endorsement support. Uncited facts are rejected.
+4. **Operational profile** (`source/operational-profile.ts`): a bounded model pass extracts only product-critical facts: policy metadata, parties, coverage lines, limits, deductibles, premiums, key dates, and endorsement support. The merge layer rejects uncited facts and source IDs that are not present in the current source tree/spans. Do not reintroduce deterministic operational-fact scaffolding.
 5. **Compatibility projection** (`source-tree-extractor.ts`): `result.document`, `documentMetadata`, and `documentOutline` are materialized views over `sourceTree` and `operationalProfile`; `result.chunks` is empty on v3 paths.
 6. **Legacy fallback** (`coordinator.ts`): if no source spans are available, the older classify/page-map/focused-extractor pipeline can still run, but new production hosts should provide source spans and treat the source tree as canonical.
 
@@ -67,7 +67,7 @@ Important extraction contract:
 - **Parser-grounded hierarchy**: source tree nodes may be reorganized only around existing source node IDs and source span IDs.
 - **Operational profile as projection**: policy facts used by products must cite source nodes/spans and should not become the canonical source of wording.
 - **Legacy fallback isolation**: keep old focused extraction available only for no-source-span inputs; do not expand it as the primary path.
-- **Bounded agentic workflows**: prefer deterministic scaffolding with agentic decision points. Use workflow planners/gates to avoid unnecessary extractor, retrieval, lookup, or formatting calls while preserving follow-up paths for edge cases.
+- **Bounded agentic workflows**: prefer deterministic planning with agentic decision points. Use workflow planners/gates to avoid unnecessary extractor, retrieval, lookup, or formatting calls while preserving follow-up paths for edge cases. Operational policy facts are the exception: they are model-extracted and source-validated, not deterministically inferred.
 - **Strict schema compatibility**: `toStrictSchema()` auto-transforms Zod schemas before `generateObject` calls.
 - **Safe generate**: `safeGenerateObject()` wraps `generateObject` with retry, strictification, and optional fallbacks.
 - **Output token caps**: `resolveModelBudget()` treats task budgets as preferences/diagnostics. When model capabilities provide `maxOutputTokens`, use that model maximum as the request cap so extraction does not truncate just because a cheap task preference was too low. Only explicit hard constraints should lower the cap.
@@ -81,4 +81,6 @@ Important extraction contract:
 
 ## Releases
 
-Versioning and publishing are automated via `semantic-release`. Pushing to `master` triggers release automation for this repo.
+Versioning and publishing are automated via `semantic-release` and the GitHub Actions release workflow. Do not run `npm publish` locally and do not manually bump `package.json` for a normal SDK release. Commit the SDK change and push the configured release branch; today that branch is `master` because `.releaserc.json` and `.github/workflows/release.yml` both target `master`. If the release branch is renamed later, follow the configured release branch rather than assuming `main`.
+
+When Glass needs a new SDK behavior, push the SDK release branch first and let the workflow publish the package. After npm shows the new version, update both Glass dependency specs that consume `@claritylabs/cl-sdk` together and rerun Glass's SDK alignment check.

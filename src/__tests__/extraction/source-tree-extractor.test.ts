@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GenerateObject } from "../../core/types";
+import type { ModelTaskKind } from "../../core/model-budget";
 import { buildPageSourceSpans, buildSourceSpan } from "../../source";
 import { runSourceTreeExtraction } from "../../extraction/source-tree-extractor";
 import { InsurerInfoSchema, ProducerInfoSchema } from "../../schemas/parties";
 
-const resolveBudget = (taskKind: "extraction_source_tree" | "extraction_operational_profile", hintTokens: number) => ({
+const resolveBudget = (taskKind: ModelTaskKind, hintTokens: number) => ({
   taskKind,
   hintTokens,
   maxTokens: 8192,

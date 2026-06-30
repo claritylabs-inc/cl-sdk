@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { GenerateObject, PerformanceReport, TokenUsage } from "../core/types";
-import type { ModelBudgetResolution } from "../core/model-budget";
+import type { ModelBudgetResolution, ModelTaskKind } from "../core/model-budget";
 import { safeGenerateObject } from "../core/safe-generate";
 import type { InsuranceDocument } from "../schemas/document";
 import type { SourceProvenance } from "../schemas/shared";
@@ -13,13 +13,12 @@ import type {
   SourceSpan,
 } from "../source";
 import {
-  buildDeterministicOperationalProfile,
   buildDocumentSourceTree,
   chunkSourceSpans,
-  mergeOperationalProfile,
   normalizeDocumentSourceTreePaths,
   normalizeSourceSpans,
 } from "../source";
+import { mergeOperationalProfile } from "../source/operational-profile";
 import type { FormInventoryResult } from "../prompts/coordinator/form-inventory";
 import {
   applyOperationalProfileCleanup,
@@ -166,7 +165,7 @@ export type ExtractionV3Result = {
 type TrackUsage = (
   usage?: TokenUsage,
   report?: {
-    taskKind: "extraction_source_tree" | "extraction_operational_profile" | "extraction_classify";
+    taskKind: ModelTaskKind;
     label?: string;
     maxTokens?: number;
     durationMs?: number;
@@ -1609,11 +1608,39 @@ ${JSON.stringify(nodes, null, 2)}
 Return JSON with labels and groups only.`;
 }
 
-function buildOperationalProfilePrompt(sourceTree: DocumentSourceNode[], fallback: PolicyOperationalProfile): string {
-  const nodes = sourceTree
+function operationalProfilePromptNodes(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
+  return sourceTree
     .filter((node) => node.kind !== "document")
-    .slice(0, 240)
-    .map(compactNode);
+    .filter((node) => {
+      if (["page_group", "form", "endorsement", "schedule", "table", "table_row", "table_cell"].includes(node.kind)) {
+        return true;
+      }
+      const text = [node.title, node.path, node.description, node.textExcerpt]
+        .filter(Boolean)
+        .join(" ");
+      return /\b(policy\s*(number|period)|named insured|insurer|carrier|broker|producer|premium|coverage|limit|liability|deductible|retention|retroactive|aggregate|sublimit|sub-limit|endorsement)\b/i.test(text);
+    })
+    .slice(0, 420);
+}
+
+function emptyOperationalProfile(): PolicyOperationalProfile {
+  return {
+    documentType: "policy",
+    policyTypes: ["other"],
+    coverageTypes: [],
+    coverages: [],
+    parties: [],
+    endorsementSupport: [],
+    sourceNodeIds: [],
+    sourceSpanIds: [],
+    warnings: [],
+  };
+}
+
+function buildOperationalProfilePrompt(sourceTree: DocumentSourceNode[]): string {
+  const nodes = operationalProfilePromptNodes(sourceTree).map((node) =>
+    compactNode(node, node.kind === "page" || node.kind === "endorsement" ? 900 : 700),
+  );
   return `Extract a source-backed operational profile for an insurance policy or quote.
 
 Return only high-value operational facts needed for policy lists, Q&A, compliance, and certificate generation:
@@ -1630,9 +1657,7 @@ Rules:
 - For coverage schedules, put each claim, aggregate, sublimit, retention, deductible, and retroactive date values in coverages[].limits with labels and source IDs. Keep the legacy coverages[].limit as the primary display value only.
 - Use coverageOrigin: "endorsement" for endorsement units and "core" for declarations/core policy coverage units.
 - Do not copy entire policy wording into fields.
-
-Deterministic baseline:
-${JSON.stringify(fallback, null, 2)}
+- Extract facts directly from source nodes. There is no deterministic fact baseline.
 
 Source nodes:
 ${JSON.stringify(nodes, null, 2)}
@@ -1991,7 +2016,7 @@ function applyVisualTableRepair(
 async function runVisualTableRepair(params: {
   sourceTree: DocumentSourceNode[];
   generateObject: GenerateObject;
-  resolveBudget: (taskKind: "extraction_source_tree" | "extraction_operational_profile", hintTokens: number) => ModelBudgetResolution;
+  resolveBudget: (taskKind: ModelTaskKind, hintTokens: number) => ModelBudgetResolution;
   trackUsage: TrackUsage;
   log?: (message: string) => Promise<void>;
 }): Promise<{ sourceTree: DocumentSourceNode[]; warnings: string[] }> {
@@ -2308,7 +2333,7 @@ export async function runSourceTreeExtraction(params: {
   formInventory?: FormInventoryResult;
   generateObject: GenerateObject;
   providerOptions?: Record<string, unknown>;
-  resolveBudget: (taskKind: "extraction_source_tree" | "extraction_operational_profile", hintTokens: number) => ModelBudgetResolution;
+  resolveBudget: (taskKind: ModelTaskKind, hintTokens: number) => ModelBudgetResolution;
   trackUsage: TrackUsage;
   log?: (message: string) => Promise<void>;
 }): Promise<ExtractionV3Result> {
@@ -2416,11 +2441,8 @@ export async function runSourceTreeExtraction(params: {
   sourceTree = visualTableRepair.sourceTree;
   warnings.push(...visualTableRepair.warnings);
 
-  const deterministicProfile = buildDeterministicOperationalProfile({
-    sourceTree,
-    sourceSpans,
-  });
-  let operationalProfile = deterministicProfile;
+  const emptyProfile = emptyOperationalProfile();
+  let operationalProfile = emptyProfile;
   try {
     const validNodeIds = new Set(sourceTree.map((node) => node.id));
     const validSpanIds = new Set(sourceSpans.map((span) => span.id));
@@ -2429,7 +2451,7 @@ export async function runSourceTreeExtraction(params: {
     const response = await safeGenerateObject(
       params.generateObject,
       {
-        prompt: buildOperationalProfilePrompt(sourceTree, deterministicProfile),
+        prompt: buildOperationalProfilePrompt(sourceTree),
         schema: OperationalProfilePromptSchema,
         maxTokens: budget.maxTokens,
         taskKind: "extraction_operational_profile",
@@ -2437,7 +2459,7 @@ export async function runSourceTreeExtraction(params: {
         providerOptions: params.providerOptions,
       },
       {
-        fallback: deterministicProfile,
+        fallback: emptyProfile,
         log: params.log,
       },
     );
@@ -2448,20 +2470,20 @@ export async function runSourceTreeExtraction(params: {
       durationMs: Date.now() - startedAt,
     });
     operationalProfile = mergeOperationalProfile(
-      deterministicProfile,
+      emptyProfile,
       response.object as Partial<PolicyOperationalProfile>,
       validNodeIds,
       validSpanIds,
     );
   } catch (error) {
-    warnings.push(`Operational profile model pass failed; deterministic profile used (${error instanceof Error ? error.message : String(error)})`);
+    warnings.push(`Operational profile model pass failed; coverage rows omitted (${error instanceof Error ? error.message : String(error)})`);
   }
 
   if (operationalProfile.coverages.length > 0) {
     try {
       const validNodeIds = new Set(sourceTree.map((node) => node.id));
       const validSpanIds = new Set(sourceSpans.map((span) => span.id));
-      const budget = params.resolveBudget("extraction_operational_profile", 4096);
+      const budget = params.resolveBudget("extraction_coverage_cleanup", 4096);
       const startedAt = Date.now();
       const response = await safeGenerateObject(
         params.generateObject,
@@ -2469,9 +2491,10 @@ export async function runSourceTreeExtraction(params: {
           prompt: buildOperationalProfileCleanupPrompt(sourceTree, operationalProfile),
           schema: OperationalProfileCleanupSchema,
           maxTokens: budget.maxTokens,
-          taskKind: "extraction_operational_profile",
+          taskKind: "extraction_coverage_cleanup",
           budgetDiagnostics: budget,
           providerOptions: params.providerOptions,
+          trace: { phase: "coverage_cleanup", sourceBacked: true },
         },
         {
           fallback: { coverageDecisions: [], warnings: [] },
@@ -2479,7 +2502,7 @@ export async function runSourceTreeExtraction(params: {
         },
       );
       localTrack(response.usage, {
-        taskKind: "extraction_operational_profile",
+        taskKind: "extraction_coverage_cleanup",
         label: "operational_profile_cleanup",
         maxTokens: budget.maxTokens,
         durationMs: Date.now() - startedAt,
