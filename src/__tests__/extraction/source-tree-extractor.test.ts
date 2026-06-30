@@ -280,11 +280,14 @@ describe("source-tree extraction", () => {
     }])[0]!;
     const preHeader = rowSpan("Item 1. Named Insured | Example Labs Inc.", 0, false, 95);
     const header = rowSpan("Schedule Item | Description | Amount | Effective Date", 1, true, 120);
-    const rowB = rowSpan("B. Secondary Location | Equipment breakdown reimbursement / | $5,000 | 05/01/2025", 2, false, 160);
-    const wrapped = rowSpan("including temporary relocation expense | extension", 3, true, 178);
-    const rowC = rowSpan("including temporary relocation expense: C. Warehouse Location | extension: Inventory cleanup reimbursement / | Column 3: $3,000 | Column 4: 05/01/2025", 4, false, 205);
-    const implicitHeader = rowSpan("aggregate sub-limit, part of | Coverage Part B", 5, true, 225);
-    const implicitTail = rowSpan("including scheduled equipment", 6, false, 242);
+    const rowA = rowSpan("A. Primary Coverage | $2,000,000 Each Claim | $10,000 Each | 01/01/2024", 2, false, 140);
+    const rowAPolicyLimit = rowSpan("Column 1: $2,000,000 Policy | Column 2: Claim", 3, false, 154);
+    const rowAAggregate = rowSpan("Column 1: Aggregate", 4, false, 168);
+    const rowB = rowSpan("B. Secondary Location | Equipment breakdown reimbursement / | $5,000 | 05/01/2025", 5, false, 190);
+    const wrapped = rowSpan("including temporary relocation expense | extension", 6, true, 208);
+    const rowC = rowSpan("including temporary relocation expense: C. Warehouse Location | extension: Inventory cleanup reimbursement / | Column 3: $3,000 | Column 4: 05/01/2025", 7, false, 235);
+    const implicitHeader = rowSpan("aggregate sub-limit, part of | Coverage Part B", 8, true, 255);
+    const implicitTail = rowSpan("including scheduled equipment", 9, false, 272);
 
     const sourceSpans = [
       page,
@@ -296,24 +299,34 @@ describe("source-tree extraction", () => {
       cellSpan(header, "Description", 1, 1, "Description", 180, 120),
       cellSpan(header, "Amount", 1, 2, "Amount", 320, 120),
       cellSpan(header, "Effective Date", 1, 3, "Effective Date", 430, 120),
+      rowA,
+      cellSpan(rowA, "A. Primary Coverage", 2, 0, "Schedule Item", 40, 140, 130),
+      cellSpan(rowA, "$2,000,000 Each Claim", 2, 1, "Description", 180, 140, 130),
+      cellSpan(rowA, "$10,000 Each", 2, 2, "Amount", 320, 140),
+      cellSpan(rowA, "01/01/2024", 2, 3, "Effective Date", 430, 140),
+      rowAPolicyLimit,
+      cellSpan(rowAPolicyLimit, "$2,000,000 Policy", 3, 0, "Column 1", 180, 154, 130),
+      cellSpan(rowAPolicyLimit, "Claim", 3, 1, "Column 2", 320, 154, 80),
+      rowAAggregate,
+      cellSpan(rowAAggregate, "Aggregate", 4, 0, "Column 1", 180, 168, 90),
       rowB,
-      cellSpan(rowB, "B. Secondary Location", 2, 0, "Schedule Item", 40, 160, 130),
-      cellSpan(rowB, "Equipment breakdown reimbursement /", 2, 1, "Description", 180, 160, 130),
-      cellSpan(rowB, "$5,000", 2, 2, "Amount", 320, 160),
-      cellSpan(rowB, "05/01/2025", 2, 3, "Effective Date", 430, 160),
+      cellSpan(rowB, "B. Secondary Location", 5, 0, "Schedule Item", 40, 190, 130),
+      cellSpan(rowB, "Equipment breakdown reimbursement /", 5, 1, "Description", 180, 190, 130),
+      cellSpan(rowB, "$5,000", 5, 2, "Amount", 320, 190),
+      cellSpan(rowB, "05/01/2025", 5, 3, "Effective Date", 430, 190),
       wrapped,
-      cellSpan(wrapped, "including temporary relocation expense", 3, 0, "Column 1", 180, 178, 240),
-      cellSpan(wrapped, "extension", 3, 1, "Column 2", 260, 178, 80),
+      cellSpan(wrapped, "including temporary relocation expense", 6, 0, "Column 1", 180, 208, 240),
+      cellSpan(wrapped, "extension", 6, 1, "Column 2", 260, 208, 80),
       rowC,
-      cellSpan(rowC, "C. Warehouse Location", 4, 0, "Schedule Item", 40, 205, 130),
-      cellSpan(rowC, "Inventory cleanup reimbursement /", 4, 1, "Description", 180, 205, 130),
-      cellSpan(rowC, "$5,000 Each", 4, 2, "Amount", 320, 205),
-      cellSpan(rowC, "05/01/2025", 4, 3, "Effective Date", 430, 205),
+      cellSpan(rowC, "C. Warehouse Location", 7, 0, "Schedule Item", 40, 235, 130),
+      cellSpan(rowC, "Inventory cleanup reimbursement /", 7, 1, "Description", 180, 235, 130),
+      cellSpan(rowC, "$5,000 Each", 7, 2, "Amount", 320, 235),
+      cellSpan(rowC, "05/01/2025", 7, 3, "Effective Date", 430, 235),
       implicitHeader,
-      cellSpan(implicitHeader, "aggregate sub-limit, part of", 5, 0, "aggregate sub-limit, part of", 180, 225, 170),
-      cellSpan(implicitHeader, "Coverage Part B", 5, 1, "Coverage Part B", 260, 225, 120),
+      cellSpan(implicitHeader, "aggregate sub-limit, part of", 8, 0, "aggregate sub-limit, part of", 180, 255, 170),
+      cellSpan(implicitHeader, "Coverage Part B", 8, 1, "Coverage Part B", 260, 255, 120),
       implicitTail,
-      cellSpan(implicitTail, "including scheduled equipment", 6, 0, "Column 1", 180, 242, 210),
+      cellSpan(implicitTail, "including scheduled equipment", 9, 0, "Column 1", 180, 272, 210),
     ];
 
     const generateObjectMock = vi.fn(async (params) => {
@@ -391,6 +404,30 @@ describe("source-tree extraction", () => {
       .filter((node) => node.kind === "table_cell" && node.parentId === preHeaderRow?.id)
       .map((node) => node.metadata?.columnName);
     expect(preHeaderMetadata).toEqual(["Column 1", "Column 2"]);
+
+    const rowANode = result.sourceTree.find((node) =>
+      node.kind === "table_row" &&
+      node.sourceSpanIds.includes(rowA.id)
+    );
+    const rowACells = result.sourceTree
+      .filter((node) => node.kind === "table_cell" && node.parentId === rowANode?.id);
+    const rowALimit = rowACells.find((node) => node.title === "Description");
+    const rowAAmount = rowACells.find((node) => node.title === "Amount");
+    expect(rowALimit?.textExcerpt).toContain("$2,000,000 Each Claim / $2,000,000 Policy Aggregate");
+    expect(rowAAmount?.textExcerpt).toBe("$10,000 Each Claim");
+    expect(rowANode?.textExcerpt).toContain("Description: $2,000,000 Each Claim / $2,000,000 Policy Aggregate");
+    expect(rowANode?.textExcerpt).toContain("Amount: $10,000 Each Claim");
+    expect(rowANode?.textExcerpt).not.toContain("Description: $2,000,000 Each Claim / $2,000,000 Policy / Claim");
+    expect(result.sourceTree.some((node) =>
+      node.kind === "table_row" &&
+      node.sourceSpanIds.includes(rowAPolicyLimit.id) &&
+      !node.sourceSpanIds.includes(rowA.id)
+    )).toBe(false);
+    expect(result.sourceTree.some((node) =>
+      node.kind === "table_row" &&
+      node.sourceSpanIds.includes(rowAAggregate.id) &&
+      !node.sourceSpanIds.includes(rowA.id)
+    )).toBe(false);
 
     expect(result.sourceTree.some((node) =>
       node.kind === "table_row" &&

@@ -1891,7 +1891,7 @@ function appendDistinctText(base: string | undefined, addition: string | undefin
   if (!current) return next || undefined;
   if (!next) return current;
   if (current.toLowerCase().includes(next.toLowerCase())) return current;
-  const delimiter = /(?:[/(:;-]|,\s*)$/.test(current) ? " " : " / ";
+  const delimiter = /(?:[/(:;-]|,\s*)$/.test(current) || /^[a-z]+$/i.test(next) ? " " : " / ";
   return cleanText(`${current}${delimiter}${next}`, current);
 }
 
@@ -1926,6 +1926,30 @@ function findCellForContinuation(params: {
     if (byLabel) return byLabel;
   }
   return params.cells[1] ?? params.cells[params.cells.length - 1];
+}
+
+function bboxCenterX(node: DocumentSourceNode): number | undefined {
+  const box = node.bbox?.[0];
+  if (!box) return undefined;
+  return box.x + box.width / 2;
+}
+
+function findCellByVisualPosition(
+  sourceCell: DocumentSourceNode,
+  targetCells: DocumentSourceNode[],
+): DocumentSourceNode | undefined {
+  const sourceX = bboxCenterX(sourceCell);
+  if (sourceX === undefined) return undefined;
+  const positioned = targetCells
+    .map((cell) => ({ cell, centerX: bboxCenterX(cell) }))
+    .filter((entry): entry is { cell: DocumentSourceNode; centerX: number } =>
+      entry.centerX !== undefined
+    );
+  if (positioned.length === 0) return undefined;
+  positioned.sort((left, right) =>
+    Math.abs(left.centerX - sourceX) - Math.abs(right.centerX - sourceX)
+  );
+  return positioned[0]?.cell;
 }
 
 function columnLabelStartIndex(rows: VisualTableCandidate["rows"]): number {
@@ -2121,8 +2145,44 @@ function applyVisualTableRepair(
       });
       const sourceNodes = [sourceRow, ...sourceCells];
       const sourceSpanIds = sourceSpanIdsForNodes(sourceNodes);
+      let mergedIntoCells = false;
 
-      if (targetCell) {
+      if (sourceCells.length > 0 && targetCells.length > 0) {
+        for (const sourceCell of sourceCells) {
+          const cellText = tableCellValueText(sourceCell);
+          if (!cellText) continue;
+          const visualTargetCell =
+            findCellByVisualPosition(sourceCell, targetCells) ?? targetCell;
+          if (!visualTargetCell) continue;
+          const currentTargetCell = currentNode(visualTargetCell.id) ?? visualTargetCell;
+          const nextCellText = appendDistinctText(tableCellText(currentTargetCell), cellText);
+          if (!nextCellText) continue;
+          updates.set(visualTargetCell.id, {
+            ...currentTargetCell,
+            textExcerpt: nextCellText,
+            description: cleanText(
+              [currentTargetCell.title, nextCellText].filter(Boolean).join(" | "),
+              currentTargetCell.description,
+            ),
+            sourceSpanIds: [
+              ...new Set([
+                ...currentTargetCell.sourceSpanIds,
+                ...sourceRow.sourceSpanIds,
+                ...sourceCell.sourceSpanIds,
+              ]),
+            ],
+            bbox: mergedBbox([currentTargetCell, sourceCell]),
+            metadata: {
+              ...(currentTargetCell.metadata ?? {}),
+              visualTableRepair: "merged_continuation",
+            },
+          });
+          mergedIntoCells = true;
+        }
+        if (mergedIntoCells) rowsToRebuildText.add(targetRow.id);
+      }
+
+      if (!mergedIntoCells && targetCell) {
         const nextCellText = appendDistinctText(tableCellText(targetCell), sourceText);
         if (nextCellText) {
           const mergedNodes = [targetCell, ...sourceNodes];
@@ -2141,11 +2201,20 @@ function applyVisualTableRepair(
         }
       }
 
-      const nextRowText = appendDistinctText(targetRow.textExcerpt ?? targetRow.description, sourceText);
+      const fallbackRowText = mergedIntoCells
+        ? undefined
+        : appendDistinctText(targetRow.textExcerpt ?? targetRow.description, sourceText);
       updates.set(targetRow.id, {
         ...(currentNode(targetRow.id) ?? targetRow),
-        textExcerpt: nextRowText,
-        description: cleanText([targetRow.title, nextRowText].filter(Boolean).join(" | "), targetRow.description),
+        ...(mergedIntoCells
+          ? {}
+          : {
+              textExcerpt: fallbackRowText,
+              description: cleanText(
+                [targetRow.title, fallbackRowText].filter(Boolean).join(" | "),
+                targetRow.description,
+              ),
+            }),
         sourceSpanIds: [...new Set([...targetRow.sourceSpanIds, ...sourceSpanIds])],
         bbox: mergedBbox([targetRow, ...sourceNodes]),
         metadata: {
