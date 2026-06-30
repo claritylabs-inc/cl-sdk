@@ -174,6 +174,7 @@ type TrackUsage = (
 
 type SourceTreeOrganization = z.infer<typeof SourceTreeOrganizationSchema>;
 type SourceTreeVisualTableRepair = z.infer<typeof SourceTreeVisualTableRepairSchema>;
+type VisualTableContinuationRepair = SourceTreeVisualTableRepair["tables"][number]["continuationRows"][number];
 type OrganizationBatch = {
   label: string;
   topLevelNodeIds: string[];
@@ -1934,6 +1935,53 @@ function columnLabelStartIndex(rows: VisualTableCandidate["rows"]): number {
   return headerIndex >= 0 ? headerIndex : 0;
 }
 
+function startsNewVisualTableItem(cells: DocumentSourceNode[]): boolean {
+  const firstText = tableCellText(cells[0]);
+  return /^(?:item\s+\d+\b|[A-Z][.)]\s+|coverage\s+part\b|endorsement\s+(?:no\.?|number|#|\d+)\b)/i.test(firstText);
+}
+
+function rowMatchesColumnLabels(cells: DocumentSourceNode[], columnLabels: Map<number, string>): boolean {
+  if (columnLabels.size === 0 || cells.length < columnLabels.size) return false;
+  return cells.every((cell, index) => {
+    const label = columnLabels.get(tableCellColumnIndex(cell, index));
+    return !label || tableCellText(cell).toLowerCase() === label.toLowerCase();
+  });
+}
+
+function implicitContinuationRows(
+  rows: VisualTableCandidate["rows"],
+  columnLabels: Map<number, string>,
+  firstLabelRowIndex: number,
+): VisualTableContinuationRepair[] {
+  const continuations: VisualTableContinuationRepair[] = [];
+  let targetRowId: string | undefined;
+  const targetColumnLabel = columnLabels.get(1);
+
+  for (const [rowIndex, { row, cells }] of rows.entries()) {
+    if (rowIndex < firstLabelRowIndex) continue;
+    if (rowIndex === firstLabelRowIndex && rowMatchesColumnLabels(cells, columnLabels)) continue;
+    if (startsNewVisualTableItem(cells)) {
+      targetRowId = row.id;
+      continue;
+    }
+    if (!targetRowId || cells.length === 0) continue;
+
+    const isSpuriousHeader = isSourceTreeHeaderRow(row) && !rowMatchesColumnLabels(cells, columnLabels);
+    const isShortContinuation = !isSourceTreeHeaderRow(row) && cells.length < Math.max(2, columnLabels.size);
+    if (!isSpuriousHeader && !isShortContinuation) continue;
+
+    continuations.push({
+      sourceRowNodeId: row.id,
+      targetRowNodeId: targetRowId,
+      targetColumnIndex: 1,
+      targetColumnLabel,
+      reason: "Continuation row inferred from repaired table header.",
+    });
+  }
+
+  return continuations;
+}
+
 function metadataWithColumnLabel(
   metadata: DocumentSourceNode["metadata"],
   label: string,
@@ -1988,8 +2036,8 @@ function applyVisualTableRepair(
       if (normalized) columnLabels.set(label.columnIndex, normalized);
     }
 
+    const firstLabelRowIndex = columnLabelStartIndex(rows);
     if (columnLabels.size > 0) {
-      const firstLabelRowIndex = columnLabelStartIndex(rows);
       const normalizedLabels = new Set([...columnLabels.values()].map((label) => label.toLowerCase()));
       for (const [rowIndex, { row, cells }] of rows.entries()) {
         if (removeIds.has(row.id)) continue;
@@ -2036,7 +2084,15 @@ function applyVisualTableRepair(
       }
     }
 
-    for (const continuation of tableRepair.continuationRows) {
+    const continuationRows = [
+      ...tableRepair.continuationRows,
+      ...implicitContinuationRows(rows, columnLabels, firstLabelRowIndex),
+    ];
+    const seenContinuationRows = new Set<string>();
+    for (const continuation of continuationRows) {
+      const continuationKey = `${continuation.sourceRowNodeId}:${continuation.targetRowNodeId}`;
+      if (seenContinuationRows.has(continuationKey)) continue;
+      seenContinuationRows.add(continuationKey);
       if (!rowIds.has(continuation.sourceRowNodeId) || !rowIds.has(continuation.targetRowNodeId)) continue;
       if (continuation.sourceRowNodeId === continuation.targetRowNodeId) continue;
       const sourceIndex = rowOrder.get(continuation.sourceRowNodeId);

@@ -283,6 +283,8 @@ describe("source-tree extraction", () => {
     const rowB = rowSpan("B. Secondary Location | Equipment breakdown reimbursement / | $5,000 | 05/01/2025", 2, false, 160);
     const wrapped = rowSpan("including temporary relocation expense | extension", 3, true, 178);
     const rowC = rowSpan("including temporary relocation expense: C. Warehouse Location | extension: Inventory cleanup reimbursement / | Column 3: $3,000 | Column 4: 05/01/2025", 4, false, 205);
+    const implicitHeader = rowSpan("aggregate sub-limit, part of | Coverage Part B", 5, true, 225);
+    const implicitTail = rowSpan("including scheduled equipment", 6, false, 242);
 
     const sourceSpans = [
       page,
@@ -307,6 +309,11 @@ describe("source-tree extraction", () => {
       cellSpan(rowC, "Inventory cleanup reimbursement /", 4, 1, "Description", 180, 205, 130),
       cellSpan(rowC, "$5,000 Each", 4, 2, "Amount", 320, 205),
       cellSpan(rowC, "05/01/2025", 4, 3, "Effective Date", 430, 205),
+      implicitHeader,
+      cellSpan(implicitHeader, "aggregate sub-limit, part of", 5, 0, "aggregate sub-limit, part of", 180, 225, 170),
+      cellSpan(implicitHeader, "Coverage Part B", 5, 1, "Coverage Part B", 260, 225, 120),
+      implicitTail,
+      cellSpan(implicitTail, "including scheduled equipment", 6, 0, "Column 1", 180, 242, 210),
     ];
 
     const generateObjectMock = vi.fn(async (params) => {
@@ -427,7 +434,18 @@ describe("source-tree extraction", () => {
       "Effective Date",
     ]);
     expect(rowCNode?.textExcerpt).toContain("Schedule Item: C. Warehouse Location");
+    expect(rowCNode?.textExcerpt).toContain("including scheduled equipment");
     expect(rowCNode?.textExcerpt).not.toContain("including temporary relocation expense:");
+    expect(result.sourceTree.some((node) =>
+      node.kind === "table_row" &&
+      node.sourceSpanIds.includes(implicitHeader.id) &&
+      !node.sourceSpanIds.includes(rowC.id)
+    )).toBe(false);
+    expect(result.sourceTree.some((node) =>
+      node.kind === "table_row" &&
+      node.sourceSpanIds.includes(implicitTail.id) &&
+      !node.sourceSpanIds.includes(rowC.id)
+    )).toBe(false);
   });
 
   it("runs a model cleanup pass over malformed operational profile projections", async () => {
