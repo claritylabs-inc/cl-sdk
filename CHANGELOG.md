@@ -1,3 +1,10 @@
+## [3.1.8](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.7...v3.1.8) (2026-06-30)
+
+
+### Bug Fixes
+
+* **extraction:** use model-driven operational profiles ([39b2119](https://github.com/claritylabs-inc/cl-sdk/commit/39b21194a3f78a971370c5481a4a171649dc45af))
+
 ## [3.1.7](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.6...v3.1.7) (2026-06-26)
 
 
