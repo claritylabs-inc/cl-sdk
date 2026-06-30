@@ -282,7 +282,7 @@ describe("source-tree extraction", () => {
     const header = rowSpan("Schedule Item | Description | Amount | Effective Date", 1, true, 120);
     const rowB = rowSpan("B. Secondary Location | Equipment breakdown reimbursement / | $5,000 | 05/01/2025", 2, false, 160);
     const wrapped = rowSpan("including temporary relocation expense | extension", 3, true, 178);
-    const rowC = rowSpan("C. Warehouse Location | Inventory cleanup reimbursement / | $3,000 | 05/01/2025", 4, false, 205);
+    const rowC = rowSpan("including temporary relocation expense: C. Warehouse Location | extension: Inventory cleanup reimbursement / | Column 3: $3,000 | Column 4: 05/01/2025", 4, false, 205);
 
     const sourceSpans = [
       page,
@@ -303,10 +303,10 @@ describe("source-tree extraction", () => {
       cellSpan(wrapped, "including temporary relocation expense", 3, 0, "Column 1", 180, 178, 240),
       cellSpan(wrapped, "extension", 3, 1, "Column 2", 260, 178, 80),
       rowC,
-      cellSpan(rowC, "C. Warehouse Location", 4, 0, "Schedule Item", 40, 205, 130, "including temporary relocation expense"),
-      cellSpan(rowC, "Inventory cleanup reimbursement /", 4, 1, "Description", 180, 205, 130, "extension"),
-      cellSpan(rowC, "$5,000 Each", 4, 2, "Column 3", 320, 205),
-      cellSpan(rowC, "05/01/2025", 4, 3, "Column 4", 430, 205),
+      cellSpan(rowC, "C. Warehouse Location", 4, 0, "Schedule Item", 40, 205, 130),
+      cellSpan(rowC, "Inventory cleanup reimbursement /", 4, 1, "Description", 180, 205, 130),
+      cellSpan(rowC, "$5,000 Each", 4, 2, "Amount", 320, 205),
+      cellSpan(rowC, "05/01/2025", 4, 3, "Effective Date", 430, 205),
     ];
 
     const generateObjectMock = vi.fn(async (params) => {

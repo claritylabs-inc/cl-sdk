@@ -2032,6 +2032,7 @@ function applyVisualTableRepair(
           });
           rowsToRebuildText.add(row.id);
         }
+        if (cells.length > 0) rowsToRebuildText.add(row.id);
       }
     }
 
