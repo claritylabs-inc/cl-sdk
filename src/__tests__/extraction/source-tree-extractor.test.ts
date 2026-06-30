@@ -324,7 +324,7 @@ describe("source-tree extraction", () => {
       cellSpan(rowC, "05/01/2025", 7, 3, "Effective Date", 430, 235),
       implicitHeader,
       cellSpan(implicitHeader, "aggregate sub-limit, part of", 8, 0, "aggregate sub-limit, part of", 180, 255, 170),
-      cellSpan(implicitHeader, "Coverage Part B", 8, 1, "Coverage Part B", 260, 255, 120),
+      cellSpan(implicitHeader, "Coverage Part B", 8, 1, "Coverage Part B", 250, 255, 60),
       implicitTail,
       cellSpan(implicitTail, "including scheduled equipment", 9, 0, "Column 1", 180, 272, 210),
     ];
@@ -471,7 +471,9 @@ describe("source-tree extraction", () => {
       "Effective Date",
     ]);
     expect(rowCNode?.textExcerpt).toContain("Schedule Item: C. Warehouse Location");
+    expect(rowCNode?.textExcerpt).toContain("aggregate sub-limit, part of Coverage Part B");
     expect(rowCNode?.textExcerpt).toContain("including scheduled equipment");
+    expect(rowCNode?.textExcerpt).not.toContain("part of / Coverage Part B");
     expect(rowCNode?.textExcerpt).not.toContain("including temporary relocation expense:");
     expect(result.sourceTree.some((node) =>
       node.kind === "table_row" &&

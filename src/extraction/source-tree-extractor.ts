@@ -1891,7 +1891,11 @@ function appendDistinctText(base: string | undefined, addition: string | undefin
   if (!current) return next || undefined;
   if (!next) return current;
   if (current.toLowerCase().includes(next.toLowerCase())) return current;
-  const delimiter = /(?:[/(:;-]|,\s*)$/.test(current) || /^[a-z]+$/i.test(next) ? " " : " / ";
+  const joinsWithSpace =
+    /(?:[/(:;-]|,\s*)$/.test(current) ||
+    /\b(?:part of|including|subject to|not in addition to)$/i.test(current) ||
+    /^(?:aggregate|claim|loss|proceeding|occurrence|each\s+(?:claim|loss|proceeding|occurrence)|coverage\s+part\b)/i.test(next);
+  const delimiter = joinsWithSpace ? " " : " / ";
   return cleanText(`${current}${delimiter}${next}`, current);
 }
 
