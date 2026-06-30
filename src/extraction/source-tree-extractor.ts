@@ -1677,6 +1677,24 @@ function tableCellText(cell: DocumentSourceNode): string {
   return cleanText(cell.textExcerpt ?? cell.description ?? cell.title, "");
 }
 
+function tableCellValueText(cell: DocumentSourceNode): string {
+  return cleanText(cell.textExcerpt ?? cell.description ?? "", "");
+}
+
+function tableRowTextFromCells(cells: DocumentSourceNode[]): string | undefined {
+  const text = cells
+    .map((cell) => {
+      const label = cleanText(cell.title, "");
+      const value = tableCellValueText(cell);
+      if (!value) return label;
+      if (!label || value.toLowerCase() === label.toLowerCase()) return value;
+      return `${label}: ${value}`;
+    })
+    .filter(Boolean)
+    .join(" | ");
+  return text ? cleanText(text, text) : undefined;
+}
+
 function tableRowTextForPrompt(row: DocumentSourceNode, cells: DocumentSourceNode[]): string {
   return cleanText(
     cells.length
@@ -1696,6 +1714,19 @@ function tableCellColumnIndex(cell: DocumentSourceNode, fallbackIndex: number): 
 function isGenericColumnTitle(value: string | undefined): boolean {
   const title = cleanText(value, "");
   return !title || /^(?:column\s+\d+|table cell|value)$/i.test(title);
+}
+
+function metadataColumnName(metadata: DocumentSourceNode["metadata"]): string | undefined {
+  const value = metadata?.columnName;
+  return typeof value === "string" ? cleanText(value, "") || undefined : undefined;
+}
+
+function metadataTableColumnName(metadata: DocumentSourceNode["metadata"]): string | undefined {
+  const table = metadata?.table;
+  if (!table || typeof table !== "object" || Array.isArray(table)) return undefined;
+  if (!("columnName" in table)) return undefined;
+  const value = table.columnName;
+  return typeof value === "string" ? cleanText(value, "") || undefined : undefined;
 }
 
 function bboxSummary(node: DocumentSourceNode): Record<string, number> | undefined {
@@ -1941,6 +1972,7 @@ function applyVisualTableRepair(
   const byParent = nodesByParent(sourceTree);
   const updates = new Map<string, DocumentSourceNode>();
   const removeIds = new Set<string>();
+  const rowsToRebuildText = new Set<string>();
 
   const currentNode = (id: string) => updates.get(id) ?? byId.get(id);
 
@@ -1958,19 +1990,47 @@ function applyVisualTableRepair(
 
     if (columnLabels.size > 0) {
       const firstLabelRowIndex = columnLabelStartIndex(rows);
+      const normalizedLabels = new Set([...columnLabels.values()].map((label) => label.toLowerCase()));
       for (const [rowIndex, { row, cells }] of rows.entries()) {
         if (removeIds.has(row.id)) continue;
-        if (rowIndex < firstLabelRowIndex) continue;
+        if (rowIndex < firstLabelRowIndex) {
+          for (const cell of cells) {
+            const metadataLabel = metadataColumnName(cell.metadata);
+            if (
+              metadataLabel &&
+              isGenericColumnTitle(metadataLabel) &&
+              normalizedLabels.has(cleanText(cell.title, "").toLowerCase())
+            ) {
+              updates.set(cell.id, {
+                ...(currentNode(cell.id) ?? cell),
+                title: metadataLabel,
+                description: tableCellDescription(cell, metadataLabel),
+                metadata: metadataWithColumnLabel(cell.metadata, metadataLabel),
+              });
+              rowsToRebuildText.add(row.id);
+            }
+          }
+          continue;
+        }
         for (const [fallbackIndex, cell] of cells.entries()) {
           const columnIndex = tableCellColumnIndex(cell, fallbackIndex);
           const label = columnLabels.get(columnIndex);
-          if (!label || cell.title === label) continue;
+          if (!label) continue;
+          const current = currentNode(cell.id) ?? cell;
+          if (
+            current.title === label &&
+            metadataColumnName(current.metadata) === label &&
+            (metadataTableColumnName(current.metadata) ?? label) === label
+          ) {
+            continue;
+          }
           updates.set(cell.id, {
-            ...(currentNode(cell.id) ?? cell),
+            ...current,
             title: label,
-            description: tableCellDescription(cell, label),
-            metadata: metadataWithColumnLabel(cell.metadata, label),
+            description: tableCellDescription(current, label),
+            metadata: metadataWithColumnLabel(current.metadata, label),
           });
+          rowsToRebuildText.add(row.id);
         }
       }
     }
@@ -2020,6 +2080,7 @@ function applyVisualTableRepair(
               visualTableRepair: "merged_continuation",
             },
           });
+          rowsToRebuildText.add(targetRow.id);
         }
       }
 
@@ -2039,6 +2100,27 @@ function applyVisualTableRepair(
       removeIds.add(sourceRow.id);
       for (const sourceCell of sourceCells) removeIds.add(sourceCell.id);
     }
+  }
+
+  for (const rowId of rowsToRebuildText) {
+    if (removeIds.has(rowId)) continue;
+    const row = currentNode(rowId);
+    if (!row || row.kind !== "table_row") continue;
+    const cells = (byParent.get(row.id) ?? [])
+      .filter((node) => node.kind === "table_cell" && !removeIds.has(node.id))
+      .map((node) => currentNode(node.id) ?? node)
+      .sort((left, right) =>
+        tableCellColumnIndex(left, 0) - tableCellColumnIndex(right, 0) ||
+        left.order - right.order ||
+        left.id.localeCompare(right.id),
+      );
+    const textExcerpt = tableRowTextFromCells(cells);
+    if (!textExcerpt) continue;
+    updates.set(row.id, {
+      ...row,
+      textExcerpt,
+      description: cleanText([row.title, textExcerpt].filter(Boolean).join(" | "), row.description),
+    });
   }
 
   if (updates.size === 0 && removeIds.size === 0) return sourceTree;

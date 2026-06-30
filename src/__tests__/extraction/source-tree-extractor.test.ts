@@ -250,6 +250,7 @@ describe("source-tree extraction", () => {
       x: number,
       y: number,
       width = 110,
+      metadataColumnName = columnName,
     ) =>
       withBbox(buildSourceSpan({
         documentId,
@@ -267,6 +268,9 @@ describe("source-tree extraction", () => {
           rowSpanId: row.id,
           isHeader: row.table?.isHeader,
         },
+        metadata: {
+          columnName: metadataColumnName,
+        },
       }, spanIndex++), x, y, width, 14);
 
     const page = buildPageSourceSpans([{
@@ -283,8 +287,8 @@ describe("source-tree extraction", () => {
     const sourceSpans = [
       page,
       preHeader,
-      cellSpan(preHeader, "Item 1. Named Insured", 0, 0, "Column 1", 40, 95, 130),
-      cellSpan(preHeader, "Example Labs Inc.", 0, 1, "Column 2", 180, 95, 130),
+      cellSpan(preHeader, "Item 1. Named Insured", 0, 0, "Schedule Item", 40, 95, 130, "Column 1"),
+      cellSpan(preHeader, "Example Labs Inc.", 0, 1, "Description", 180, 95, 130, "Column 2"),
       header,
       cellSpan(header, "Schedule Item", 1, 0, "Schedule Item", 40, 120),
       cellSpan(header, "Description", 1, 1, "Description", 180, 120),
@@ -299,8 +303,8 @@ describe("source-tree extraction", () => {
       cellSpan(wrapped, "including temporary relocation expense", 3, 0, "Column 1", 180, 178, 240),
       cellSpan(wrapped, "extension", 3, 1, "Column 2", 260, 178, 80),
       rowC,
-      cellSpan(rowC, "C. Warehouse Location", 4, 0, "including temporary relocation expense", 40, 205, 130),
-      cellSpan(rowC, "Inventory cleanup reimbursement /", 4, 1, "extension", 180, 205, 130),
+      cellSpan(rowC, "C. Warehouse Location", 4, 0, "Schedule Item", 40, 205, 130, "including temporary relocation expense"),
+      cellSpan(rowC, "Inventory cleanup reimbursement /", 4, 1, "Description", 180, 205, 130, "extension"),
       cellSpan(rowC, "$5,000 Each", 4, 2, "Column 3", 320, 205),
       cellSpan(rowC, "05/01/2025", 4, 3, "Column 4", 430, 205),
     ];
@@ -376,6 +380,10 @@ describe("source-tree extraction", () => {
       .filter((node) => node.kind === "table_cell" && node.parentId === preHeaderRow?.id)
       .map((node) => node.title);
     expect(preHeaderTitles).toEqual(["Column 1", "Column 2"]);
+    const preHeaderMetadata = result.sourceTree
+      .filter((node) => node.kind === "table_cell" && node.parentId === preHeaderRow?.id)
+      .map((node) => node.metadata?.columnName);
+    expect(preHeaderMetadata).toEqual(["Column 1", "Column 2"]);
 
     expect(result.sourceTree.some((node) =>
       node.kind === "table_row" &&
@@ -395,6 +403,9 @@ describe("source-tree extraction", () => {
     );
     expect(repairedLimitCell?.textExcerpt).toContain("temporary relocation");
     expect(repairedLimitCell?.sourceSpanIds).toContain(wrapped.id);
+    expect(repairedLimitCell?.metadata?.columnName).toBe("Description");
+    expect(repairedRow?.textExcerpt).toContain("Description: Equipment breakdown reimbursement");
+    expect(repairedRow?.textExcerpt).not.toContain("Column 1:");
 
     const rowCNode = result.sourceTree.find((node) =>
       node.kind === "table_row" &&
@@ -415,6 +426,8 @@ describe("source-tree extraction", () => {
       "Amount",
       "Effective Date",
     ]);
+    expect(rowCNode?.textExcerpt).toContain("Schedule Item: C. Warehouse Location");
+    expect(rowCNode?.textExcerpt).not.toContain("including temporary relocation expense:");
   });
 
   it("runs a model cleanup pass over malformed operational profile projections", async () => {
