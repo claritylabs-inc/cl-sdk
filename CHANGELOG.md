@@ -1,3 +1,10 @@
+## [3.1.16](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.15...v3.1.16) (2026-07-01)
+
+
+### Bug Fixes
+
+* **extraction:** clean source tree table delimiters ([1e201c8](https://github.com/claritylabs-inc/cl-sdk/commit/1e201c88e4b8592565c776e41ee2c77e28d8558e))
+
 ## [3.1.9](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.8...v3.1.9) (2026-06-30)
 
 
