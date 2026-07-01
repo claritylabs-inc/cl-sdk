@@ -1,3 +1,10 @@
+## [3.1.18](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.17...v3.1.18) (2026-07-01)
+
+
+### Bug Fixes
+
+* **extraction:** parallelize source-tree cleanup ([0fec5bb](https://github.com/claritylabs-inc/cl-sdk/commit/0fec5bb7e0984f1b87c0be9737ced18cf5966aee))
+
 ## [3.1.17](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.16...v3.1.17) (2026-07-01)
 
 
