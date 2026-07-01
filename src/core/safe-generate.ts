@@ -1,7 +1,7 @@
 import type { GenerateObject, TokenUsage, LogFn, ModelCallTrace } from "./types";
 import type { ModelBudgetResolution, ModelTaskKind } from "./model-budget";
 import { sanitizeNulls } from "./sanitize";
-import { withRetry } from "./retry";
+import { withRetry, type RetryOptions } from "./retry";
 import { toStrictSchema } from "./strict-schema";
 
 export interface SafeGenerateOptions<T> {
@@ -13,6 +13,8 @@ export interface SafeGenerateOptions<T> {
   onError?: (error: unknown, attempt: number) => void;
   /** Logger for pipeline status messages. */
   log?: LogFn;
+  /** Controls retryable provider-error backoff around the host callback. Use false when the host already owns fallback. */
+  retry?: RetryOptions | false;
 }
 
 export interface SafeGenerateParams {
@@ -28,7 +30,7 @@ export interface SafeGenerateParams {
 /**
  * Wraps a `generateObject` call with two layers of resilience:
  *
- * 1. Inner: `withRetry` handles 429 / rate-limit errors with exponential backoff
+ * 1. Inner: `withRetry` handles retryable provider errors with exponential backoff unless disabled.
  * 2. Outer: catches all other errors (schema validation, malformed JSON, transient API errors)
  *    and retries up to `maxRetries` times. If all retries fail, returns `fallback` (if provided)
  *    or re-throws.
@@ -48,10 +50,10 @@ export async function safeGenerateObject<T>(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const result = await withRetry(
-        () => generateObject(strictParams),
-        options?.log,
-      );
+      const generate = () => generateObject(strictParams);
+      const result = options?.retry === false
+        ? await generate()
+        : await withRetry(generate, options?.log, options?.retry);
       return {
         ...result,
         object: params.schema.parse(sanitizeNulls(result.object)),

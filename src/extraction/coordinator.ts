@@ -574,7 +574,9 @@ export function createExtractor(config: ExtractorConfig) {
           },
           {
             fallback: { forms: [] },
+            maxRetries: 0,
             log,
+            retry: false,
             onError: (err, attempt) =>
               log?.(`Form inventory attempt ${attempt + 1} failed: ${err instanceof Error ? err.message : String(err)}`),
           },

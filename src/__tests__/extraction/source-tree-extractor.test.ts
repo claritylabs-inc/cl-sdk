@@ -133,7 +133,7 @@ describe("source-tree extraction", () => {
     }));
   });
 
-  it("runs operational coverage cleanup in base-policy and endorsement chunks", async () => {
+  it("runs operational coverage cleanup as one source-backed pass", async () => {
     const sourceSpans = buildPageSourceSpans([
       {
         documentId: "doc-1",
@@ -200,12 +200,16 @@ describe("source-tree extraction", () => {
     const cleanupCalls = generateObject.mock.calls
       .map(([params]) => params)
       .filter((params) => params.taskKind === "extraction_coverage_cleanup");
-    expect(cleanupCalls).toHaveLength(2);
-    expect(cleanupCalls.map((params) => params.trace?.coverageGroup).sort()).toEqual(["base_policy", "endorsements"]);
-    expect(cleanupCalls.every((params) => params.trace?.batchCount === 2)).toBe(true);
-    expect(cleanupCalls.find((params) => params.trace?.coverageGroup === "base_policy")?.prompt).toContain('"coverageIndex": 0');
-    expect(cleanupCalls.find((params) => params.trace?.coverageGroup === "base_policy")?.prompt).not.toContain('"coverageIndex": 1');
-    expect(cleanupCalls.find((params) => params.trace?.coverageGroup === "endorsements")?.prompt).toContain('"coverageIndex": 1');
+    expect(cleanupCalls).toHaveLength(1);
+    expect(cleanupCalls[0]?.trace).toEqual(expect.objectContaining({
+      label: "Coverage cleanup",
+      itemCount: 2,
+      sourceBacked: true,
+    }));
+    expect(cleanupCalls[0]?.trace?.coverageGroup).toBeUndefined();
+    expect(cleanupCalls[0]?.trace?.batchCount).toBeUndefined();
+    expect(cleanupCalls[0]?.prompt).toContain('"coverageIndex": 0');
+    expect(cleanupCalls[0]?.prompt).toContain('"coverageIndex": 1');
   });
 
   it("promotes title elements into cross-page sections inside form groups", async () => {

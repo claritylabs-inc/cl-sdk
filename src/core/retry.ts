@@ -3,6 +3,11 @@ import type { LogFn } from "./types";
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 2000;
 
+export interface RetryOptions {
+  maxRetries?: number;
+  baseDelayMs?: number;
+}
+
 function isRetryableError(error: unknown): boolean {
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
@@ -28,17 +33,20 @@ function isRetryableError(error: unknown): boolean {
 export async function withRetry<T>(
   fn: () => Promise<T>,
   log?: LogFn,
+  options?: RetryOptions,
 ): Promise<T> {
+  const maxRetries = options?.maxRetries ?? MAX_RETRIES;
+  const baseDelayMs = options?.baseDelayMs ?? BASE_DELAY_MS;
   for (let attempt = 0; ; attempt++) {
     try {
       return await fn();
     } catch (error) {
-      if (!isRetryableError(error) || attempt >= MAX_RETRIES) {
+      if (!isRetryableError(error) || attempt >= maxRetries) {
         throw error;
       }
       const jitter = Math.random() * 1000;
-      const delay = BASE_DELAY_MS * Math.pow(2, attempt) + jitter;
-      await log?.(`Retryable error, retrying in ${(delay / 1000).toFixed(1)}s (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+      const delay = baseDelayMs * Math.pow(2, attempt) + jitter;
+      await log?.(`Retryable error, retrying in ${(delay / 1000).toFixed(1)}s (attempt ${attempt + 1}/${maxRetries})...`);
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }

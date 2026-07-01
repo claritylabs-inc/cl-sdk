@@ -94,4 +94,31 @@ describe("safeGenerateObject", () => {
       }],
     });
   });
+
+  it("can skip retryable-error backoff when the host callback owns fallback routing", async () => {
+    const schema = z.object({ value: z.string() });
+    const generateObject = vi.fn(async () => {
+      throw new Error("No output generated.");
+    }) as unknown as GenerateObject<z.infer<typeof schema>>;
+    const log = vi.fn();
+
+    const result = await safeGenerateObject(
+      generateObject,
+      {
+        prompt: "test",
+        schema,
+        maxTokens: 128,
+      },
+      {
+        fallback: { value: "fallback" },
+        maxRetries: 0,
+        retry: false,
+        log,
+      },
+    );
+
+    expect(result.object).toEqual({ value: "fallback" });
+    expect(generateObject).toHaveBeenCalledTimes(1);
+    expect(log).not.toHaveBeenCalledWith(expect.stringContaining("Retryable error"));
+  });
 });
