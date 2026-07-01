@@ -1,3 +1,10 @@
+## [3.1.17](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.16...v3.1.17) (2026-07-01)
+
+
+### Bug Fixes
+
+* **extraction:** preserve scoped coverage limit display ([5149602](https://github.com/claritylabs-inc/cl-sdk/commit/5149602ba6e193e64b6251f9b57dfc1c44a13172))
+
 ## [3.1.16](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.15...v3.1.16) (2026-07-01)
 
 
