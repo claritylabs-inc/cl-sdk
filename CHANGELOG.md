@@ -1,3 +1,10 @@
+## [3.1.20](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.19...v3.1.20) (2026-07-01)
+
+
+### Bug Fixes
+
+* improve source-tree coverage cleanup ([2077b5a](https://github.com/claritylabs-inc/cl-sdk/commit/2077b5a7a59beed01eb47474eb938acd9a2c3766))
+
 ## [3.1.19](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.18...v3.1.19) (2026-07-01)
 
 
