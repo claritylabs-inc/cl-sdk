@@ -321,6 +321,10 @@ function isLimitTerm(term: Pick<OperationalCoverageTerm, "kind" | "label" | "val
     || (term.kind === "other" && /\b(limit|aggregate|claim|occurrence|loss|proceeding)\b/i.test(normalizedTermText(term)));
 }
 
+function isPrimaryLimitTerm(term: OperationalCoverageTerm): boolean {
+  return ["each_claim_limit", "each_occurrence_limit", "each_loss_limit", "aggregate_limit"].includes(term.kind);
+}
+
 function isDeductibleTerm(term: Pick<OperationalCoverageTerm, "kind" | "label" | "value">): boolean {
   return term.kind === "deductible" || term.kind === "retention" || /\b(deductible|retention|sir)\b/i.test(normalizedTermText(term));
 }
@@ -333,8 +337,44 @@ function isRetroactiveDateTerm(term: Pick<OperationalCoverageTerm, "kind" | "lab
   return term.kind === "retroactive_date" || /\bretroactive\b/i.test(normalizedTermText(term));
 }
 
+function fallbackLimitScope(kind: OperationalCoverageTerm["kind"]): string | undefined {
+  switch (kind) {
+    case "each_claim_limit":
+      return "Each Claim";
+    case "each_occurrence_limit":
+      return "Each Occurrence";
+    case "each_loss_limit":
+      return "Each Loss";
+    case "aggregate_limit":
+      return "Aggregate";
+    case "sublimit":
+      return "Sub-Limit";
+    default:
+      return undefined;
+  }
+}
+
+function displayLabelForLimitTerm(term: OperationalCoverageTerm): string | undefined {
+  const label = cleanProfileValue(term.label)?.replace(/\s+Limit$/i, "");
+  if (label && !/^(?:limit|amount|value)$/i.test(label)) return label;
+  return fallbackLimitScope(term.kind);
+}
+
+function displayValueForLimitTerm(term: OperationalCoverageTerm): string | undefined {
+  const value = cleanProfileValue(term.value);
+  if (!value) return undefined;
+  if (/\b(each|aggregate|occurrence|claim|loss|proceeding|policy|sublimit|sub-limit)\b/i.test(value)) {
+    return value;
+  }
+  const label = displayLabelForLimitTerm(term);
+  return label ? `${value} ${label}` : value;
+}
+
 function primaryLimitFromTerms(terms: OperationalCoverageTerm[]): string | undefined {
-  return terms.find(isLimitTerm)?.value;
+  const primaryTerms = terms.filter(isPrimaryLimitTerm);
+  const candidateTerms = primaryTerms.length > 0 ? primaryTerms : terms.filter(isLimitTerm);
+  const values = uniqueStrings(candidateTerms.map((term) => displayValueForLimitTerm(term)).filter((value): value is string => Boolean(value)));
+  return values.length > 0 ? values.join(" / ") : undefined;
 }
 
 function deductibleFromTerms(terms: OperationalCoverageTerm[]): string | undefined {
@@ -347,6 +387,14 @@ function premiumFromTerms(terms: OperationalCoverageTerm[]): string | undefined 
 
 function retroactiveDateFromTerms(terms: OperationalCoverageTerm[]): string | undefined {
   return terms.find(isRetroactiveDateTerm)?.value;
+}
+
+function shouldUseTermLimitDisplay(currentLimit: string | undefined, termLimit: string): boolean {
+  const current = cleanProfileValue(currentLimit);
+  if (!current) return true;
+  if (/\s+\/\s*$/.test(current)) return true;
+  if (!/\b(each|aggregate|occurrence|claim|loss|proceeding|policy|sublimit|sub-limit)\b/i.test(current)) return true;
+  return !current.includes("/") && termLimit.includes("/");
 }
 
 function termDecisionTouches(
@@ -477,6 +525,11 @@ function applyCoverageCleanupDecision(
       if (value) next.retroactiveDate = value;
       else delete next.retroactiveDate;
     }
+  }
+
+  const termLimit = primaryLimitFromTerms(next.limits);
+  if (termLimit && shouldUseTermLimitDisplay(next.limit, termLimit)) {
+    next.limit = termLimit;
   }
 
   next.sourceNodeIds = uniqueStrings([
