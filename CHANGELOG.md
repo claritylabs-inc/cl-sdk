@@ -1,3 +1,10 @@
+## [3.1.19](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.18...v3.1.19) (2026-07-01)
+
+
+### Bug Fixes
+
+* **extraction:** avoid source-tree retry storms ([bb783f4](https://github.com/claritylabs-inc/cl-sdk/commit/bb783f48fda96b59ea12449c964b3106aff163d7))
+
 ## [3.1.18](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.17...v3.1.18) (2026-07-01)
 
 
