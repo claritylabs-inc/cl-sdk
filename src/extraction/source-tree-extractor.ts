@@ -283,6 +283,13 @@ function endorsementDescription(title: string, node: DocumentSourceNode): string
   );
 }
 
+function endorsementTitleKey(node: DocumentSourceNode): string | undefined {
+  const title = endorsementTitle(sourceNodeText(node));
+  if (title) return title.toLowerCase();
+  const fallback = cleanText(node.title, "");
+  return fallback ? fallback.toLowerCase() : undefined;
+}
+
 function nodePageEnd(node: DocumentSourceNode): number | undefined {
   return node.pageEnd ?? node.pageStart;
 }
@@ -1427,7 +1434,91 @@ function applyEndorsementGrouping(sourceTree: DocumentSourceNode[]): DocumentSou
     );
   }
 
-  return normalizeSemanticHierarchy(nextTree);
+  return collapseNestedDuplicateEndorsements(normalizeSemanticHierarchy(nextTree));
+}
+
+function nearestEndorsementAncestor(
+  node: DocumentSourceNode,
+  byId: Map<string, DocumentSourceNode>,
+): DocumentSourceNode | undefined {
+  let parentId = node.parentId;
+  const seen = new Set<string>();
+  while (parentId) {
+    if (seen.has(parentId)) return undefined;
+    seen.add(parentId);
+    const parent = byId.get(parentId);
+    if (!parent) return undefined;
+    if (parent.kind === "endorsement") return parent;
+    parentId = parent.parentId;
+  }
+  return undefined;
+}
+
+function collapseNestedDuplicateEndorsements(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
+  const byId = new Map(sourceTree.map((node) => [node.id, node]));
+  const replacementById = new Map<string, string>();
+  const duplicateEvidenceByTarget = new Map<string, DocumentSourceNode[]>();
+
+  for (const node of sourceTree) {
+    if (node.kind !== "endorsement") continue;
+    const ancestor = nearestEndorsementAncestor(node, byId);
+    if (!ancestor) continue;
+    if (endorsementTitleKey(node) !== endorsementTitleKey(ancestor)) continue;
+    replacementById.set(node.id, ancestor.id);
+    duplicateEvidenceByTarget.set(ancestor.id, [
+      ...(duplicateEvidenceByTarget.get(ancestor.id) ?? []),
+      node,
+    ]);
+  }
+
+  if (replacementById.size === 0) return sourceTree;
+
+  const replacementParent = (parentId: string | undefined): string | undefined => {
+    let next = parentId;
+    const seen = new Set<string>();
+    while (next && replacementById.has(next) && !seen.has(next)) {
+      seen.add(next);
+      next = replacementById.get(next);
+    }
+    return next;
+  };
+  const updated = sourceTree
+    .filter((node) => !replacementById.has(node.id))
+    .map((node) => {
+      const evidence = duplicateEvidenceByTarget.get(node.id);
+      const parentId = replacementParent(node.parentId);
+      if (!evidence?.length) {
+        return parentId === node.parentId ? node : {
+          ...node,
+          parentId,
+          metadata: {
+            ...node.metadata,
+            organizerRepair: "collapse_duplicate_endorsement_wrapper",
+          },
+        };
+      }
+      const evidenceNodes = [node, ...evidence];
+      const pageStarts = evidenceNodes
+        .map((item) => item.pageStart)
+        .filter((page): page is number => typeof page === "number");
+      const pageEnds = evidenceNodes
+        .map((item) => item.pageEnd ?? item.pageStart)
+        .filter((page): page is number => typeof page === "number");
+      return {
+        ...node,
+        parentId,
+        sourceSpanIds: [...new Set(evidenceNodes.flatMap((item) => item.sourceSpanIds))],
+        pageStart: pageStarts.length ? Math.min(...pageStarts) : node.pageStart,
+        pageEnd: pageEnds.length ? Math.max(...pageEnds) : node.pageEnd,
+        bbox: evidenceNodes.flatMap((item) => item.bbox ?? []).slice(0, 12),
+        metadata: {
+          ...node.metadata,
+          organizerRepair: "collapse_duplicate_endorsement_wrapper",
+        },
+      };
+    });
+
+  return normalizeDocumentSourceTreePaths(normalizeContainerEvidenceFromChildren(updated));
 }
 
 function compactNode(node: DocumentSourceNode, maxText = 700) {
@@ -1653,9 +1744,13 @@ Rules:
 - Every returned value must include sourceNodeIds or sourceSpanIds from the provided nodes.
 - If a value is not directly supported, omit it.
 - Prefer declarations, schedules, premium tables, and endorsement schedules over generic policy wording.
+- Keep each coverage unit tied to one evidence scope: a declaration/core schedule row, a core policy form section, or one specific endorsement schedule. Do not merge declaration facts and endorsement schedule facts into the same coverage unit, even when they use the same coverage name.
+- If the declarations schedule and an endorsement schedule both list Network Security, Social Engineering Fraud, Regulatory Proceedings, or another same-named coverage, return separate coverage units for each supported source scope.
+- Use the declaration coverage name for declaration/core schedule rows. Use the endorsement title or endorsement schedule coverage name for endorsement rows, and include formNumber and endorsementNumber when source-backed.
 - For life, critical illness, disability, and long-term care policies, keep named benefit units and benefit subconditions as operational facts even when they do not have dollar limits. Examples include death benefit, disability benefit, total disability, catastrophic disability, return of premium, waiver, and conversion options. Put subcondition details in coverages[].limits with kind "other" when they belong under a broader benefit.
 - Treat an endorsement as one coverage unit when it contains a schedule. Do not split an endorsement schedule into generic rows like "Aggregate Limit".
 - For coverage schedules, put each claim, aggregate, sublimit, retention, deductible, and retroactive date values in coverages[].limits with labels and source IDs. Keep the legacy coverages[].limit as the primary display value only.
+- Extract coinsurance, participation percentage, or insurer/named-insured split terms as coverages[].limits entries with kind "other" when they are part of a coverage schedule.
 - Use coverageOrigin: "endorsement" for endorsement units and "core" for declarations/core policy coverage units.
 - Do not copy entire policy wording into fields.
 - Extract facts directly from source nodes. There is no deterministic fact baseline.
@@ -2017,6 +2112,35 @@ function findCellByVisualPosition(
   return positioned[0]?.cell;
 }
 
+function isDateLikeColumn(label: string | undefined): boolean {
+  return /\b(?:date|effective|expiration|retroactive)\b/i.test(cleanText(label, ""));
+}
+
+function containsDateValue(text: string): boolean {
+  return /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/.test(text) ||
+    /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?\s+\d{2,4}\b/i.test(text);
+}
+
+function looksLikePolicyProse(text: string): boolean {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length < 8) return false;
+  return /\b(?:are|is|will|shall|must|may|includes?|included|reduce|subject|payment|terms?|conditions?|provided|pursuant)\b/i.test(text);
+}
+
+function shouldMergeVisualContinuation(params: {
+  sourceText: string;
+  sourceCells: DocumentSourceNode[];
+  targetCell?: DocumentSourceNode;
+}): boolean {
+  if (startsNewVisualTableItem(params.sourceCells)) return false;
+  const targetLabel = params.targetCell?.title;
+  if (isDateLikeColumn(targetLabel) && !containsDateValue(params.sourceText)) return false;
+  if (looksLikePolicyProse(params.sourceText) && !/\b(?:description|coverage|remarks?|notes?)\b/i.test(cleanText(targetLabel, ""))) {
+    return false;
+  }
+  return true;
+}
+
 function columnLabelStartIndex(rows: VisualTableCandidate["rows"]): number {
   const headerIndex = rows.findIndex(({ row, cells }) =>
     isSourceTreeHeaderRow(row) && cells.length > 1
@@ -2208,6 +2332,7 @@ function applyVisualTableRepair(
         targetColumnIndex: continuation.targetColumnIndex,
         targetColumnLabel: continuation.targetColumnLabel,
       });
+      if (!shouldMergeVisualContinuation({ sourceText, sourceCells, targetCell })) continue;
       const sourceNodes = [sourceRow, ...sourceCells];
       const sourceSpanIds = sourceSpanIdsForNodes(sourceNodes);
       let mergedIntoCells = false;
@@ -2336,7 +2461,7 @@ async function runVisualTableRepair(params: {
   const repairResults = await Promise.all(candidates.map(async (candidate, index) => {
     const label = `source_tree_visual_table_repair_p${candidate.page}`;
     try {
-      const budget = params.resolveBudget("extraction_source_tree", 1800);
+      const budget = params.resolveBudget("extraction_visual_table_repair", 1800);
       const maxTokens = Math.min(budget.maxTokens, 2400);
       const startedAt = Date.now();
       const response = await safeGenerateObject(
@@ -2345,7 +2470,7 @@ async function runVisualTableRepair(params: {
           prompt: buildVisualTableRepairPrompt(candidate),
           schema: SourceTreeVisualTableRepairSchema,
           maxTokens,
-          taskKind: "extraction_source_tree",
+          taskKind: "extraction_visual_table_repair",
           budgetDiagnostics: { ...budget, maxTokens },
           trace: {
             label,
@@ -2387,7 +2512,7 @@ async function runVisualTableRepair(params: {
       continue;
     }
     params.trackUsage(result.usage, {
-      taskKind: "extraction_source_tree",
+      taskKind: "extraction_visual_table_repair",
       label: result.label,
       maxTokens: result.maxTokens,
       durationMs: result.durationMs,
@@ -2657,6 +2782,128 @@ function materializeDocument(params: {
   } as unknown as InsuranceDocument;
 }
 
+type CoverageCleanupGroup = {
+  id: "policy" | "endorsements" | "source_backed" | "all";
+  label: string;
+  coverageIndexes?: number[];
+};
+
+function coverageCleanupGroups(profile: PolicyOperationalProfile): CoverageCleanupGroup[] {
+  const groups: CoverageCleanupGroup[] = [];
+  const coreIndexes: number[] = [];
+  const endorsementIndexes: number[] = [];
+  const unclassifiedIndexes: number[] = [];
+
+  profile.coverages.forEach((coverage, coverageIndex) => {
+    if (coverage.coverageOrigin === "core") {
+      coreIndexes.push(coverageIndex);
+    } else if (coverage.coverageOrigin === "endorsement") {
+      endorsementIndexes.push(coverageIndex);
+    } else {
+      unclassifiedIndexes.push(coverageIndex);
+    }
+  });
+
+  if (coreIndexes.length) {
+    groups.push({
+      id: "policy",
+      label: "Coverage schedule cleanup: policy schedules",
+      coverageIndexes: coreIndexes,
+    });
+  }
+  if (endorsementIndexes.length) {
+    groups.push({
+      id: "endorsements",
+      label: "Coverage schedule cleanup: endorsement schedules",
+      coverageIndexes: endorsementIndexes,
+    });
+  }
+  if (unclassifiedIndexes.length) {
+    groups.push({
+      id: "source_backed",
+      label: "Coverage schedule cleanup: source-backed schedules",
+      coverageIndexes: unclassifiedIndexes,
+    });
+  }
+
+  return groups.length > 1
+    ? groups
+    : [{
+        id: "all",
+        label: "Coverage schedule cleanup",
+      }];
+}
+
+async function cleanupOperationalCoverageSchedules(params: {
+  sourceTree: DocumentSourceNode[];
+  sourceSpans: SourceSpan[];
+  operationalProfile: PolicyOperationalProfile;
+  generateObject: GenerateObject;
+  providerOptions?: Record<string, unknown>;
+  resolveBudget: (taskKind: ModelTaskKind, hintTokens: number) => ModelBudgetResolution;
+  trackUsage: TrackUsage;
+  log?: (message: string) => Promise<void>;
+}): Promise<{ operationalProfile: PolicyOperationalProfile; warnings: string[] }> {
+  const groups = coverageCleanupGroups(params.operationalProfile);
+  const validNodeIds = new Set(params.sourceTree.map((node) => node.id));
+  const validSpanIds = new Set(params.sourceSpans.map((span) => span.id));
+  const results = await Promise.all(groups.map(async (group, groupIndex) => {
+    const budget = params.resolveBudget("extraction_coverage_cleanup", 4096);
+    const startedAt = Date.now();
+    const response = await safeGenerateObject(
+      params.generateObject,
+      {
+        prompt: buildOperationalProfileCleanupPrompt(
+          params.sourceTree,
+          params.operationalProfile,
+          { coverageIndexes: group.coverageIndexes, label: group.label },
+        ),
+        schema: OperationalProfileCleanupSchema,
+        maxTokens: budget.maxTokens,
+        taskKind: "extraction_coverage_cleanup",
+        budgetDiagnostics: budget,
+        providerOptions: params.providerOptions,
+        trace: {
+          phase: "coverage_cleanup",
+          label: group.label,
+          itemCount: group.coverageIndexes?.length ?? params.operationalProfile.coverages.length,
+          coverageGroup: group.id,
+          batchIndex: groups.length > 1 ? groupIndex + 1 : undefined,
+          batchCount: groups.length > 1 ? groups.length : undefined,
+          sourceBacked: true,
+        },
+      },
+      {
+        fallback: { coverageDecisions: [], warnings: [] },
+        maxRetries: 0,
+        log: params.log,
+        retry: false,
+      },
+    );
+    params.trackUsage(response.usage, {
+      taskKind: "extraction_coverage_cleanup",
+      label: group.id === "all" ? "coverage_cleanup" : `coverage_cleanup_${group.id}`,
+      maxTokens: budget.maxTokens,
+      durationMs: Date.now() - startedAt,
+    });
+    return response.object as OperationalProfileCleanup;
+  }));
+
+  const cleanup = {
+    coverageDecisions: results.flatMap((result) => result.coverageDecisions ?? []),
+    warnings: results.flatMap((result) => result.warnings ?? []),
+  };
+  return {
+    operationalProfile: applyOperationalProfileCleanup(
+      params.operationalProfile,
+      cleanup,
+      validNodeIds,
+      validSpanIds,
+    ),
+    warnings: cleanup.warnings,
+  };
+}
+
 export async function runSourceTreeExtraction(params: {
   id: string;
   sourceSpans: SourceSpan[];
@@ -2834,45 +3081,18 @@ export async function runSourceTreeExtraction(params: {
 
   if (operationalProfile.coverages.length > 0) {
     try {
-      const validNodeIds = new Set(sourceTree.map((node) => node.id));
-      const validSpanIds = new Set(sourceSpans.map((span) => span.id));
-      const budget = params.resolveBudget("extraction_coverage_cleanup", 4096);
-      const startedAt = Date.now();
-      const response = await safeGenerateObject(
-        params.generateObject,
-        {
-          prompt: buildOperationalProfileCleanupPrompt(sourceTree, operationalProfile),
-          schema: OperationalProfileCleanupSchema,
-          maxTokens: budget.maxTokens,
-          taskKind: "extraction_coverage_cleanup",
-          budgetDiagnostics: budget,
-          providerOptions: params.providerOptions,
-          trace: {
-            phase: "coverage_cleanup",
-            label: "Coverage cleanup",
-            itemCount: operationalProfile.coverages.length,
-            sourceBacked: true,
-          },
-        },
-        {
-          fallback: { coverageDecisions: [], warnings: [] },
-          maxRetries: 0,
-          log: params.log,
-          retry: false,
-        },
-      );
-      localTrack(response.usage, {
-        taskKind: "extraction_coverage_cleanup",
-        label: "coverage_cleanup",
-        maxTokens: budget.maxTokens,
-        durationMs: Date.now() - startedAt,
-      });
-      operationalProfile = applyOperationalProfileCleanup(
+      const cleanup = await cleanupOperationalCoverageSchedules({
+        sourceTree,
+        sourceSpans,
         operationalProfile,
-        response.object as OperationalProfileCleanup,
-        validNodeIds,
-        validSpanIds,
-      );
+        generateObject: params.generateObject,
+        providerOptions: params.providerOptions,
+        resolveBudget: params.resolveBudget,
+        trackUsage: localTrack,
+        log: params.log,
+      });
+      operationalProfile = cleanup.operationalProfile;
+      warnings.push(...cleanup.warnings);
     } catch (error) {
       warnings.push(`Operational profile cleanup pass failed; uncleaned profile used (${error instanceof Error ? error.message : String(error)})`);
     }

@@ -156,6 +156,7 @@ describe("source-tree extraction", () => {
             coverages: [
               {
                 name: "Technology Professional Liability",
+                coverageOrigin: "core",
                 sourceNodeIds: [],
                 sourceSpanIds: [sourceSpans[0].id],
                 limits: [],
@@ -188,7 +189,7 @@ describe("source-tree extraction", () => {
       return { object: { labels: [], groups: [] } };
     }) as GenerateObject & ReturnType<typeof vi.fn>;
 
-    await runSourceTreeExtraction({
+    const result = await runSourceTreeExtraction({
       id: "doc-1",
       sourceSpans,
       formInventory: { forms: [] },
@@ -200,16 +201,125 @@ describe("source-tree extraction", () => {
     const cleanupCalls = generateObject.mock.calls
       .map(([params]) => params)
       .filter((params) => params.taskKind === "extraction_coverage_cleanup");
-    expect(cleanupCalls).toHaveLength(1);
+    expect(cleanupCalls).toHaveLength(2);
     expect(cleanupCalls[0]?.trace).toEqual(expect.objectContaining({
-      label: "Coverage cleanup",
-      itemCount: 2,
+      label: "Coverage schedule cleanup: policy schedules",
+      itemCount: 1,
+      coverageGroup: "policy",
+      batchIndex: 1,
+      batchCount: 2,
       sourceBacked: true,
     }));
-    expect(cleanupCalls[0]?.trace?.coverageGroup).toBeUndefined();
-    expect(cleanupCalls[0]?.trace?.batchCount).toBeUndefined();
     expect(cleanupCalls[0]?.prompt).toContain('"coverageIndex": 0');
-    expect(cleanupCalls[0]?.prompt).toContain('"coverageIndex": 1');
+    expect(cleanupCalls[0]?.prompt).not.toContain('"coverageIndex": 1');
+    expect(cleanupCalls[1]?.trace).toEqual(expect.objectContaining({
+      label: "Coverage schedule cleanup: endorsement schedules",
+      itemCount: 1,
+      coverageGroup: "endorsements",
+      batchIndex: 2,
+      batchCount: 2,
+      sourceBacked: true,
+    }));
+    expect(cleanupCalls[1]?.prompt).not.toContain('"coverageIndex": 0');
+    expect(cleanupCalls[1]?.prompt).toContain('"coverageIndex": 1');
+
+    const profileCalls = generateObject.mock.calls
+      .map(([params]) => params)
+      .filter((params) => params.taskKind === "extraction_operational_profile");
+    expect(profileCalls[0]?.prompt).toContain("Do not merge declaration facts and endorsement schedule facts");
+    expect(result.operationalProfile.coverages.map((coverage) => ({
+      name: coverage.name,
+      origin: coverage.coverageOrigin,
+      endorsementNumber: coverage.endorsementNumber,
+    }))).toEqual([
+      {
+        name: "Technology Professional Liability",
+        origin: "core",
+        endorsementNumber: undefined,
+      },
+      {
+        name: "Network Security and Privacy Liability",
+        origin: "endorsement",
+        endorsementNumber: "Endorsement No. 1",
+      },
+    ]);
+  });
+
+  it("collapses duplicate nested endorsement wrappers while preserving child rows", async () => {
+    const page = buildPageSourceSpans([{
+      documentId: "doc-1",
+      pageNumber: 21,
+      text: "ENDORSEMENT NO. 2 SOCIAL ENGINEERING FRAUD COVERAGE SPS-END 002 03 25",
+    }])[0]!;
+    const formNumber = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      text: "SPS-END 002 03 25",
+      pageStart: 21,
+      pageEnd: 21,
+      sourceUnit: "text",
+      metadata: { sourceUnit: "title", elementType: "title" },
+    }, 1);
+    const title = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      text: "ENDORSEMENT NO. 2 — SOCIAL ENGINEERING FRAUD COVERAGE",
+      pageStart: 21,
+      pageEnd: 21,
+      sourceUnit: "text",
+      metadata: { sourceUnit: "title", elementType: "title" },
+    }, 2);
+    const scheduleRow = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      text: "Coverage: Each Loss Limit | Limit: $250,000",
+      pageStart: 21,
+      pageEnd: 21,
+      sourceUnit: "table_row",
+      table: { tableId: "endorsement-2-schedule", rowIndex: 1 },
+    }, 3);
+
+    const result = await runSourceTreeExtraction({
+      id: "doc-1",
+      sourceSpans: [page, formNumber, title, scheduleRow],
+      formInventory: {
+        forms: [{
+          formNumber: "SPS-END 002 03 25",
+          title: "ENDORSEMENT NO. 2 — SOCIAL ENGINEERING FRAUD COVERAGE",
+          formType: "endorsement",
+          pageStart: 21,
+          pageEnd: 21,
+        }],
+      },
+      generateObject: modelStub(),
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    const byId = new Map(result.sourceTree.map((node) => [node.id, node]));
+    const duplicateNestedEndorsement = result.sourceTree.find((node) => {
+      if (node.kind !== "endorsement" || node.title !== "Endorsement No. 2") return false;
+      const parent = node.parentId ? byId.get(node.parentId) : undefined;
+      return parent?.kind === "endorsement" && parent.title === node.title;
+    });
+    expect(duplicateNestedEndorsement).toBeUndefined();
+
+    const rowNode = result.sourceTree.find((node) =>
+      node.kind === "table_row" && node.sourceSpanIds.includes(scheduleRow.id)
+    );
+    expect(rowNode).toBeDefined();
+    let parentId = rowNode?.parentId;
+    let hasEndorsementAncestor = false;
+    while (parentId) {
+      const parent = byId.get(parentId);
+      if (!parent) break;
+      if (parent.kind === "endorsement" && parent.title === "Endorsement No. 2") {
+        hasEndorsementAncestor = true;
+        break;
+      }
+      parentId = parent.parentId;
+    }
+    expect(hasEndorsementAncestor).toBe(true);
   });
 
   it("promotes title elements into cross-page sections inside form groups", async () => {
@@ -474,7 +584,7 @@ describe("source-tree extraction", () => {
       .map(([params]) => params)
       .find((params) => params.prompt.includes("Compare a parsed insurance source table"));
     expect(visualCall).toEqual(expect.objectContaining({
-      taskKind: "extraction_source_tree",
+      taskKind: "extraction_visual_table_repair",
       trace: expect.objectContaining({ startPage: 5, endPage: 5 }),
     }));
     expect(visualCall).not.toHaveProperty("providerOptions");
@@ -587,6 +697,142 @@ describe("source-tree extraction", () => {
     expect(rowDLimit?.textExcerpt).toBe("$250,000 Each Loss");
     expect(rowDNode?.textExcerpt).toContain("Description: $250,000 Each Loss");
     expect(rowDNode?.textExcerpt).not.toContain("$250,000 Each Loss / |");
+  });
+
+  it("does not merge policy prose into visual schedule date cells", async () => {
+    const documentId = "doc-1";
+    const tableId = "endorsement-schedule";
+    let spanIndex = 0;
+    const withBbox = <T extends ReturnType<typeof buildSourceSpan>>(span: T, x: number, y: number, width: number, height: number): T => ({
+      ...span,
+      bbox: [{ page: 21, x, y, width, height }],
+    });
+    const rowSpan = (text: string, rowIndex: number, isHeader = false, y = 100) =>
+      withBbox(buildSourceSpan({
+        documentId,
+        sourceKind: "policy_pdf",
+        text,
+        pageStart: 21,
+        pageEnd: 21,
+        sourceUnit: "table_row",
+        table: { tableId, rowIndex, isHeader },
+      }, spanIndex++), 40, y, 500, 18);
+    const cellSpan = (
+      row: ReturnType<typeof buildSourceSpan>,
+      text: string,
+      rowIndex: number,
+      columnIndex: number,
+      columnName: string,
+      x: number,
+      y: number,
+      width = 160,
+    ) =>
+      withBbox(buildSourceSpan({
+        documentId,
+        sourceKind: "policy_pdf",
+        text,
+        pageStart: 21,
+        pageEnd: 21,
+        sourceUnit: "table_cell",
+        parentSpanId: row.id,
+        table: {
+          tableId,
+          rowIndex,
+          columnIndex,
+          columnName,
+          rowSpanId: row.id,
+          isHeader: row.table?.isHeader,
+        },
+        metadata: { columnName },
+      }, spanIndex++), x, y, width, 14);
+
+    const page = buildPageSourceSpans([{
+      documentId,
+      pageNumber: 21,
+      text: "ENDORSEMENT NO. 2 SOCIAL ENGINEERING FRAUD COVERAGE",
+    }])[0]!;
+    const header = rowSpan("Coverage | Limit", 0, true, 100);
+    const retro = rowSpan("Retroactive Date | 05/01/2026", 1, false, 120);
+    const prose = rowSpan("CLAIM EXPENSES, AS WELL AS DAMAGES AND DIRECT FINANCIAL LOSS, ARE INCLUDED WITHIN AND WILL REDUCE THE LIMITS SHOWN ABOVE.", 2, false, 140);
+    const sourceSpans = [
+      page,
+      header,
+      cellSpan(header, "Coverage", 0, 0, "Coverage", 40, 100),
+      cellSpan(header, "Limit", 0, 1, "Limit", 260, 100),
+      retro,
+      cellSpan(retro, "Retroactive Date", 1, 0, "Coverage", 40, 120),
+      cellSpan(retro, "05/01/2026", 1, 1, "Limit", 260, 120),
+      prose,
+      cellSpan(prose, "CLAIM EXPENSES, AS WELL AS DAMAGES AND DIRECT FINANCIAL LOSS, ARE INCLUDED WITHIN AND WILL REDUCE THE LIMITS SHOWN ABOVE.", 2, 0, "Column 1", 40, 140, 460),
+    ];
+    const generateObject = vi.fn(async (params) => {
+      if (params.prompt.includes("Compare a parsed insurance source table")) {
+        const payloadText = params.prompt
+          .split("Parsed table with visual coordinates:\n")[1]
+          ?.split("\n\nReturn JSON")[0] ?? "{}";
+        const table = JSON.parse(payloadText) as {
+          tableNodeId: string;
+          rows: Array<{ rowNodeId: string; text: string }>;
+        };
+        const proseRow = table.rows.find((row) => row.text.includes("CLAIM EXPENSES"))!;
+        const retroRow = table.rows.find((row) => row.text.includes("Retroactive Date"))!;
+        return {
+          object: {
+            tables: [{
+              tableNodeId: table.tableNodeId,
+              columnLabels: [
+                { columnIndex: 0, label: "Coverage" },
+                { columnIndex: 1, label: "Retroactive Date" },
+              ],
+              continuationRows: [{
+                sourceRowNodeId: proseRow.rowNodeId,
+                targetRowNodeId: retroRow.rowNodeId,
+                targetColumnIndex: 1,
+                targetColumnLabel: "Retroactive Date",
+                reason: "The model incorrectly thinks this paragraph continues the date cell.",
+              }],
+            }],
+            warnings: [],
+          },
+        };
+      }
+      if (params.taskKind === "extraction_operational_profile") {
+        return {
+          object: {
+            documentType: "policy",
+            policyTypes: ["cyber"],
+            coverageTypes: ["cyber"],
+          },
+        };
+      }
+      return { object: { labels: [], groups: [] } };
+    }) as GenerateObject;
+
+    const result = await runSourceTreeExtraction({
+      id: documentId,
+      sourceSpans,
+      generateObject,
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    const retroRow = result.sourceTree.find((node) =>
+      node.kind === "table_row" && node.sourceSpanIds.includes(retro.id)
+    );
+    const retroDateCell = result.sourceTree.find((node) =>
+      node.kind === "table_cell" &&
+      node.parentId === retroRow?.id &&
+      node.title === "Retroactive Date"
+    );
+    const proseRow = result.sourceTree.find((node) =>
+      node.kind === "table_row" &&
+      node.sourceSpanIds.includes(prose.id) &&
+      !node.sourceSpanIds.includes(retro.id)
+    );
+
+    expect(retroDateCell?.textExcerpt).toBe("05/01/2026");
+    expect(retroRow?.textExcerpt).not.toContain("CLAIM EXPENSES");
+    expect(proseRow).toBeDefined();
   });
 
   it("runs a model cleanup pass over malformed operational profile projections", async () => {
@@ -843,9 +1089,9 @@ describe("source-tree extraction", () => {
 
     const endorsementPrompt = buildOperationalProfileCleanupPrompt(sourceTree, profile, {
       coverageIndexes: [1],
-      label: "Coverage cleanup: endorsements",
+      label: "Coverage schedule cleanup: endorsement schedules",
     });
-    expect(endorsementPrompt).toContain("Coverage cleanup: endorsements");
+    expect(endorsementPrompt).toContain("Coverage schedule cleanup: endorsement schedules");
     expect(endorsementPrompt).toContain('"coverageIndex": 1');
     expect(endorsementPrompt).toContain("Network Security and Privacy Liability");
     expect(endorsementPrompt).not.toContain('"coverageIndex": 0');
