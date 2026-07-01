@@ -1696,6 +1696,67 @@ function tableRowTextFromCells(cells: DocumentSourceNode[]): string | undefined 
   return text ? cleanText(text, text) : undefined;
 }
 
+function normalizeTableBoundaryDelimiters(value: string | undefined): string | undefined {
+  const text = cleanText(value, "");
+  if (!text) return undefined;
+  const normalized = text
+    .replace(/\s+\|\s+\|/g, " | ")
+    .replace(/\s+\/\s+\|/g, " |")
+    .replace(/\s+[|/]\s*$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return normalized || undefined;
+}
+
+function normalizeSourceTreeTableDisplayText(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
+  const byParent = nodesByParent(sourceTree);
+  const updates = new Map<string, DocumentSourceNode>();
+  const currentNode = (node: DocumentSourceNode) => updates.get(node.id) ?? node;
+
+  for (const node of sourceTree) {
+    if (node.kind !== "table_cell") continue;
+    const textExcerpt = normalizeTableBoundaryDelimiters(node.textExcerpt);
+    const textChanged = textExcerpt !== undefined && textExcerpt !== node.textExcerpt;
+    const description = textChanged && textExcerpt
+      ? normalizeTableBoundaryDelimiters([node.title, textExcerpt].filter(Boolean).join(" | "))
+      : normalizeTableBoundaryDelimiters(node.description);
+    if (textExcerpt === node.textExcerpt && description === node.description) continue;
+    updates.set(node.id, {
+      ...node,
+      ...(textExcerpt !== undefined ? { textExcerpt } : {}),
+      ...(description !== undefined ? { description } : {}),
+    });
+  }
+
+  for (const node of sourceTree) {
+    if (node.kind !== "table_row") continue;
+    const cells = (byParent.get(node.id) ?? [])
+      .filter((child) => child.kind === "table_cell")
+      .map(currentNode)
+      .sort((left, right) =>
+        tableCellColumnIndex(left, 0) - tableCellColumnIndex(right, 0) ||
+        left.order - right.order ||
+        left.id.localeCompare(right.id),
+      );
+    const textExcerpt = cells.length
+      ? tableRowTextFromCells(cells)
+      : normalizeTableBoundaryDelimiters(node.textExcerpt);
+    const textChanged = textExcerpt !== undefined && textExcerpt !== node.textExcerpt;
+    const description = textChanged && textExcerpt
+      ? normalizeTableBoundaryDelimiters([node.title, textExcerpt].filter(Boolean).join(" | "))
+      : normalizeTableBoundaryDelimiters(node.description);
+    if (textExcerpt === node.textExcerpt && description === node.description) continue;
+    updates.set(node.id, {
+      ...node,
+      ...(textExcerpt !== undefined ? { textExcerpt } : {}),
+      ...(description !== undefined ? { description } : {}),
+    });
+  }
+
+  if (updates.size === 0) return sourceTree;
+  return sourceTree.map((node) => updates.get(node.id) ?? node);
+}
+
 function tableRowTextForPrompt(row: DocumentSourceNode, cells: DocumentSourceNode[]): string {
   return cleanText(
     cells.length
@@ -2685,7 +2746,7 @@ export async function runSourceTreeExtraction(params: {
     trackUsage: localTrack,
     log: params.log,
   });
-  sourceTree = visualTableRepair.sourceTree;
+  sourceTree = normalizeSourceTreeTableDisplayText(visualTableRepair.sourceTree);
   warnings.push(...visualTableRepair.warnings);
 
   const emptyProfile = emptyOperationalProfile();

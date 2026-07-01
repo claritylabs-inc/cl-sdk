@@ -290,12 +290,13 @@ describe("source-tree extraction", () => {
     const rowC = rowSpan("including temporary relocation expense: C. Warehouse Location | extension: Inventory cleanup reimbursement / | Column 3: $3,000 | Column 4: 05/01/2025", 7, false, 235);
     const implicitHeader = rowSpan("aggregate sub-limit, part of | Coverage Part B", 8, true, 255);
     const implicitTail = rowSpan("including scheduled equipment", 9, false, 272);
+    const rowD = rowSpan("D. Social Engineering Fraud | $250,000 Each Loss / | $5,000 Each | 05/01/2026", 10, false, 300);
 
     const sourceSpans = [
       page,
       preHeader,
       cellSpan(preHeader, "Item 1. Named Insured", 0, 0, "Schedule Item", 40, 95, 130, "Column 1"),
-      cellSpan(preHeader, "Example Labs Inc.", 0, 1, "Description", 180, 95, 130, "Column 2"),
+      cellSpan(preHeader, "Example Labs Inc. |", 0, 1, "Description", 180, 95, 130, "Column 2"),
       header,
       cellSpan(header, "Schedule Item", 1, 0, "Schedule Item", 40, 120),
       cellSpan(header, "Description", 1, 1, "Description", 180, 120),
@@ -329,6 +330,11 @@ describe("source-tree extraction", () => {
       cellSpan(implicitHeader, "Coverage Part B", 8, 1, "Coverage Part B", 250, 255, 60),
       implicitTail,
       cellSpan(implicitTail, "including scheduled equipment", 9, 0, "Column 1", 180, 272, 210),
+      rowD,
+      cellSpan(rowD, "D. Social Engineering Fraud", 10, 0, "Schedule Item", 40, 300, 130),
+      cellSpan(rowD, "$250,000 Each Loss /", 10, 1, "Description", 180, 300, 130),
+      cellSpan(rowD, "$5,000 Each", 10, 2, "Amount", 320, 300),
+      cellSpan(rowD, "05/01/2026", 10, 3, "Effective Date", 430, 300),
     ];
 
     const generateObjectMock = vi.fn(async (params) => {
@@ -406,6 +412,8 @@ describe("source-tree extraction", () => {
       .filter((node) => node.kind === "table_cell" && node.parentId === preHeaderRow?.id)
       .map((node) => node.metadata?.columnName);
     expect(preHeaderMetadata).toEqual(["Column 1", "Column 2"]);
+    expect(preHeaderRow?.textExcerpt).toContain("Column 2: Example Labs Inc.");
+    expect(preHeaderRow?.textExcerpt).not.toContain("Example Labs Inc. | |");
 
     const rowANode = result.sourceTree.find((node) =>
       node.kind === "table_row" &&
@@ -487,6 +495,19 @@ describe("source-tree extraction", () => {
       node.sourceSpanIds.includes(implicitTail.id) &&
       !node.sourceSpanIds.includes(rowC.id)
     )).toBe(false);
+
+    const rowDNode = result.sourceTree.find((node) =>
+      node.kind === "table_row" &&
+      node.sourceSpanIds.includes(rowD.id)
+    );
+    const rowDLimit = result.sourceTree.find((node) =>
+      node.kind === "table_cell" &&
+      node.parentId === rowDNode?.id &&
+      node.title === "Description"
+    );
+    expect(rowDLimit?.textExcerpt).toBe("$250,000 Each Loss");
+    expect(rowDNode?.textExcerpt).toContain("Description: $250,000 Each Loss");
+    expect(rowDNode?.textExcerpt).not.toContain("$250,000 Each Loss / |");
   });
 
   it("runs a model cleanup pass over malformed operational profile projections", async () => {
