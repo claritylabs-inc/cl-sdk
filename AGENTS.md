@@ -71,6 +71,8 @@ Important extraction contract:
 - **Strict schema compatibility**: `toStrictSchema()` auto-transforms Zod schemas before `generateObject` calls.
 - **Safe generate**: `safeGenerateObject()` wraps `generateObject` with retry, strictification, and optional fallbacks.
 - **Output token caps**: `resolveModelBudget()` treats task budgets as preferences/diagnostics. When model capabilities provide `maxOutputTokens`, use that model maximum as the request cap so extraction does not truncate just because a cheap task preference was too low. Only explicit hard constraints should lower the cap.
+- **Task-routed model capabilities**: hosts that route SDK tasks to different models must pass `modelCapabilitiesByTaskKind` into `createExtractor(config)`. Do not pass only the generic focused-extraction model capability when source-tree, operational-profile, form-inventory, coverage-cleanup, review, or lookup calls use specialized routes.
+- **Parallel source-tree passes**: source-tree organizer batches and visual table repair calls may run concurrently, but their results should be applied in deterministic batch/page order. Operational coverage cleanup runs as source-backed model chunks split by base policy versus endorsements and applies decisions by original `coverageIndex`.
 - **Token tracking**: `tokenUsage` aggregates available usage values; `usageReporting` tells you how many calls did or did not report usage.
 
 ### Query and Application Workflows

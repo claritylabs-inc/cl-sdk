@@ -133,6 +133,81 @@ describe("source-tree extraction", () => {
     }));
   });
 
+  it("runs operational coverage cleanup in base-policy and endorsement chunks", async () => {
+    const sourceSpans = buildPageSourceSpans([
+      {
+        documentId: "doc-1",
+        pageNumber: 5,
+        text: "Coverage Part A Technology Professional Liability Each Claim Limit $2,000,000.",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 19,
+        text: "Endorsement No. 1 Network Security and Privacy Liability Each Claim Limit $1,000,000.",
+      },
+    ]);
+    const generateObject = vi.fn(async (params) => {
+      if (params.taskKind === "extraction_operational_profile") {
+        return {
+          object: {
+            documentType: "policy",
+            policyTypes: ["cyber"],
+            coverageTypes: ["cyber"],
+            coverages: [
+              {
+                name: "Technology Professional Liability",
+                sourceNodeIds: [],
+                sourceSpanIds: [sourceSpans[0].id],
+                limits: [],
+              },
+              {
+                name: "Network Security and Privacy Liability",
+                coverageOrigin: "endorsement",
+                endorsementNumber: "Endorsement No. 1",
+                sourceNodeIds: [],
+                sourceSpanIds: [sourceSpans[1].id],
+                limits: [],
+              },
+            ],
+            parties: [],
+            endorsementSupport: [],
+            warnings: [],
+            sourceNodeIds: [],
+            sourceSpanIds: sourceSpans.map((span) => span.id),
+          },
+        };
+      }
+      if (params.taskKind === "extraction_coverage_cleanup") {
+        return {
+          object: {
+            coverageDecisions: [],
+            warnings: [],
+          },
+        };
+      }
+      return { object: { labels: [], groups: [] } };
+    }) as GenerateObject & ReturnType<typeof vi.fn>;
+
+    await runSourceTreeExtraction({
+      id: "doc-1",
+      sourceSpans,
+      formInventory: { forms: [] },
+      generateObject,
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    const cleanupCalls = generateObject.mock.calls
+      .map(([params]) => params)
+      .filter((params) => params.taskKind === "extraction_coverage_cleanup");
+    expect(cleanupCalls).toHaveLength(2);
+    expect(cleanupCalls.map((params) => params.trace?.coverageGroup).sort()).toEqual(["base_policy", "endorsements"]);
+    expect(cleanupCalls.every((params) => params.trace?.batchCount === 2)).toBe(true);
+    expect(cleanupCalls.find((params) => params.trace?.coverageGroup === "base_policy")?.prompt).toContain('"coverageIndex": 0');
+    expect(cleanupCalls.find((params) => params.trace?.coverageGroup === "base_policy")?.prompt).not.toContain('"coverageIndex": 1');
+    expect(cleanupCalls.find((params) => params.trace?.coverageGroup === "endorsements")?.prompt).toContain('"coverageIndex": 1');
+  });
+
   it("promotes title elements into cross-page sections inside form groups", async () => {
     const pageSpans = buildPageSourceSpans([
       {
@@ -693,6 +768,19 @@ describe("source-tree extraction", () => {
         order: 341,
         path: "5.1.1",
       },
+      {
+        id: "endorsement-row-1",
+        documentId: "doc-1",
+        kind: "table_row",
+        title: "Endorsement No. 1 — Network Security and Privacy Liability",
+        description: "",
+        textExcerpt: "Network Security and Privacy Liability Each Claim Limit $1,000,000 Aggregate Sub-Limit $1,000,000 Deductible Each Claim $5,000 Retroactive Date 05/01/2025",
+        sourceSpanIds: ["endorsement-span-1"],
+        pageStart: 19,
+        pageEnd: 19,
+        order: 500,
+        path: "19.1",
+      },
     );
 
     const profile: PolicyOperationalProfile = {
@@ -716,6 +804,25 @@ describe("source-tree extraction", () => {
           sourceNodeIds: ["coverage-row-a"],
           sourceSpanIds: ["coverage-span-a"],
         }],
+      }, {
+        name: "Network Security and Privacy Liability",
+        coverageCode: "B",
+        limit: "$1,000,000 Each Claim",
+        deductible: "$5,000 Each Claim",
+        retroactiveDate: "05/01/2025",
+        coverageOrigin: "endorsement",
+        endorsementNumber: "Endorsement No. 1",
+        sourceNodeIds: ["endorsement-row-1"],
+        sourceSpanIds: ["endorsement-span-1"],
+        limits: [{
+          kind: "each_claim_limit",
+          label: "Each Claim Limit",
+          value: "$1,000,000",
+          amount: 1000000,
+          appliesTo: "Network Security and Privacy Liability",
+          sourceNodeIds: ["endorsement-row-1"],
+          sourceSpanIds: ["endorsement-span-1"],
+        }],
       }],
       parties: [],
       endorsementSupport: [],
@@ -729,5 +836,15 @@ describe("source-tree extraction", () => {
     expect(prompt).toContain("Technology Professional Liability");
     expect(prompt).not.toContain("front-250");
     expect(prompt.length).toBeLessThan(25000);
+
+    const endorsementPrompt = buildOperationalProfileCleanupPrompt(sourceTree, profile, {
+      coverageIndexes: [1],
+      label: "Coverage cleanup: endorsements",
+    });
+    expect(endorsementPrompt).toContain("Coverage cleanup: endorsements");
+    expect(endorsementPrompt).toContain('"coverageIndex": 1');
+    expect(endorsementPrompt).toContain("Network Security and Privacy Liability");
+    expect(endorsementPrompt).not.toContain('"coverageIndex": 0');
+    expect(endorsementPrompt).not.toContain("coverage-row-a");
   });
 });

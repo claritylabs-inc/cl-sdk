@@ -26,6 +26,8 @@ export interface ModelCallTrace {
   batchCount?: number;
   phase?: string;
   sourceBacked?: boolean;
+  coverageGroup?: string;
+  itemCount?: number;
 }
 
 /** Callback to generate text from a prompt. Provider-agnostic. */

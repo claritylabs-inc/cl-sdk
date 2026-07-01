@@ -7,6 +7,7 @@ import type { SourceProvenance } from "../schemas/shared";
 import type {
   DocumentSourceNode,
   DocumentSourceNodeKind,
+  OperationalCoverageLine,
   PolicyOperationalProfile,
   SourceBackedValue,
   SourceChunk,
@@ -2333,7 +2334,8 @@ async function runVisualTableRepair(params: {
 
   let sourceTree = params.sourceTree;
   const warnings: string[] = [];
-  for (const [index, candidate] of candidates.entries()) {
+  const repairResults = await Promise.all(candidates.map(async (candidate, index) => {
+    const label = `source_tree_visual_table_repair_p${candidate.page}`;
     try {
       const budget = params.resolveBudget("extraction_source_tree", 1800);
       const maxTokens = Math.min(budget.maxTokens, 2400);
@@ -2347,7 +2349,7 @@ async function runVisualTableRepair(params: {
           taskKind: "extraction_source_tree",
           budgetDiagnostics: { ...budget, maxTokens },
           trace: {
-            label: `source_tree_visual_table_repair_p${candidate.page}`,
+            label,
             startPage: candidate.page,
             endPage: candidate.page,
             batchIndex: index + 1,
@@ -2360,20 +2362,39 @@ async function runVisualTableRepair(params: {
           log: params.log,
         },
       );
-      params.trackUsage(response.usage, {
-        taskKind: "extraction_source_tree",
-        label: `source_tree_visual_table_repair_p${candidate.page}`,
+      return {
+        index,
+        candidate,
+        label,
         maxTokens,
         durationMs: Date.now() - startedAt,
-      });
-      const repair = response.object as SourceTreeVisualTableRepair;
-      sourceTree = applyVisualTableRepair(sourceTree, repair);
-      warnings.push(...repair.warnings.map((warning) =>
-        `Visual table repair warning on page ${candidate.page}: ${warning}`,
-      ));
+        usage: response.usage,
+        repair: response.object as SourceTreeVisualTableRepair,
+      };
     } catch (error) {
-      warnings.push(`Visual table repair skipped on page ${candidate.page}; parsed table kept (${error instanceof Error ? error.message : String(error)})`);
+      return {
+        index,
+        candidate,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
+  }));
+
+  for (const result of repairResults.sort((left, right) => left.index - right.index)) {
+    if ("error" in result) {
+      warnings.push(`Visual table repair skipped on page ${result.candidate.page}; parsed table kept (${result.error})`);
+      continue;
+    }
+    params.trackUsage(result.usage, {
+      taskKind: "extraction_source_tree",
+      label: result.label,
+      maxTokens: result.maxTokens,
+      durationMs: result.durationMs,
+    });
+    sourceTree = applyVisualTableRepair(sourceTree, result.repair);
+    warnings.push(...result.repair.warnings.map((warning) =>
+      `Visual table repair warning on page ${result.candidate.page}: ${warning}`,
+    ));
   }
 
   return { sourceTree, warnings };
@@ -2481,6 +2502,47 @@ const NORMALIZED_COMPATIBILITY_FIELDS = new Set<keyof PolicyOperationalProfile>(
   "insurer",
   "broker",
 ]);
+
+type CoverageCleanupGroup = "base_policy" | "endorsements";
+
+type CoverageCleanupChunk = {
+  group: CoverageCleanupGroup;
+  label: string;
+  coverageIndexes: number[];
+};
+
+function coverageBelongsToEndorsementCleanupChunk(coverage: OperationalCoverageLine): boolean {
+  return coverage.coverageOrigin === "endorsement" || Boolean(coverage.endorsementNumber);
+}
+
+function coverageCleanupChunks(profile: PolicyOperationalProfile): CoverageCleanupChunk[] {
+  const basePolicy: number[] = [];
+  const endorsements: number[] = [];
+  profile.coverages.forEach((coverage, coverageIndex) => {
+    if (coverageBelongsToEndorsementCleanupChunk(coverage)) {
+      endorsements.push(coverageIndex);
+    } else {
+      basePolicy.push(coverageIndex);
+    }
+  });
+
+  return [
+    basePolicy.length
+      ? {
+          group: "base_policy" as const,
+          label: "Coverage cleanup: base policy",
+          coverageIndexes: basePolicy,
+        }
+      : undefined,
+    endorsements.length
+      ? {
+          group: "endorsements" as const,
+          label: "Coverage cleanup: endorsements",
+          coverageIndexes: endorsements,
+        }
+      : undefined,
+  ].filter((chunk): chunk is CoverageCleanupChunk => Boolean(chunk));
+}
 
 function valueOf(profile: PolicyOperationalProfile, key: keyof PolicyOperationalProfile): string | undefined {
   const value = profile[key];
@@ -2673,34 +2735,51 @@ export async function runSourceTreeExtraction(params: {
 
   if (shouldRunSourceTreeOrganizer(sourceTree, sourceSpans)) {
     try {
-    const organizations: SourceTreeOrganization[] = [];
-    const batches = organizationBatches(sourceTree);
-    for (const [batchIndex, batch] of batches.entries()) {
-      const budget = params.resolveBudget("extraction_source_tree", 4096);
-      const startedAt = Date.now();
-      const response = await safeGenerateObject(
-        params.generateObject,
-        {
-          prompt: buildOrganizationPrompt(batch, formHints),
-          schema: SourceTreeOrganizationSchema,
-          maxTokens: budget.maxTokens,
+      const batches = organizationBatches(sourceTree);
+      const organizationResults = await Promise.all(batches.map(async (batch, batchIndex) => {
+        const label = batches.length > 1 ? `source_tree_organizer_${batchIndex + 1}` : "source_tree_organizer";
+        const budget = params.resolveBudget("extraction_source_tree", 4096);
+        const startedAt = Date.now();
+        const response = await safeGenerateObject(
+          params.generateObject,
+          {
+            prompt: buildOrganizationPrompt(batch, formHints),
+            schema: SourceTreeOrganizationSchema,
+            maxTokens: budget.maxTokens,
+            taskKind: "extraction_source_tree",
+            budgetDiagnostics: budget,
+            trace: {
+              label,
+              batchIndex: batchIndex + 1,
+              batchCount: batches.length,
+              sourceBacked: true,
+            },
+          },
+          {
+            fallback: { labels: [], groups: [] },
+            log: params.log,
+          },
+        );
+        return {
+          batchIndex,
+          label,
+          budget,
+          durationMs: Date.now() - startedAt,
+          usage: response.usage,
+          organization: response.object as SourceTreeOrganization,
+        };
+      }));
+      const organizations: SourceTreeOrganization[] = [];
+      for (const result of organizationResults.sort((left, right) => left.batchIndex - right.batchIndex)) {
+        localTrack(result.usage, {
           taskKind: "extraction_source_tree",
-          budgetDiagnostics: budget,
-        },
-        {
-          fallback: { labels: [], groups: [] },
-          log: params.log,
-        },
-      );
-      localTrack(response.usage, {
-        taskKind: "extraction_source_tree",
-        label: batches.length > 1 ? `source_tree_organizer_${batchIndex + 1}` : "source_tree_organizer",
-        maxTokens: budget.maxTokens,
-        durationMs: Date.now() - startedAt,
-      });
-      organizations.push(response.object as SourceTreeOrganization);
-    }
-    sourceTree = applyOrganization(sourceTree, mergeOrganizationResults(organizations));
+          label: result.label,
+          maxTokens: result.budget.maxTokens,
+          durationMs: result.durationMs,
+        });
+        organizations.push(result.organization);
+      }
+      sourceTree = applyOrganization(sourceTree, mergeOrganizationResults(organizations));
     } catch (error) {
       warnings.push(`Source-tree organizer failed; deterministic tree used (${error instanceof Error ? error.message : String(error)})`);
     }
@@ -2791,33 +2870,65 @@ export async function runSourceTreeExtraction(params: {
     try {
       const validNodeIds = new Set(sourceTree.map((node) => node.id));
       const validSpanIds = new Set(sourceSpans.map((span) => span.id));
-      const budget = params.resolveBudget("extraction_coverage_cleanup", 4096);
-      const startedAt = Date.now();
-      const response = await safeGenerateObject(
-        params.generateObject,
-        {
-          prompt: buildOperationalProfileCleanupPrompt(sourceTree, operationalProfile),
-          schema: OperationalProfileCleanupSchema,
-          maxTokens: budget.maxTokens,
+      const chunks = coverageCleanupChunks(operationalProfile);
+      if (chunks.length > 1) {
+        await params.log?.(`Operational profile coverage cleanup reviewing ${chunks.length} coverage groups in parallel`);
+      }
+      const cleanupResults = await Promise.all(chunks.map(async (chunk, batchIndex) => {
+        const budget = params.resolveBudget("extraction_coverage_cleanup", 4096);
+        const startedAt = Date.now();
+        const response = await safeGenerateObject(
+          params.generateObject,
+          {
+            prompt: buildOperationalProfileCleanupPrompt(sourceTree, operationalProfile, {
+              coverageIndexes: chunk.coverageIndexes,
+              label: chunk.label,
+            }),
+            schema: OperationalProfileCleanupSchema,
+            maxTokens: budget.maxTokens,
+            taskKind: "extraction_coverage_cleanup",
+            budgetDiagnostics: budget,
+            providerOptions: params.providerOptions,
+            trace: {
+              phase: "coverage_cleanup",
+              label: chunk.label,
+              batchIndex: batchIndex + 1,
+              batchCount: chunks.length,
+              coverageGroup: chunk.group,
+              itemCount: chunk.coverageIndexes.length,
+              sourceBacked: true,
+            },
+          },
+          {
+            fallback: { coverageDecisions: [], warnings: [] },
+            maxRetries: 0,
+            log: params.log,
+          },
+        );
+        return {
+          batchIndex,
+          chunk,
+          budget,
+          durationMs: Date.now() - startedAt,
+          usage: response.usage,
+          cleanup: response.object as OperationalProfileCleanup,
+        };
+      }));
+
+      const cleanup: OperationalProfileCleanup = { coverageDecisions: [], warnings: [] };
+      for (const result of cleanupResults.sort((left, right) => left.batchIndex - right.batchIndex)) {
+        localTrack(result.usage, {
           taskKind: "extraction_coverage_cleanup",
-          budgetDiagnostics: budget,
-          providerOptions: params.providerOptions,
-          trace: { phase: "coverage_cleanup", sourceBacked: true },
-        },
-        {
-          fallback: { coverageDecisions: [], warnings: [] },
-          log: params.log,
-        },
-      );
-      localTrack(response.usage, {
-        taskKind: "extraction_coverage_cleanup",
-        label: "operational_profile_cleanup",
-        maxTokens: budget.maxTokens,
-        durationMs: Date.now() - startedAt,
-      });
+          label: result.chunk.label,
+          maxTokens: result.budget.maxTokens,
+          durationMs: result.durationMs,
+        });
+        cleanup.coverageDecisions.push(...result.cleanup.coverageDecisions);
+        cleanup.warnings.push(...result.cleanup.warnings);
+      }
       operationalProfile = applyOperationalProfileCleanup(
         operationalProfile,
-        response.object as OperationalProfileCleanup,
+        cleanup,
         validNodeIds,
         validSpanIds,
       );

@@ -89,6 +89,7 @@ export interface ExtractorConfig {
   sourceStore?: SourceStore;
   qualityGate?: QualityGateMode;
   modelCapabilities?: ModelCapabilities;
+  modelCapabilitiesByTaskKind?: Partial<Record<ModelTaskKind, ModelCapabilities>>;
   modelBudgetConstraints?: Partial<Record<ModelTaskKind, ModelBudgetConstraint>>;
   /** Optional checkpoint persistence callback. */
   onCheckpointSave?: (checkpoint: PipelineCheckpoint<ExtractionState>) => Promise<void>;
@@ -143,6 +144,7 @@ export function createExtractor(config: ExtractorConfig) {
     sourceStore,
     qualityGate = "warn",
     modelCapabilities,
+    modelCapabilitiesByTaskKind,
     modelBudgetConstraints,
     onCheckpointSave,
   } = config;
@@ -161,10 +163,11 @@ export function createExtractor(config: ExtractorConfig) {
   let activeProviderOptions = providerOptions;
 
   function resolveBudget(taskKind: ModelTaskKind, hintTokens: number) {
+    const taskModelCapabilities = modelCapabilitiesByTaskKind?.[taskKind] ?? modelCapabilities;
     return resolveModelBudget({
       taskKind,
       hintTokens,
-      modelCapabilities,
+      modelCapabilities: taskModelCapabilities,
       constraint: modelBudgetConstraints?.[taskKind],
     });
   }

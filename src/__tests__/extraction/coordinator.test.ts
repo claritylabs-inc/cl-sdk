@@ -279,9 +279,65 @@ describe("createExtractor", () => {
       log: vi.fn(),
       providerOptions: { anthropic: {} },
       modelCapabilities: { maxOutputTokens: 32768 },
+      modelCapabilitiesByTaskKind: { extraction_operational_profile: { maxOutputTokens: 8192 } },
       modelBudgetConstraints: { extraction_review: { maxOutputTokens: 1024 } },
     });
     expect(typeof extractor.extract).toBe("function");
+  });
+
+  it("uses task-specific model capabilities when resolving source-tree budgets", async () => {
+    safeGenerateObject
+      .mockReset()
+      .mockImplementation(async (_generateObject, params) => {
+        if (params.taskKind === "extraction_form_inventory") {
+          return { object: { forms: [] } };
+        }
+        if (params.taskKind === "extraction_source_tree") {
+          return { object: { labels: [], groups: [] } };
+        }
+        if (params.taskKind === "extraction_operational_profile") {
+          return {
+            object: {
+              documentType: "policy",
+              policyTypes: ["cyber"],
+              coverageTypes: ["cyber"],
+              coverages: [],
+            },
+          };
+        }
+        return {
+          object: { documentType: "policy", policyTypes: ["cyber"], confidence: 0.95 },
+        };
+      });
+    const sourceSpans = buildPageSourceSpans([
+      {
+        documentId: "doc-1",
+        sourceKind: "policy_pdf",
+        pageNumber: 1,
+        text: "Declarations. Policy number POL-0001. Limit of liability is $1,000,000.",
+      },
+    ]);
+    const extractor = createExtractor({
+      generateText: vi.fn(),
+      generateObject: vi.fn(),
+      modelCapabilities: { maxOutputTokens: 32768 },
+      modelCapabilitiesByTaskKind: {
+        extraction_operational_profile: { maxOutputTokens: 8192 },
+      },
+    });
+
+    await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
+
+    const profileCallParams = safeGenerateObject.mock.calls.find(([, params]) =>
+      params.taskKind === "extraction_operational_profile"
+    )?.[1];
+    expect(profileCallParams).toEqual(expect.objectContaining({
+      maxTokens: 8192,
+      budgetDiagnostics: expect.objectContaining({
+        taskKind: "extraction_operational_profile",
+        modelMaxOutputTokens: 8192,
+      }),
+    }));
   });
 
   it("persists caller-provided source spans without forwarding them through source-tree provider options", async () => {

@@ -54,6 +54,10 @@ export const OperationalProfileCleanupSchema = z.object({
 export type OperationalProfileCleanup = z.infer<typeof OperationalProfileCleanupSchema>;
 type CoverageCleanupDecision = OperationalProfileCleanup["coverageDecisions"][number];
 type TermCleanupDecision = NonNullable<CoverageCleanupDecision["termDecisions"]>[number];
+type CoverageCleanupEntry = {
+  coverage: OperationalCoverageLine;
+  coverageIndex: number;
+};
 
 const CLEANUP_CANDIDATE_ID_LIMIT = 12;
 const CLEANUP_SOURCE_NODE_LIMIT = 90;
@@ -130,6 +134,23 @@ function coverageTextForSelection(coverage: OperationalCoverageLine): string {
   ].filter(Boolean).join(" ");
 }
 
+function coverageCleanupEntries(
+  profile: PolicyOperationalProfile,
+  coverageIndexes?: readonly number[],
+): CoverageCleanupEntry[] {
+  if (!coverageIndexes) {
+    return profile.coverages.map((coverage, coverageIndex) => ({ coverage, coverageIndex }));
+  }
+
+  return [...new Set(coverageIndexes)]
+    .sort((left, right) => left - right)
+    .map((coverageIndex) => {
+      const coverage = profile.coverages[coverageIndex];
+      return coverage ? { coverage, coverageIndex } : undefined;
+    })
+    .filter((entry): entry is CoverageCleanupEntry => Boolean(entry));
+}
+
 function nodeTextMatchesCoverage(node: DocumentSourceNode, coverageTerms: string[]): boolean {
   const text = nodeTextForSelection(node).toLowerCase();
   return coverageTerms.some((term) => term.length >= 5 && text.includes(term));
@@ -137,7 +158,7 @@ function nodeTextMatchesCoverage(node: DocumentSourceNode, coverageTerms: string
 
 function selectCoverageCleanupNodes(
   sourceTree: DocumentSourceNode[],
-  profile: PolicyOperationalProfile,
+  coverages: OperationalCoverageLine[],
 ): DocumentSourceNode[] {
   const nodeById = new Map(sourceTree.map((node) => [node.id, node]));
   const childrenByParent = new Map<string, DocumentSourceNode[]>();
@@ -158,12 +179,12 @@ function selectCoverageCleanupNodes(
     if (!current || score > current.score) selected.set(node.id, { node, score });
   };
 
-  const sourceNodeIds = uniqueStrings(profile.coverages.flatMap((coverage) => [
+  const sourceNodeIds = uniqueStrings(coverages.flatMap((coverage) => [
     ...coverage.sourceNodeIds,
     ...coverage.limits.flatMap((term) => term.sourceNodeIds),
   ]));
   const coveragePages = new Set<number>();
-  const coverageTerms = uniqueStrings(profile.coverages.flatMap((coverage) =>
+  const coverageTerms = uniqueStrings(coverages.flatMap((coverage) =>
     coverageTextForSelection(coverage)
       .toLowerCase()
       .split(/[^a-z0-9$,.]+/i)
@@ -226,8 +247,10 @@ function selectCoverageCleanupNodes(
 export function buildOperationalProfileCleanupPrompt(
   sourceTree: DocumentSourceNode[],
   profile: PolicyOperationalProfile,
+  options: { coverageIndexes?: readonly number[]; label?: string } = {},
 ): string {
-  const nodes = selectCoverageCleanupNodes(sourceTree, profile)
+  const coverageEntries = coverageCleanupEntries(profile, options.coverageIndexes);
+  const nodes = selectCoverageCleanupNodes(sourceTree, coverageEntries.map((entry) => entry.coverage))
     .map((node) => compactNode(
       node,
       node.kind === "page" || node.kind === "page_group"
@@ -240,10 +263,11 @@ export function buildOperationalProfileCleanupPrompt(
     documentType: profile.documentType,
     policyTypes: profile.policyTypes,
     coverageTypes: profile.coverageTypes,
-    coverages: profile.coverages.map(compactCoverageForCleanup),
+    coverages: coverageEntries.map(({ coverage, coverageIndex }) => compactCoverageForCleanup(coverage, coverageIndex)),
   };
 
   return `Review and clean a source-backed operational profile projection for an insurance policy.
+${options.label ? `\nCoverage group: ${options.label}\n` : ""}
 
 Task:
 - Inspect the candidate coverage projection against the source nodes.
