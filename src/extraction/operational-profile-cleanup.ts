@@ -55,6 +55,12 @@ export type OperationalProfileCleanup = z.infer<typeof OperationalProfileCleanup
 type CoverageCleanupDecision = OperationalProfileCleanup["coverageDecisions"][number];
 type TermCleanupDecision = NonNullable<CoverageCleanupDecision["termDecisions"]>[number];
 
+const CLEANUP_CANDIDATE_ID_LIMIT = 12;
+const CLEANUP_SOURCE_NODE_LIMIT = 90;
+const CLEANUP_SIBLING_WINDOW = 4;
+const CLEANUP_KEYWORD =
+  /\b(coverage|limit|liability|deductible|retention|retroactive|premium|aggregate|sublimit|sub-limit|claim|occurrence|loss|proceeding|endorsement|declarations?)\b|\$[0-9]/i;
+
 function compactNode(node: DocumentSourceNode, maxText = 700) {
   return {
     id: node.id,
@@ -68,6 +74,10 @@ function compactNode(node: DocumentSourceNode, maxText = 700) {
   };
 }
 
+function compactIds(ids: readonly string[] | undefined): string[] {
+  return uniqueStrings([...(ids ?? [])]).slice(0, CLEANUP_CANDIDATE_ID_LIMIT);
+}
+
 function compactCoverageForCleanup(coverage: OperationalCoverageLine, coverageIndex: number) {
   return {
     coverageIndex,
@@ -77,8 +87,8 @@ function compactCoverageForCleanup(coverage: OperationalCoverageLine, coverageIn
     premium: coverage.premium,
     retroactiveDate: coverage.retroactiveDate,
     coverageOrigin: coverage.coverageOrigin,
-    sourceNodeIds: coverage.sourceNodeIds,
-    sourceSpanIds: coverage.sourceSpanIds,
+    sourceNodeIds: compactIds(coverage.sourceNodeIds),
+    sourceSpanIds: compactIds(coverage.sourceSpanIds),
     terms: coverage.limits.map((term, termIndex) => ({
       termIndex,
       kind: term.kind,
@@ -86,20 +96,146 @@ function compactCoverageForCleanup(coverage: OperationalCoverageLine, coverageIn
       value: term.value,
       amount: term.amount,
       appliesTo: term.appliesTo,
-      sourceNodeIds: term.sourceNodeIds,
-      sourceSpanIds: term.sourceSpanIds,
+      sourceNodeIds: compactIds(term.sourceNodeIds),
+      sourceSpanIds: compactIds(term.sourceSpanIds),
     })),
   };
+}
+
+function nodeTextForSelection(node: DocumentSourceNode): string {
+  return [
+    node.kind,
+    node.title,
+    node.description,
+    node.textExcerpt,
+  ].filter(Boolean).join(" ");
+}
+
+function coverageTextForSelection(coverage: OperationalCoverageLine): string {
+  return [
+    coverage.name,
+    coverage.coverageCode,
+    coverage.limit,
+    coverage.deductible,
+    coverage.premium,
+    coverage.retroactiveDate,
+    coverage.sectionRef,
+    coverage.endorsementNumber,
+    ...coverage.limits.flatMap((term) => [
+      term.kind,
+      term.label,
+      term.value,
+      term.appliesTo,
+    ]),
+  ].filter(Boolean).join(" ");
+}
+
+function nodeTextMatchesCoverage(node: DocumentSourceNode, coverageTerms: string[]): boolean {
+  const text = nodeTextForSelection(node).toLowerCase();
+  return coverageTerms.some((term) => term.length >= 5 && text.includes(term));
+}
+
+function selectCoverageCleanupNodes(
+  sourceTree: DocumentSourceNode[],
+  profile: PolicyOperationalProfile,
+): DocumentSourceNode[] {
+  const nodeById = new Map(sourceTree.map((node) => [node.id, node]));
+  const childrenByParent = new Map<string, DocumentSourceNode[]>();
+  for (const node of sourceTree) {
+    if (!node.parentId) continue;
+    const children = childrenByParent.get(node.parentId) ?? [];
+    children.push(node);
+    childrenByParent.set(node.parentId, children);
+  }
+  for (const children of childrenByParent.values()) {
+    children.sort((left, right) => left.order - right.order);
+  }
+
+  const selected = new Map<string, { node: DocumentSourceNode; score: number }>();
+  const addNode = (node: DocumentSourceNode | undefined, score: number) => {
+    if (!node || node.kind === "document") return;
+    const current = selected.get(node.id);
+    if (!current || score > current.score) selected.set(node.id, { node, score });
+  };
+
+  const sourceNodeIds = uniqueStrings(profile.coverages.flatMap((coverage) => [
+    ...coverage.sourceNodeIds,
+    ...coverage.limits.flatMap((term) => term.sourceNodeIds),
+  ]));
+  const coveragePages = new Set<number>();
+  const coverageTerms = uniqueStrings(profile.coverages.flatMap((coverage) =>
+    coverageTextForSelection(coverage)
+      .toLowerCase()
+      .split(/[^a-z0-9$,.]+/i)
+      .filter((part) => part.length >= 5)
+  ));
+
+  for (const id of sourceNodeIds) {
+    const node = nodeById.get(id);
+    if (!node) continue;
+    addNode(node, 1000);
+    if (node.pageStart) coveragePages.add(node.pageStart);
+    if (node.pageEnd) coveragePages.add(node.pageEnd);
+
+    let parentId = node.parentId;
+    let parentScore = 940;
+    while (parentId) {
+      const parent = nodeById.get(parentId);
+      if (!parent) break;
+      addNode(parent, parentScore);
+      parentId = parent.parentId;
+      parentScore -= 30;
+    }
+
+    const siblings = node.parentId ? childrenByParent.get(node.parentId) ?? [] : [];
+    for (const sibling of siblings) {
+      if (Math.abs(sibling.order - node.order) <= CLEANUP_SIBLING_WINDOW) {
+        addNode(sibling, 850 - Math.abs(sibling.order - node.order));
+      }
+    }
+  }
+
+  for (const selectedNode of [...selected.values()].map((entry) => entry.node)) {
+    const children = childrenByParent.get(selectedNode.id) ?? [];
+    for (const child of children.slice(0, 24)) addNode(child, 760);
+  }
+
+  for (const node of sourceTree) {
+    if (node.kind === "document") continue;
+    if (!node.pageStart || !coveragePages.has(node.pageStart)) continue;
+    const text = nodeTextForSelection(node);
+    if (CLEANUP_KEYWORD.test(text) || nodeTextMatchesCoverage(node, coverageTerms)) {
+      addNode(node, 600);
+    }
+  }
+
+  return [...selected.values()]
+    .sort((left, right) =>
+      right.score - left.score
+      || (left.node.pageStart ?? Number.MAX_SAFE_INTEGER) - (right.node.pageStart ?? Number.MAX_SAFE_INTEGER)
+      || left.node.order - right.node.order
+    )
+    .slice(0, CLEANUP_SOURCE_NODE_LIMIT)
+    .sort((left, right) =>
+      (left.node.pageStart ?? Number.MAX_SAFE_INTEGER) - (right.node.pageStart ?? Number.MAX_SAFE_INTEGER)
+      || left.node.order - right.node.order
+    )
+    .map((entry) => entry.node);
 }
 
 export function buildOperationalProfileCleanupPrompt(
   sourceTree: DocumentSourceNode[],
   profile: PolicyOperationalProfile,
 ): string {
-  const nodes = sourceTree
-    .filter((node) => node.kind !== "document")
-    .slice(0, 320)
-    .map((node) => compactNode(node, node.kind === "page" ? 900 : 700));
+  const nodes = selectCoverageCleanupNodes(sourceTree, profile)
+    .map((node) => compactNode(
+      node,
+      node.kind === "page" || node.kind === "page_group"
+        ? 260
+        : node.kind === "table_row" || node.kind === "table_cell"
+          ? 520
+          : 360,
+    ));
   const candidate = {
     documentType: profile.documentType,
     policyTypes: profile.policyTypes,

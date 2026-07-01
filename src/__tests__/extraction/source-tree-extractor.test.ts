@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GenerateObject } from "../../core/types";
 import type { ModelTaskKind } from "../../core/model-budget";
+import type { DocumentSourceNode, PolicyOperationalProfile } from "../../source";
 import { buildPageSourceSpans, buildSourceSpan } from "../../source";
+import { buildOperationalProfileCleanupPrompt } from "../../extraction/operational-profile-cleanup";
 import { runSourceTreeExtraction } from "../../extraction/source-tree-extractor";
 import { InsurerInfoSchema, ProducerInfoSchema } from "../../schemas/parties";
 
@@ -626,5 +628,85 @@ describe("source-tree extraction", () => {
       agencyName: "Halverson Risk Advisors, LLC",
       sourceSpanIds: [evidence.id],
     });
+  });
+
+  it("bounds operational profile cleanup evidence around coverage-backed source nodes", () => {
+    const sourceTree: DocumentSourceNode[] = Array.from({ length: 340 }, (_, index) => ({
+      id: `front-${index}`,
+      documentId: "doc-1",
+      kind: "text",
+      title: "Front matter",
+      description: `Generic notice text ${index}`,
+      textExcerpt: `Generic notice text ${index}`,
+      sourceSpanIds: [`front-span-${index}`],
+      pageStart: 1,
+      pageEnd: 1,
+      order: index,
+      path: `1.${index}`,
+    }));
+    sourceTree.push(
+      {
+        id: "coverage-table",
+        documentId: "doc-1",
+        kind: "table",
+        title: "Coverage Parts, Limits of Liability, Deductibles, and Retroactive Dates",
+        description: "",
+        textExcerpt: "",
+        sourceSpanIds: ["table-span"],
+        pageStart: 5,
+        pageEnd: 5,
+        order: 340,
+        path: "5.1",
+      },
+      {
+        id: "coverage-row-a",
+        documentId: "doc-1",
+        parentId: "coverage-table",
+        kind: "table_row",
+        title: "A. Technology Professional Liability",
+        description: "",
+        textExcerpt: "A. Technology Professional Liability $2,000,000 Each Claim / $2,000,000 Policy Aggregate $10,000 Each Claim 01/01/2024",
+        sourceSpanIds: ["coverage-span-a"],
+        pageStart: 5,
+        pageEnd: 5,
+        order: 341,
+        path: "5.1.1",
+      },
+    );
+
+    const profile: PolicyOperationalProfile = {
+      documentType: "policy",
+      policyTypes: ["cyber"],
+      coverageTypes: ["Technology Professional Liability"],
+      coverages: [{
+        name: "Technology Professional Liability",
+        coverageCode: "A",
+        limit: "$2,000,000 Each Claim / $2,000,000 Policy Aggregate",
+        deductible: "$10,000 Each Claim",
+        retroactiveDate: "01/01/2024",
+        sourceNodeIds: ["coverage-row-a"],
+        sourceSpanIds: ["coverage-span-a"],
+        limits: [{
+          kind: "each_claim_limit",
+          label: "Each Claim Limit",
+          value: "$2,000,000",
+          amount: 2000000,
+          appliesTo: "Technology Professional Liability",
+          sourceNodeIds: ["coverage-row-a"],
+          sourceSpanIds: ["coverage-span-a"],
+        }],
+      }],
+      parties: [],
+      endorsementSupport: [],
+      warnings: [],
+      sourceNodeIds: ["coverage-row-a"],
+      sourceSpanIds: ["coverage-span-a"],
+    };
+    const prompt = buildOperationalProfileCleanupPrompt(sourceTree, profile);
+
+    expect(prompt).toContain("coverage-row-a");
+    expect(prompt).toContain("Technology Professional Liability");
+    expect(prompt).not.toContain("front-250");
+    expect(prompt.length).toBeLessThan(25000);
   });
 });
