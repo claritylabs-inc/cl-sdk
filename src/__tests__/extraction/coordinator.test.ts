@@ -292,9 +292,6 @@ describe("createExtractor", () => {
         if (params.taskKind === "extraction_form_inventory") {
           return { object: { forms: [] } };
         }
-        if (params.taskKind === "extraction_source_tree") {
-          return { object: { labels: [], groups: [] } };
-        }
         if (params.taskKind === "extraction_operational_profile") {
           return {
             object: {
@@ -339,15 +336,12 @@ describe("createExtractor", () => {
     }));
   });
 
-  it("persists caller-provided source spans without forwarding them through source-tree provider options", async () => {
+  it("persists caller-provided source spans without model source-tree calls", async () => {
     safeGenerateObject
       .mockReset()
       .mockImplementation(async (_generateObject, params) => {
         if (params.taskKind === "extraction_form_inventory") {
           return { object: { forms: [] } };
-        }
-        if (params.taskKind === "extraction_source_tree") {
-          return { object: { labels: [], groups: [] } };
         }
         if (params.taskKind === "extraction_operational_profile") {
           return {
@@ -408,23 +402,16 @@ describe("createExtractor", () => {
     expect(result.sourceChunks).toHaveLength(1);
     expect(result.sourceTree?.some((node) => node.kind === "page")).toBe(true);
     expect(result.operationalProfile?.policyNumber?.value).toBe("POL-0001");
-    const sourceTreeCallParams = safeGenerateObject.mock.calls.find(([, params]) => params.taskKind === "extraction_source_tree")?.[1];
-    expect(sourceTreeCallParams).toEqual(expect.objectContaining({
-      taskKind: "extraction_source_tree",
-    }));
-    expect(sourceTreeCallParams).not.toHaveProperty("providerOptions");
+    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_source_tree")).toBe(false);
     expect(result.document.documentMetadata?.sourceTreeCanonical).toBe(true);
   });
 
-  it("runs bounded source-tree model checks for large deterministic page sets", async () => {
+  it("skips model source-tree checks for large deterministic page sets", async () => {
     safeGenerateObject
       .mockReset()
       .mockImplementation(async (_generateObject, params) => {
         if (params.taskKind === "extraction_form_inventory") {
           return { object: { forms: [] } };
-        }
-        if (params.taskKind === "extraction_source_tree") {
-          return { object: { labels: [], groups: [] } };
         }
         return {
           object: { documentType: "policy", policyTypes: ["cyber"] },
@@ -449,15 +436,7 @@ describe("createExtractor", () => {
 
     const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
 
-    const sourceTreeCalls = safeGenerateObject.mock.calls.filter(([, params]) => params.taskKind === "extraction_source_tree");
-    expect(sourceTreeCalls).toHaveLength(2);
-    expect(sourceTreeCalls[0]?.[1]).toEqual(expect.objectContaining({
-      prompt: expect.stringContaining("You organize an insurance document source tree"),
-    }));
-    expect(sourceTreeCalls[1]?.[1]).toEqual(expect.objectContaining({
-      prompt: expect.stringContaining("You clean a top-level source outline"),
-    }));
-    expect(sourceTreeCalls[0]?.[1]).not.toHaveProperty("providerOptions");
+    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_source_tree")).toBe(false);
     expect(result.sourceTree).toEqual(expect.arrayContaining([
       expect.objectContaining({ pageStart: 35, title: "Page 35" }),
     ]));
@@ -469,36 +448,6 @@ describe("createExtractor", () => {
       .mockImplementation(async (_generateObject, params) => {
         if (params.taskKind === "extraction_form_inventory") {
           return { object: { forms: [] } };
-        }
-        if (params.taskKind === "extraction_source_tree") {
-          const topLevelNodeIds = JSON.parse(
-            (params.prompt as string).match(/Top-level page\/form candidates in this batch: (.+)/)?.[1] ?? "[]",
-          ) as string[];
-          return {
-            object: {
-              labels: [
-                {
-                  nodeId: topLevelNodeIds[0],
-                  kind: "schedule",
-                  title: "Declarations (Technology E&O & Cyber Liability)",
-                },
-                {
-                  nodeId: topLevelNodeIds[1],
-                  kind: "form",
-                  title: "Policy Form — Technology Errors & Omissions / Cyber Liability",
-                },
-              ],
-              groups: [
-                ...(topLevelNodeIds.length >= 4
-                  ? [{
-                      kind: "page_group",
-                      title: "Endorsements 1–2 (Network Security/Privacy; Bricking/Cyber Extortion)",
-                      childNodeIds: topLevelNodeIds.slice(2, 4),
-                    }]
-                  : []),
-              ],
-            },
-          };
         }
         return {
           object: { documentType: "policy", policyTypes: ["cyber"] },
@@ -620,9 +569,6 @@ describe("createExtractor", () => {
               ],
             },
           };
-        }
-        if (params.taskKind === "extraction_source_tree") {
-          return { object: { labels: [], groups: [] } };
         }
         return {
           object: { documentType: "policy", policyTypes: ["cyber"] },
@@ -758,9 +704,6 @@ describe("createExtractor", () => {
         if (params.taskKind === "extraction_form_inventory") {
           return { object: { forms: [] } };
         }
-        if (params.taskKind === "extraction_source_tree") {
-          return { object: { labels: [], groups: [] } };
-        }
         return { object: { documentType: "policy", policyTypes: ["cyber"] } };
       });
     const sourceSpans = buildPageSourceSpans([
@@ -822,9 +765,7 @@ describe("createExtractor", () => {
     });
 
     const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
-    expect(safeGenerateObject.mock.calls.filter(([, params]) => params.taskKind === "extraction_source_tree")).toHaveLength(1);
-    expect(safeGenerateObject.mock.calls.find(([, params]) => params.taskKind === "extraction_source_tree")?.[1].prompt)
-      .toContain("You organize an insurance document source tree");
+    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_source_tree")).toBe(false);
     const topLevel = result.sourceTree
       ?.filter((node) => node.parentId === result.sourceTree?.find((candidate) => candidate.kind === "document")?.id)
       .map((node) => ({ title: node.title, kind: node.kind, pageStart: node.pageStart, pageEnd: node.pageEnd, description: node.description }));
@@ -849,9 +790,6 @@ describe("createExtractor", () => {
       .mockImplementation(async (_generateObject, params) => {
         if (params.taskKind === "extraction_form_inventory") {
           return { object: { forms: [] } };
-        }
-        if (params.taskKind === "extraction_source_tree") {
-          return { object: { labels: [], groups: [] } };
         }
         return {
           object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
@@ -886,8 +824,7 @@ describe("createExtractor", () => {
 
     const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
 
-    expect(safeGenerateObject.mock.calls.filter(([, params]) => params.taskKind === "extraction_source_tree")).toHaveLength(2);
-    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_source_tree")).toBe(true);
+    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_source_tree")).toBe(false);
     expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_operational_profile")).toBe(true);
     expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_form_inventory")).toBe(true);
     expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_page_map")).toBe(false);
@@ -920,14 +857,6 @@ describe("createExtractor", () => {
       .mockImplementation(async (_generateObject, params) => {
         if (params.taskKind === "extraction_form_inventory") {
           return { object: { forms: [] } };
-        }
-        if (params.taskKind === "extraction_source_tree") {
-          return {
-            object: {
-              labels: [],
-              groups: [],
-            },
-          };
         }
         return {
           object: { documentType: "policy", policyTypes: ["commercial_property"], confidence: 0.95 },
@@ -989,12 +918,7 @@ describe("createExtractor", () => {
         sourceSpanIds: [result.sourceSpans[1].id],
       }),
     ]));
-    const sourceTreeCallParams = safeGenerateObject.mock.calls.find(([, params]) => params.taskKind === "extraction_source_tree")?.[1];
-    expect(sourceTreeCallParams).toEqual(expect.objectContaining({
-      taskKind: "extraction_source_tree",
-      prompt: expect.stringContaining("Source nodes"),
-    }));
-    expect(sourceTreeCallParams).not.toHaveProperty("providerOptions");
+    expect(safeGenerateObject.mock.calls.some(([, params]) => params.taskKind === "extraction_source_tree")).toBe(false);
     expect(runExtractor).not.toHaveBeenCalled();
   });
 
