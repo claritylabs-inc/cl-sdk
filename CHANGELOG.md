@@ -1,3 +1,10 @@
+## [3.1.21](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.20...v3.1.21) (2026-07-02)
+
+
+### Bug Fixes
+
+* **extraction:** improve source tree structure organization ([047c742](https://github.com/claritylabs-inc/cl-sdk/commit/047c742277c88a57228fa185ace8e0a06590a041))
+
 ## [3.1.20](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.19...v3.1.20) (2026-07-01)
 
 
