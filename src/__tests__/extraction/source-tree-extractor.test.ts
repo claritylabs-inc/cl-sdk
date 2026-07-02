@@ -782,13 +782,21 @@ describe("source-tree extraction", () => {
       )
       .map((params) => params.prompt);
 
-    expect(organizerPrompts.length).toBeGreaterThan(0);
+    expect(organizerPrompts.length).toBeGreaterThan(1);
     for (const prompt of organizerPrompts) {
       expect(sourceNodesFromOrganizerPrompt(prompt).length).toBeLessThanOrEqual(80);
       expect(prompt).not.toContain("Generic filler row 139");
     }
     expect(organizerPrompts.some((prompt) => prompt.includes("Item 7. Premium"))).toBe(true);
     expect(organizerPrompts.some((prompt) => prompt.includes("SECTION XII EXTENDED REPORTING PERIOD"))).toBe(true);
+    expect(organizerPrompts.some((prompt) =>
+      prompt.includes("Item 7. Premium") &&
+      !prompt.includes("SECTION XII EXTENDED REPORTING PERIOD")
+    )).toBe(true);
+    expect(organizerPrompts.some((prompt) =>
+      prompt.includes("SECTION XII EXTENDED REPORTING PERIOD") &&
+      !prompt.includes("Item 7. Premium")
+    )).toBe(true);
   });
 
   it("runs a model cleanup pass over malformed operational profile projections", async () => {
