@@ -1,3 +1,10 @@
+## [3.1.22](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.21...v3.1.22) (2026-07-02)
+
+
+### Bug Fixes
+
+* **extraction:** bound source tree organizer calls ([955cd3a](https://github.com/claritylabs-inc/cl-sdk/commit/955cd3ac238fedcf15e66322959fdd351549baed))
+
 ## [3.1.21](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.20...v3.1.21) (2026-07-02)
 
 
