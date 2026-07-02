@@ -1,3 +1,10 @@
+## [3.1.25](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.24...v3.1.25) (2026-07-02)
+
+
+### Bug Fixes
+
+* **extraction:** remove source tree table display normalization ([9733e47](https://github.com/claritylabs-inc/cl-sdk/commit/9733e4756dec53215eaadbae8a28861e2bcb618c))
+
 ## [3.1.24](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.23...v3.1.24) (2026-07-02)
 
 
