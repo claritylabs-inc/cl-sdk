@@ -1,3 +1,10 @@
+## [3.1.26](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.25...v3.1.26) (2026-07-02)
+
+
+### Bug Fixes
+
+* **extraction:** clarify producer agency extraction ([ff71956](https://github.com/claritylabs-inc/cl-sdk/commit/ff719563f720b85dad95f759375e2cbed2728ce0))
+
 ## [3.1.25](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.24...v3.1.25) (2026-07-02)
 
 
