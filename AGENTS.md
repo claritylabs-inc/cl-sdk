@@ -38,11 +38,13 @@ The primary extraction path is v3 source-tree extraction when source spans are a
 1. **Normalize parser input**: hosts pass parser-neutral `SourceSpan[]` from LiteParse, Docling, PDF.js, OCR, or another parser. Spans carry page ranges, table row/cell metadata, parent span IDs, stable text hashes, and optional bounding boxes.
 2. **Build source tree** (`source/tree.ts`): deterministic construction creates `DocumentSourceNode[]` for document, page, page group/form/endorsement/section/schedule/clause, table, row, cell, and text levels. Nodes preserve `sourceSpanIds`, page range, bbox, order, and hierarchy path.
 3. **Organize labels/groups** (`extraction/source-tree-extractor.ts`): a small model pass may relabel existing nodes or group adjacent existing nodes. It cannot invent node IDs, text, pages, source spans, or bbox locations.
-4. **Operational profile** (`source/operational-profile.ts`): a bounded model pass extracts only product-critical facts: policy metadata, parties, coverage lines, limits, deductibles, premiums, key dates, and endorsement support. The merge layer rejects uncited facts and source IDs that are not present in the current source tree/spans. Do not reintroduce deterministic operational-fact scaffolding.
+4. **Operational profile** (`source/operational-profile.ts`): a bounded model pass extracts only product-critical facts: policy metadata, parties, policy types, coverage lines, limits, deductibles, premiums, key dates, and endorsement support. The merge layer rejects uncited facts and source IDs that are not present in the current source tree/spans. `policyTypes` is the single top-level policy classification field; do not add a parallel `coverageTypes` alias, `coverageOrigin` bucket, or deterministic coverage-origin projection. Do not reintroduce deterministic operational-fact scaffolding.
 5. **Compatibility projection** (`source-tree-extractor.ts`): `result.document`, `documentMetadata`, and `documentOutline` are materialized views over `sourceTree` and `operationalProfile`; `result.chunks` is empty on v3 paths.
 6. **Legacy fallback** (`coordinator.ts`): if no source spans are available, the older classify/page-map/focused-extractor pipeline can still run, but new production hosts should provide source spans and treat the source tree as canonical.
 
 Entry point: `createExtractor(config)` returns `{ extract(pdfBase64, documentId?, { sourceSpans }) }`. On v3 paths, the result includes `sourceTree`, `sourceSpans`, `operationalProfile`, `warnings`, `tokenUsage`, and `performanceReport`.
+
+For Glass consumption, land SDK changes on `master`/`main` and let the package auto-publish before rolling Glass consumers forward; do not manually publish unless explicitly requested.
 
 ### Provider Callbacks (`src/core/types.ts`)
 
@@ -72,7 +74,7 @@ Important extraction contract:
 - **Safe generate**: `safeGenerateObject()` wraps `generateObject` with retry, strictification, and optional fallbacks.
 - **Output token caps**: `resolveModelBudget()` treats task budgets as preferences/diagnostics. When model capabilities provide `maxOutputTokens`, use that model maximum as the request cap so extraction does not truncate just because a cheap task preference was too low. Only explicit hard constraints should lower the cap.
 - **Task-routed model capabilities**: hosts that route SDK tasks to different models must pass `modelCapabilitiesByTaskKind` into `createExtractor(config)`. Do not pass only the generic focused-extraction model capability when source-tree, operational-profile, form-inventory, coverage-cleanup, review, or lookup calls use specialized routes.
-- **Parallel source-tree passes**: source-tree organizer batches and visual table repair calls may run concurrently, but their results should be applied in deterministic batch/page order. Operational coverage cleanup runs as source-backed model chunks split by base policy versus endorsements and applies decisions by original `coverageIndex`.
+- **Parallel source-tree passes**: source-tree organizer batches may run concurrently, but their results should be applied in deterministic batch/page order. Operational coverage cleanup runs as one source-backed model pass and applies decisions by original `coverageIndex`.
 - **Token tracking**: `tokenUsage` aggregates available usage values; `usageReporting` tells you how many calls did or did not report usage.
 
 ### Query and Application Workflows

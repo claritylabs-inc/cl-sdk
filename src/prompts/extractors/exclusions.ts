@@ -32,7 +32,7 @@ export const ExclusionsSchema = z.object({
         appliesTo: z
           .array(z.string())
           .optional()
-          .describe("Coverage types this exclusion applies to"),
+          .describe("Policy types this exclusion applies to"),
         content: z.string().describe("Full verbatim exclusion text"),
         pageNumber: z.number().optional().describe("Page number where exclusion appears"),
       }),
@@ -53,7 +53,7 @@ For EACH exclusion, extract:
 - exceptions: any exceptions to the exclusion (things still covered despite the exclusion)
 - buybackAvailable: whether coverage can be purchased back via endorsement
 - buybackEndorsement: the form number of the buyback endorsement if known
-- appliesTo: which coverage types or lines this exclusion applies to (as an array)
+- appliesTo: which policy types or lines this exclusion applies to (as an array)
 - content: full verbatim exclusion text — REQUIRED
 - pageNumber: page number where the exclusion appears
 

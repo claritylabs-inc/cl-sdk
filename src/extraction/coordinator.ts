@@ -35,7 +35,6 @@ import { buildSummaryPrompt, SummaryResultSchema, type SummaryResult } from "../
 import { formatExtractorCatalogForPrompt } from "../prompts/extractors/index";
 import { buildSupplementaryPrompt, SupplementarySchema } from "../prompts/extractors/supplementary";
 import { resolveReferentialCoverages } from "./resolve-referential";
-import { recoverCoverageScheduleRows } from "./coverage-schedule-recovery";
 import { runFocusedExtractorWithFallback } from "./focused-dispatch";
 import { buildExtractionReviewReport, toReviewRoundRecord, type ExtractionReviewReport, type ReviewRoundRecord } from "./quality";
 import { shouldFailQualityGate } from "../core/quality";
@@ -1043,15 +1042,6 @@ export function createExtractor(config: ExtractorConfig) {
         }
       }
 
-      const recoveredCoverages = recoverCoverageScheduleRows({
-        memory,
-        sourceSpans,
-        pageAssignments,
-      });
-      if (recoveredCoverages.recovered.length > 0) {
-        await log?.(`Recovered ${recoveredCoverages.recovered.length} source-backed coverage schedule row(s) from table evidence`);
-      }
-
       const planIncludesSupplementary = tasks.some((task) => task.extractorName === "supplementary");
       if (!planIncludesSupplementary && hasSupplementaryExtractionSignal(pageAssignments, formInventory, memory)) {
         onProgress?.("Extracting supplementary retrieval facts...");
@@ -1230,14 +1220,6 @@ export function createExtractor(config: ExtractorConfig) {
             if (result) {
               mergeMemoryResult(result.name, result.data, memory);
             }
-          }
-          const recoveredCoverages = recoverCoverageScheduleRows({
-            memory,
-            sourceSpans,
-            pageAssignments,
-          });
-          if (recoveredCoverages.recovered.length > 0) {
-            await log?.(`Recovered ${recoveredCoverages.recovered.length} source-backed coverage schedule row(s) from follow-up table evidence`);
           }
         }
       } else {

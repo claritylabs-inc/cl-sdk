@@ -32,7 +32,6 @@ export const OperationalProfileCleanupSchema = z.object({
     deductible: z.string().nullable().optional(),
     premium: z.string().nullable().optional(),
     retroactiveDate: z.string().nullable().optional(),
-    coverageOrigin: z.enum(["core", "endorsement"]).optional(),
     sourceNodeIds: z.array(z.string()).optional(),
     sourceSpanIds: z.array(z.string()).optional(),
     termDecisions: z.array(z.object({
@@ -90,7 +89,6 @@ function compactCoverageForCleanup(coverage: OperationalCoverageLine, coverageIn
     deductible: coverage.deductible,
     premium: coverage.premium,
     retroactiveDate: coverage.retroactiveDate,
-    coverageOrigin: coverage.coverageOrigin,
     sourceNodeIds: compactIds(coverage.sourceNodeIds),
     sourceSpanIds: compactIds(coverage.sourceSpanIds),
     terms: coverage.limits.map((term, termIndex) => ({
@@ -262,7 +260,6 @@ export function buildOperationalProfileCleanupPrompt(
   const candidate = {
     documentType: profile.documentType,
     policyTypes: profile.policyTypes,
-    coverageTypes: profile.coverageTypes,
     coverages: coverageEntries.map(({ coverage, coverageIndex }) => compactCoverageForCleanup(coverage, coverageIndex)),
   };
 
@@ -503,7 +500,6 @@ function applyCoverageCleanupDecision(
 
   const name = cleanProfileValue(decision.name);
   if (name) next.name = name;
-  if (decision.coverageOrigin) next.coverageOrigin = decision.coverageOrigin;
 
   if (decision.limit != null) {
     const value = cleanProfileValue(decision.limit);
@@ -619,7 +615,6 @@ export function applyOperationalProfileCleanup(
   const nextProfile = {
     ...profile,
     coverages,
-    coverageTypes: uniqueStrings(coverages.map((coverage) => coverage.name)),
     warnings: uniqueStrings([
       ...profile.warnings,
       ...cleanupWarnings.map((warning) => `Operational profile cleanup warning: ${warning}`),

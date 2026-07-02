@@ -121,7 +121,6 @@ describe("source tree v3", () => {
                 limit: "$2,000,000 Each Claim",
                 deductible: "$10,000",
                 retroactiveDate: "01/01/2024",
-                coverageOrigin: "core",
                 sourceNodeIds: ["policy-1:source_node:table_row:limits:1"],
                 sourceSpanIds: [row.id],
                 limits: [

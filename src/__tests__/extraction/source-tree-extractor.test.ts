@@ -30,7 +30,6 @@ function modelStub(): GenerateObject {
         object: {
           documentType: "policy",
           policyTypes: ["cyber"],
-          coverageTypes: ["cyber"],
         },
       };
     }
@@ -152,18 +151,15 @@ describe("source-tree extraction", () => {
           object: {
             documentType: "policy",
             policyTypes: ["cyber"],
-            coverageTypes: ["cyber"],
             coverages: [
               {
                 name: "Technology Professional Liability",
-                coverageOrigin: "core",
                 sourceNodeIds: [],
                 sourceSpanIds: [sourceSpans[0].id],
                 limits: [],
               },
               {
                 name: "Network Security and Privacy Liability",
-                coverageOrigin: "endorsement",
                 endorsementNumber: "Endorsement No. 1",
                 sourceNodeIds: [],
                 sourceSpanIds: [sourceSpans[1].id],
@@ -201,27 +197,15 @@ describe("source-tree extraction", () => {
     const cleanupCalls = generateObject.mock.calls
       .map(([params]) => params)
       .filter((params) => params.taskKind === "extraction_coverage_cleanup");
-    expect(cleanupCalls).toHaveLength(2);
+    expect(cleanupCalls).toHaveLength(1);
     expect(cleanupCalls[0]?.trace).toEqual(expect.objectContaining({
-      label: "Coverage schedule cleanup: policy schedules",
-      itemCount: 1,
-      coverageGroup: "policy",
-      batchIndex: 1,
-      batchCount: 2,
+      label: "Coverage schedule cleanup",
+      itemCount: 2,
+      coverageGroup: "all",
       sourceBacked: true,
     }));
     expect(cleanupCalls[0]?.prompt).toContain('"coverageIndex": 0');
-    expect(cleanupCalls[0]?.prompt).not.toContain('"coverageIndex": 1');
-    expect(cleanupCalls[1]?.trace).toEqual(expect.objectContaining({
-      label: "Coverage schedule cleanup: endorsement schedules",
-      itemCount: 1,
-      coverageGroup: "endorsements",
-      batchIndex: 2,
-      batchCount: 2,
-      sourceBacked: true,
-    }));
-    expect(cleanupCalls[1]?.prompt).not.toContain('"coverageIndex": 0');
-    expect(cleanupCalls[1]?.prompt).toContain('"coverageIndex": 1');
+    expect(cleanupCalls[0]?.prompt).toContain('"coverageIndex": 1');
 
     const profileCalls = generateObject.mock.calls
       .map(([params]) => params)
@@ -229,17 +213,14 @@ describe("source-tree extraction", () => {
     expect(profileCalls[0]?.prompt).toContain("Do not merge declaration facts and endorsement schedule facts");
     expect(result.operationalProfile.coverages.map((coverage) => ({
       name: coverage.name,
-      origin: coverage.coverageOrigin,
       endorsementNumber: coverage.endorsementNumber,
     }))).toEqual([
       {
         name: "Technology Professional Liability",
-        origin: "core",
         endorsementNumber: undefined,
       },
       {
         name: "Network Security and Privacy Liability",
-        origin: "endorsement",
         endorsementNumber: "Endorsement No. 1",
       },
     ]);
@@ -414,427 +395,6 @@ describe("source-tree extraction", () => {
     }));
   });
 
-  it("repairs visually wrapped source-table rows by ID before materializing the source tree", async () => {
-    const documentId = "doc-1";
-    const tableId = "limits";
-    let spanIndex = 0;
-    const withBbox = <T extends ReturnType<typeof buildSourceSpan>>(span: T, x: number, y: number, width: number, height: number): T => ({
-      ...span,
-      bbox: [{ page: 5, x, y, width, height }],
-    });
-    const rowSpan = (text: string, rowIndex: number, isHeader = false, y = 100) =>
-      withBbox(buildSourceSpan({
-        documentId,
-        sourceKind: "policy_pdf",
-        text,
-        pageStart: 5,
-        pageEnd: 5,
-        sourceUnit: "table_row",
-        table: { tableId, rowIndex, isHeader },
-      }, spanIndex++), 40, y, 500, 18);
-    const cellSpan = (
-      row: ReturnType<typeof buildSourceSpan>,
-      text: string,
-      rowIndex: number,
-      columnIndex: number,
-      columnName: string,
-      x: number,
-      y: number,
-      width = 110,
-      metadataColumnName = columnName,
-    ) =>
-      withBbox(buildSourceSpan({
-        documentId,
-        sourceKind: "policy_pdf",
-        text,
-        pageStart: 5,
-        pageEnd: 5,
-        sourceUnit: "table_cell",
-        parentSpanId: row.id,
-        table: {
-          tableId,
-          rowIndex,
-          columnIndex,
-          columnName,
-          rowSpanId: row.id,
-          isHeader: row.table?.isHeader,
-        },
-        metadata: {
-          columnName: metadataColumnName,
-        },
-      }, spanIndex++), x, y, width, 14);
-
-    const page = buildPageSourceSpans([{
-      documentId,
-      pageNumber: 5,
-      text: "SOURCE SCHEDULE Schedule Item Description Amount Effective Date",
-    }])[0]!;
-    const preHeader = rowSpan("Item 1. Named Insured | Example Labs Inc.", 0, false, 95);
-    const header = rowSpan("Schedule Item | Description | Amount | Effective Date", 1, true, 120);
-    const rowA = rowSpan("A. Primary Coverage | $2,000,000 Each Claim | $10,000 Each | 01/01/2024", 2, false, 140);
-    const rowAPolicyLimit = rowSpan("Column 1: $2,000,000 Policy | Column 2: Claim", 3, false, 154);
-    const rowAAggregate = rowSpan("Column 1: Aggregate", 4, false, 168);
-    const rowB = rowSpan("B. Secondary Location | Equipment breakdown reimbursement / | $5,000 | 05/01/2025", 5, false, 190);
-    const wrapped = rowSpan("including temporary relocation expense | extension", 6, true, 208);
-    const rowC = rowSpan("including temporary relocation expense: C. Warehouse Location | extension: Inventory cleanup reimbursement / | Column 3: $3,000 | Column 4: 05/01/2025", 7, false, 235);
-    const implicitHeader = rowSpan("aggregate sub-limit, part of | Coverage Part B", 8, true, 255);
-    const implicitTail = rowSpan("including scheduled equipment", 9, false, 272);
-    const rowD = rowSpan("D. Social Engineering Fraud | $250,000 Each Loss / | $5,000 Each | 05/01/2026", 10, false, 300);
-
-    const sourceSpans = [
-      page,
-      preHeader,
-      cellSpan(preHeader, "Item 1. Named Insured", 0, 0, "Schedule Item", 40, 95, 130, "Column 1"),
-      cellSpan(preHeader, "Example Labs Inc. |", 0, 1, "Description", 180, 95, 130, "Column 2"),
-      header,
-      cellSpan(header, "Schedule Item", 1, 0, "Schedule Item", 40, 120),
-      cellSpan(header, "Description", 1, 1, "Description", 180, 120),
-      cellSpan(header, "Amount", 1, 2, "Amount", 320, 120),
-      cellSpan(header, "Effective Date", 1, 3, "Effective Date", 430, 120),
-      rowA,
-      cellSpan(rowA, "A. Primary Coverage", 2, 0, "Schedule Item", 40, 140, 130),
-      cellSpan(rowA, "$2,000,000 Each Claim", 2, 1, "Description", 180, 140, 130),
-      cellSpan(rowA, "$10,000 Each", 2, 2, "Amount", 320, 140),
-      cellSpan(rowA, "01/01/2024", 2, 3, "Effective Date", 430, 140),
-      rowAPolicyLimit,
-      cellSpan(rowAPolicyLimit, "$2,000,000 Policy", 3, 0, "Column 1", 180, 154, 130),
-      cellSpan(rowAPolicyLimit, "Claim", 3, 1, "Column 2", 320, 154, 80),
-      rowAAggregate,
-      cellSpan(rowAAggregate, "Aggregate", 4, 0, "Column 1", 180, 168, 90),
-      rowB,
-      cellSpan(rowB, "B. Secondary Location", 5, 0, "Schedule Item", 40, 190, 130),
-      cellSpan(rowB, "Equipment breakdown reimbursement /", 5, 1, "Description", 180, 190, 130),
-      cellSpan(rowB, "$5,000", 5, 2, "Amount", 320, 190),
-      cellSpan(rowB, "05/01/2025", 5, 3, "Effective Date", 430, 190),
-      wrapped,
-      cellSpan(wrapped, "including temporary relocation expense", 6, 0, "Column 1", 180, 208, 240),
-      cellSpan(wrapped, "extension", 6, 1, "Column 2", 260, 208, 80),
-      rowC,
-      cellSpan(rowC, "C. Warehouse Location", 7, 0, "Schedule Item", 40, 235, 130),
-      cellSpan(rowC, "Inventory cleanup reimbursement /", 7, 1, "Description", 180, 235, 130),
-      cellSpan(rowC, "$5,000 Each", 7, 2, "Amount", 320, 235),
-      cellSpan(rowC, "05/01/2025", 7, 3, "Effective Date", 430, 235),
-      implicitHeader,
-      cellSpan(implicitHeader, "aggregate sub-limit, part of", 8, 0, "aggregate sub-limit, part of", 180, 255, 170),
-      cellSpan(implicitHeader, "Coverage Part B", 8, 1, "Coverage Part B", 250, 255, 60),
-      implicitTail,
-      cellSpan(implicitTail, "including scheduled equipment", 9, 0, "Column 1", 180, 272, 210),
-      rowD,
-      cellSpan(rowD, "D. Social Engineering Fraud", 10, 0, "Schedule Item", 40, 300, 130),
-      cellSpan(rowD, "$250,000 Each Loss /", 10, 1, "Description", 180, 300, 130),
-      cellSpan(rowD, "$5,000 Each", 10, 2, "Amount", 320, 300),
-      cellSpan(rowD, "05/01/2026", 10, 3, "Effective Date", 430, 300),
-    ];
-
-    const generateObjectMock = vi.fn(async (params) => {
-      if (params.prompt.includes("Compare a parsed insurance source table")) {
-        const payloadText = params.prompt
-          .split("Parsed table with visual coordinates:\n")[1]
-          ?.split("\n\nReturn JSON")[0] ?? "{}";
-        const table = JSON.parse(payloadText) as {
-          tableNodeId: string;
-          rows: Array<{ rowNodeId: string; text: string }>;
-        };
-        const wrappedRow = table.rows.find((row) => row.text.includes("temporary relocation"))!;
-        const targetRow = table.rows.find((row) => row.text.includes("Secondary Location"))!;
-        return {
-          object: {
-            tables: [{
-              tableNodeId: table.tableNodeId,
-              columnLabels: [
-                { columnIndex: 0, label: "Schedule Item" },
-                { columnIndex: 1, label: "Description" },
-                { columnIndex: 2, label: "Amount" },
-                { columnIndex: 3, label: "Effective Date" },
-              ],
-              continuationRows: [{
-                sourceRowNodeId: wrappedRow.rowNodeId,
-                targetRowNodeId: targetRow.rowNodeId,
-                targetColumnIndex: 1,
-                targetColumnLabel: "Description",
-                reason: "The row is visually wrapped inside the prior description cell.",
-              }],
-            }],
-            warnings: [],
-          },
-        };
-      }
-      if (params.taskKind === "extraction_operational_profile") {
-        return {
-          object: {
-            documentType: "policy",
-            policyTypes: ["cyber"],
-            coverageTypes: ["cyber"],
-          },
-        };
-      }
-      return { object: { labels: [], groups: [] } };
-    });
-    const generateObject = generateObjectMock as GenerateObject;
-
-    const result = await runSourceTreeExtraction({
-      id: documentId,
-      sourceSpans,
-      generateObject,
-      resolveBudget,
-      trackUsage: vi.fn(),
-    });
-
-    const visualCall = generateObjectMock.mock.calls
-      .map(([params]) => params)
-      .find((params) => params.prompt.includes("Compare a parsed insurance source table"));
-    expect(visualCall).toEqual(expect.objectContaining({
-      taskKind: "extraction_visual_table_repair",
-      trace: expect.objectContaining({ startPage: 5, endPage: 5 }),
-    }));
-    expect(visualCall).not.toHaveProperty("providerOptions");
-
-    const preHeaderRow = result.sourceTree.find((node) =>
-      node.kind === "table_row" &&
-      node.sourceSpanIds.includes(preHeader.id)
-    );
-    const preHeaderTitles = result.sourceTree
-      .filter((node) => node.kind === "table_cell" && node.parentId === preHeaderRow?.id)
-      .map((node) => node.title);
-    expect(preHeaderTitles).toEqual(["Column 1", "Column 2"]);
-    const preHeaderMetadata = result.sourceTree
-      .filter((node) => node.kind === "table_cell" && node.parentId === preHeaderRow?.id)
-      .map((node) => node.metadata?.columnName);
-    expect(preHeaderMetadata).toEqual(["Column 1", "Column 2"]);
-    expect(preHeaderRow?.textExcerpt).toContain("Column 2: Example Labs Inc.");
-    expect(preHeaderRow?.textExcerpt).not.toContain("Example Labs Inc. | |");
-
-    const rowANode = result.sourceTree.find((node) =>
-      node.kind === "table_row" &&
-      node.sourceSpanIds.includes(rowA.id)
-    );
-    const rowACells = result.sourceTree
-      .filter((node) => node.kind === "table_cell" && node.parentId === rowANode?.id);
-    const rowALimit = rowACells.find((node) => node.title === "Description");
-    const rowAAmount = rowACells.find((node) => node.title === "Amount");
-    expect(rowALimit?.textExcerpt).toContain("$2,000,000 Each Claim / $2,000,000 Policy Aggregate");
-    expect(rowAAmount?.textExcerpt).toBe("$10,000 Each Claim");
-    expect(rowANode?.textExcerpt).toContain("Description: $2,000,000 Each Claim / $2,000,000 Policy Aggregate");
-    expect(rowANode?.textExcerpt).toContain("Amount: $10,000 Each Claim");
-    expect(rowANode?.textExcerpt).not.toContain("Description: $2,000,000 Each Claim / $2,000,000 Policy / Claim");
-    expect(result.sourceTree.some((node) =>
-      node.kind === "table_row" &&
-      node.sourceSpanIds.includes(rowAPolicyLimit.id) &&
-      !node.sourceSpanIds.includes(rowA.id)
-    )).toBe(false);
-    expect(result.sourceTree.some((node) =>
-      node.kind === "table_row" &&
-      node.sourceSpanIds.includes(rowAAggregate.id) &&
-      !node.sourceSpanIds.includes(rowA.id)
-    )).toBe(false);
-
-    expect(result.sourceTree.some((node) =>
-      node.kind === "table_row" &&
-      node.sourceSpanIds.includes(wrapped.id) &&
-      !node.sourceSpanIds.includes(rowB.id)
-    )).toBe(false);
-
-    const repairedRow = result.sourceTree.find((node) =>
-      node.kind === "table_row" &&
-      node.sourceSpanIds.includes(rowB.id)
-    );
-    expect(repairedRow?.sourceSpanIds).toContain(wrapped.id);
-    const repairedLimitCell = result.sourceTree.find((node) =>
-      node.kind === "table_cell" &&
-      node.parentId === repairedRow?.id &&
-      node.title === "Description"
-    );
-    expect(repairedLimitCell?.textExcerpt).toContain("temporary relocation");
-    expect(repairedLimitCell?.sourceSpanIds).toContain(wrapped.id);
-    expect(repairedLimitCell?.metadata?.columnName).toBe("Description");
-    expect(repairedRow?.textExcerpt).toContain("Description: Equipment breakdown reimbursement");
-    expect(repairedRow?.textExcerpt).not.toContain("Column 1:");
-
-    const rowCNode = result.sourceTree.find((node) =>
-      node.kind === "table_row" &&
-      node.sourceSpanIds.includes(rowC.id)
-    );
-    const rowCCells = result.sourceTree
-      .filter((node) => node.kind === "table_cell" && node.parentId === rowCNode?.id);
-    const rowCTitles = rowCCells.map((node) => node.title);
-    expect(rowCTitles).toEqual([
-      "Schedule Item",
-      "Description",
-      "Amount",
-      "Effective Date",
-    ]);
-    expect(rowCCells.map((node) => node.metadata?.columnName)).toEqual([
-      "Schedule Item",
-      "Description",
-      "Amount",
-      "Effective Date",
-    ]);
-    expect(rowCNode?.textExcerpt).toContain("Schedule Item: C. Warehouse Location");
-    expect(rowCNode?.textExcerpt).toContain("aggregate sub-limit, part of Coverage Part B");
-    expect(rowCNode?.textExcerpt).toContain("including scheduled equipment");
-    expect(rowCNode?.textExcerpt).not.toContain("part of / Coverage Part B");
-    expect(rowCNode?.textExcerpt).not.toContain("including temporary relocation expense:");
-    expect(result.sourceTree.some((node) =>
-      node.kind === "table_row" &&
-      node.sourceSpanIds.includes(implicitHeader.id) &&
-      !node.sourceSpanIds.includes(rowC.id)
-    )).toBe(false);
-    expect(result.sourceTree.some((node) =>
-      node.kind === "table_row" &&
-      node.sourceSpanIds.includes(implicitTail.id) &&
-      !node.sourceSpanIds.includes(rowC.id)
-    )).toBe(false);
-
-    const rowDNode = result.sourceTree.find((node) =>
-      node.kind === "table_row" &&
-      node.sourceSpanIds.includes(rowD.id)
-    );
-    const rowDLimit = result.sourceTree.find((node) =>
-      node.kind === "table_cell" &&
-      node.parentId === rowDNode?.id &&
-      node.title === "Description"
-    );
-    expect(rowDLimit?.textExcerpt).toBe("$250,000 Each Loss");
-    expect(rowDNode?.textExcerpt).toContain("Description: $250,000 Each Loss");
-    expect(rowDNode?.textExcerpt).not.toContain("$250,000 Each Loss / |");
-  });
-
-  it("does not merge policy prose into visual schedule date cells", async () => {
-    const documentId = "doc-1";
-    const tableId = "endorsement-schedule";
-    let spanIndex = 0;
-    const withBbox = <T extends ReturnType<typeof buildSourceSpan>>(span: T, x: number, y: number, width: number, height: number): T => ({
-      ...span,
-      bbox: [{ page: 21, x, y, width, height }],
-    });
-    const rowSpan = (text: string, rowIndex: number, isHeader = false, y = 100) =>
-      withBbox(buildSourceSpan({
-        documentId,
-        sourceKind: "policy_pdf",
-        text,
-        pageStart: 21,
-        pageEnd: 21,
-        sourceUnit: "table_row",
-        table: { tableId, rowIndex, isHeader },
-      }, spanIndex++), 40, y, 500, 18);
-    const cellSpan = (
-      row: ReturnType<typeof buildSourceSpan>,
-      text: string,
-      rowIndex: number,
-      columnIndex: number,
-      columnName: string,
-      x: number,
-      y: number,
-      width = 160,
-    ) =>
-      withBbox(buildSourceSpan({
-        documentId,
-        sourceKind: "policy_pdf",
-        text,
-        pageStart: 21,
-        pageEnd: 21,
-        sourceUnit: "table_cell",
-        parentSpanId: row.id,
-        table: {
-          tableId,
-          rowIndex,
-          columnIndex,
-          columnName,
-          rowSpanId: row.id,
-          isHeader: row.table?.isHeader,
-        },
-        metadata: { columnName },
-      }, spanIndex++), x, y, width, 14);
-
-    const page = buildPageSourceSpans([{
-      documentId,
-      pageNumber: 21,
-      text: "ENDORSEMENT NO. 2 SOCIAL ENGINEERING FRAUD COVERAGE",
-    }])[0]!;
-    const header = rowSpan("Coverage | Limit", 0, true, 100);
-    const retro = rowSpan("Retroactive Date | 05/01/2026", 1, false, 120);
-    const prose = rowSpan("CLAIM EXPENSES, AS WELL AS DAMAGES AND DIRECT FINANCIAL LOSS, ARE INCLUDED WITHIN AND WILL REDUCE THE LIMITS SHOWN ABOVE.", 2, false, 140);
-    const sourceSpans = [
-      page,
-      header,
-      cellSpan(header, "Coverage", 0, 0, "Coverage", 40, 100),
-      cellSpan(header, "Limit", 0, 1, "Limit", 260, 100),
-      retro,
-      cellSpan(retro, "Retroactive Date", 1, 0, "Coverage", 40, 120),
-      cellSpan(retro, "05/01/2026", 1, 1, "Limit", 260, 120),
-      prose,
-      cellSpan(prose, "CLAIM EXPENSES, AS WELL AS DAMAGES AND DIRECT FINANCIAL LOSS, ARE INCLUDED WITHIN AND WILL REDUCE THE LIMITS SHOWN ABOVE.", 2, 0, "Column 1", 40, 140, 460),
-    ];
-    const generateObject = vi.fn(async (params) => {
-      if (params.prompt.includes("Compare a parsed insurance source table")) {
-        const payloadText = params.prompt
-          .split("Parsed table with visual coordinates:\n")[1]
-          ?.split("\n\nReturn JSON")[0] ?? "{}";
-        const table = JSON.parse(payloadText) as {
-          tableNodeId: string;
-          rows: Array<{ rowNodeId: string; text: string }>;
-        };
-        const proseRow = table.rows.find((row) => row.text.includes("CLAIM EXPENSES"))!;
-        const retroRow = table.rows.find((row) => row.text.includes("Retroactive Date"))!;
-        return {
-          object: {
-            tables: [{
-              tableNodeId: table.tableNodeId,
-              columnLabels: [
-                { columnIndex: 0, label: "Coverage" },
-                { columnIndex: 1, label: "Retroactive Date" },
-              ],
-              continuationRows: [{
-                sourceRowNodeId: proseRow.rowNodeId,
-                targetRowNodeId: retroRow.rowNodeId,
-                targetColumnIndex: 1,
-                targetColumnLabel: "Retroactive Date",
-                reason: "The model incorrectly thinks this paragraph continues the date cell.",
-              }],
-            }],
-            warnings: [],
-          },
-        };
-      }
-      if (params.taskKind === "extraction_operational_profile") {
-        return {
-          object: {
-            documentType: "policy",
-            policyTypes: ["cyber"],
-            coverageTypes: ["cyber"],
-          },
-        };
-      }
-      return { object: { labels: [], groups: [] } };
-    }) as GenerateObject;
-
-    const result = await runSourceTreeExtraction({
-      id: documentId,
-      sourceSpans,
-      generateObject,
-      resolveBudget,
-      trackUsage: vi.fn(),
-    });
-
-    const retroRow = result.sourceTree.find((node) =>
-      node.kind === "table_row" && node.sourceSpanIds.includes(retro.id)
-    );
-    const retroDateCell = result.sourceTree.find((node) =>
-      node.kind === "table_cell" &&
-      node.parentId === retroRow?.id &&
-      node.title === "Retroactive Date"
-    );
-    const proseRow = result.sourceTree.find((node) =>
-      node.kind === "table_row" &&
-      node.sourceSpanIds.includes(prose.id) &&
-      !node.sourceSpanIds.includes(retro.id)
-    );
-
-    expect(retroDateCell?.textExcerpt).toBe("05/01/2026");
-    expect(retroRow?.textExcerpt).not.toContain("CLAIM EXPENSES");
-    expect(proseRow).toBeDefined();
-  });
-
   it("runs a model cleanup pass over malformed operational profile projections", async () => {
     const evidence = buildSourceSpan({
       documentId: "doc-1",
@@ -859,7 +419,6 @@ describe("source-tree extraction", () => {
               deductible: null,
               premium: null,
               retroactiveDate: null,
-              coverageOrigin: null,
               sourceNodeIds: [],
               sourceSpanIds: ["not-a-real-span"],
               termDecisions: [
@@ -898,7 +457,6 @@ describe("source-tree extraction", () => {
           object: {
             documentType: "policy",
             policyTypes: ["cyber"],
-            coverageTypes: ["Limits of Liability"],
             insurer: {
               value: "Northwoods Continental Insurance Company",
               sourceNodeIds: [],
@@ -912,7 +470,6 @@ describe("source-tree extraction", () => {
             coverages: [{
               name: "Limits of Liability",
               limit: "$25,000 /",
-              coverageOrigin: "core",
               limits: [
                 {
                   kind: "other",
@@ -1036,7 +593,6 @@ describe("source-tree extraction", () => {
     const profile: PolicyOperationalProfile = {
       documentType: "policy",
       policyTypes: ["cyber"],
-      coverageTypes: ["Technology Professional Liability"],
       coverages: [{
         name: "Technology Professional Liability",
         coverageCode: "A",
@@ -1060,7 +616,6 @@ describe("source-tree extraction", () => {
         limit: "$1,000,000 Each Claim",
         deductible: "$5,000 Each Claim",
         retroactiveDate: "05/01/2025",
-        coverageOrigin: "endorsement",
         endorsementNumber: "Endorsement No. 1",
         sourceNodeIds: ["endorsement-row-1"],
         sourceSpanIds: ["endorsement-span-1"],

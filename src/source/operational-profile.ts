@@ -127,9 +127,6 @@ export function mergeOperationalProfile(
             retroactiveDate: typeof record.retroactiveDate === "string" ? cleanValue(record.retroactiveDate) : undefined,
             formNumber: typeof record.formNumber === "string" ? cleanValue(record.formNumber) : undefined,
             sectionRef: typeof record.sectionRef === "string" ? cleanValue(record.sectionRef) : undefined,
-            coverageOrigin: record.coverageOrigin === "core" || record.coverageOrigin === "endorsement"
-              ? record.coverageOrigin
-              : undefined,
             endorsementNumber: typeof record.endorsementNumber === "string" ? cleanValue(record.endorsementNumber) : undefined,
             limits,
             sourceNodeIds,
@@ -242,9 +239,6 @@ export function mergeOperationalProfile(
     expirationDate,
     retroactiveDate,
     premium,
-    coverageTypes: Array.isArray(candidate.coverageTypes) && candidate.coverageTypes.length > 0
-      ? candidate.coverageTypes
-      : base.coverageTypes,
     coverages,
     parties,
     endorsementSupport,

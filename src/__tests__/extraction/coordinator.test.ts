@@ -300,7 +300,6 @@ describe("createExtractor", () => {
             object: {
               documentType: "policy",
               policyTypes: ["cyber"],
-              coverageTypes: ["cyber"],
               coverages: [],
             },
           };
@@ -428,7 +427,7 @@ describe("createExtractor", () => {
           return { object: { labels: [], groups: [] } };
         }
         return {
-          object: { documentType: "policy", policyTypes: ["cyber"], coverageTypes: ["cyber"] },
+          object: { documentType: "policy", policyTypes: ["cyber"] },
         };
       });
     const sourceSpans = buildPageSourceSpans(
@@ -497,7 +496,7 @@ describe("createExtractor", () => {
           };
         }
         return {
-          object: { documentType: "policy", policyTypes: ["cyber"], coverageTypes: ["cyber"] },
+          object: { documentType: "policy", policyTypes: ["cyber"] },
         };
       });
 
@@ -621,7 +620,7 @@ describe("createExtractor", () => {
           return { object: { labels: [], groups: [] } };
         }
         return {
-        object: { documentType: "policy", policyTypes: ["cyber"], coverageTypes: ["cyber"] },
+          object: { documentType: "policy", policyTypes: ["cyber"] },
         };
       });
     const sourceSpans = buildPageSourceSpans([
@@ -757,7 +756,7 @@ describe("createExtractor", () => {
         if (params.taskKind === "extraction_source_tree") {
           return { object: { labels: [], groups: [] } };
         }
-        return { object: { documentType: "policy", policyTypes: ["cyber"], coverageTypes: ["cyber"] } };
+        return { object: { documentType: "policy", policyTypes: ["cyber"] } };
       });
     const sourceSpans = buildPageSourceSpans([
       {

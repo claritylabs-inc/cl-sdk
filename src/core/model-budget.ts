@@ -3,7 +3,6 @@ export type ModelTaskKind =
   | "extraction_source_tree"
   | "extraction_operational_profile"
   | "extraction_form_inventory"
-  | "extraction_visual_table_repair"
   | "extraction_page_map"
   | "extraction_focused"
   | "extraction_long_list"

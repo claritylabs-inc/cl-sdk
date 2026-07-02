@@ -7,13 +7,11 @@ describe("operational profile cleanup", () => {
     const profile: PolicyOperationalProfile = {
       documentType: "policy",
       policyTypes: ["cyber"],
-      coverageTypes: ["Network Security and Privacy Liability"],
       coverages: [{
         name: "Network Security and Privacy Liability",
         limit: "$1,000,000",
         deductible: "$5,000 Each Claim",
         retroactiveDate: "05/01/2025",
-        coverageOrigin: "core",
         sourceNodeIds: ["node-coverage-b"],
         sourceSpanIds: ["span-coverage-b"],
         limits: [
@@ -59,7 +57,6 @@ describe("operational profile cleanup", () => {
         deductible: null,
         premium: null,
         retroactiveDate: null,
-        coverageOrigin: undefined,
         sourceNodeIds: [],
         sourceSpanIds: [],
         termDecisions: [],

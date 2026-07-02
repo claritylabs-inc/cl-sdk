@@ -66,7 +66,7 @@ export const COI_GENERATION_TOOL: ToolDefinition = {
 export const COVERAGE_COMPARISON_TOOL: ToolDefinition = {
   name: "coverage_comparison",
   description:
-    "Compare coverages across two or more insurance documents (policies and/or quotes). Returns a side-by-side comparison of coverage types, limits, and deductibles.",
+    "Compare coverages across two or more insurance documents (policies and/or quotes). Returns a side-by-side comparison of policy types, limits, and deductibles.",
   input_schema: {
     type: "object",
     properties: {
@@ -75,11 +75,11 @@ export const COVERAGE_COMPARISON_TOOL: ToolDefinition = {
         items: { type: "string" },
         description: "Array of document IDs (policies or quotes) to compare.",
       },
-      coverageTypes: {
+      policyTypes: {
         type: "array",
         items: { type: "string" },
         description:
-          "Optional filter: only compare these coverage types (e.g. 'General Liability', 'Workers Compensation'). Omit to compare all.",
+          "Optional filter: only compare these policy types (e.g. 'General Liability', 'Workers Compensation'). Omit to compare all.",
       },
     },
     required: ["documentIds"],
