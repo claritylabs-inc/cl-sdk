@@ -1,3 +1,10 @@
+## [3.1.24](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.23...v3.1.24) (2026-07-02)
+
+
+### Bug Fixes
+
+* **extraction:** remove source tree organizer ([025110f](https://github.com/claritylabs-inc/cl-sdk/commit/025110f1a7e54a6f1fe7bfb670f43c8c1a23c23b))
+
 ## [3.1.23](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.22...v3.1.23) (2026-07-02)
 
 
