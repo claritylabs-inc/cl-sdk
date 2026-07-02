@@ -37,9 +37,9 @@ const ORGANIZABLE_KINDS = [
   "clause",
 ] as const;
 
-const ORGANIZATION_TOP_LEVEL_BATCH_SIZE = 80;
-const ORGANIZER_MAX_SOURCE_SPANS = 400;
-const ORGANIZER_MAX_TOP_LEVEL_NODES = 18;
+const ORGANIZATION_TOP_LEVEL_BATCH_SIZE = 12;
+const ORGANIZER_MAX_TOP_LEVEL_NODES = 120;
+const ORGANIZER_MAX_BATCH_NODES = 180;
 const OUTLINE_CLEANUP_MAX_TOP_LEVEL_NODES = 80;
 
 export type SourceTreeFormHint = {
@@ -75,6 +75,7 @@ const SourceTreeOrganizationSchema = z.object({
     kind: z.enum(ORGANIZABLE_KINDS),
     title: z.string(),
     description: z.string().optional(),
+    parentNodeId: z.string().optional(),
     childNodeIds: z.array(z.string()).min(1),
   })),
 });
@@ -376,6 +377,7 @@ function pageHeadingTitleFromText(text: string, fallback: string): string {
 }
 
 function pageFormTypeFromText(text: string): SourceTreeFormHint["formType"] {
+  if (hasSubstantiveDeclarationsScheduleText(text)) return "declarations";
   if (/\b(declarations?\s+page|declarations?\s+schedule)\b/i.test(text)) return "declarations";
   if (/\b(endorsement\s+(?:no\.?|number|#)|this endorsement changes the policy|[A-Z]{2,}-END\s+\d{2,})\b/i.test(text)) return "endorsement";
   if (/\b(technology errors?\s*&?\s*omissions.*liability insurance policy|policy form|coverage form|insuring agreement|definitions?|exclusions?|conditions?)\b/i.test(text)) return "coverage";
@@ -383,7 +385,17 @@ function pageFormTypeFromText(text: string): SourceTreeFormHint["formType"] {
   return "other";
 }
 
+function hasSubstantiveDeclarationsScheduleText(text: string): boolean {
+  return /\bitem\s+\d+\.?\s*(?:named insured|policy number|policy period|renewal|form of business|coverage parts?|limits?|premium|extended reporting|producer|forms? and endorsements?)\b/i.test(text) ||
+    /\bforms? and endorsements attached at inception\b/i.test(text) ||
+    /\bcoverage parts?,?\s+limits? of liability,?\s+deductibles?,?\s+and retroactive dates\b/i.test(text) ||
+    /\bannual premium\s*\(all coverage parts?\)\b/i.test(text) ||
+    /\berp option\b/i.test(text) ||
+    /\bproducer\b[\s\S]{0,240}\blicense\b/i.test(text);
+}
+
 function administrativeFormTypeFromText(text: string): SourceTreeFormHint["formType"] | undefined {
+  if (hasSubstantiveDeclarationsScheduleText(text)) return undefined;
   if (/\b(important notice|privacy notice|ofac advisory|terrorism risk insurance act|tria|trade or economic sanctions|economic sanctions limitation|how to report a claim)\b/i.test(text)) {
     return "notice";
   }
@@ -891,6 +903,7 @@ function isDeclarationsNode(node: DocumentSourceNode): boolean {
 
 function isAdministrativeNoticeNode(node: DocumentSourceNode): boolean {
   const text = sourceNodeText(node);
+  if (hasSubstantiveDeclarationsScheduleText(text)) return false;
   return /\b(specimen policy|policy jacket|important notice|privacy notice|ofac advisory|terrorism risk insurance act|tria|trade or economic sanctions|economic sanctions limitation|signature|countersignature|how to report a claim)\b/i.test(text);
 }
 
@@ -1526,22 +1539,45 @@ function rootChildren(sourceTree: DocumentSourceNode[]): DocumentSourceNode[] {
   return (byParent.get(rootId) ?? []).filter((node) => node.kind !== "document");
 }
 
-function hasDeterministicSemanticOutline(sourceTree: DocumentSourceNode[]): boolean {
-  const children = rootChildren(sourceTree);
-  const semanticCount = children.filter((node) =>
-    node.kind === "page_group" || node.kind === "form" || node.kind === "endorsement" || node.kind === "section" || node.kind === "schedule"
-  ).length;
-  return semanticCount >= 2 ||
-    children.some((node) => node.title === "Declarations") ||
-    children.some((node) => node.title === "Policy Form") ||
-    children.some((node) => node.title === "Endorsements");
+function shouldRunSourceTreeOrganizer(sourceTree: DocumentSourceNode[], _sourceSpans: SourceSpan[]): boolean {
+  const topLevelCount = rootChildren(sourceTree).length;
+  if (topLevelCount > ORGANIZER_MAX_TOP_LEVEL_NODES) return false;
+  return true;
 }
 
-function shouldRunSourceTreeOrganizer(sourceTree: DocumentSourceNode[], sourceSpans: SourceSpan[]): boolean {
-  const topLevelCount = rootChildren(sourceTree).length;
-  if (sourceSpans.length > ORGANIZER_MAX_SOURCE_SPANS) return false;
-  if (topLevelCount > ORGANIZER_MAX_TOP_LEVEL_NODES) return false;
-  return !hasDeterministicSemanticOutline(sourceTree);
+function organizationCandidateText(node: DocumentSourceNode): string {
+  return [node.title, node.description, node.textExcerpt].filter(Boolean).join(" ");
+}
+
+function isHighSignalOrganizationNode(node: DocumentSourceNode): boolean {
+  if (node.kind === "document") return false;
+  if (["page", "page_group", "form", "endorsement", "section", "schedule", "clause", "table", "table_row"].includes(node.kind)) {
+    return true;
+  }
+  if (node.kind !== "text" && node.kind !== "table_cell") return false;
+  const text = organizationCandidateText(node);
+  return /\b(SECTION|PART|ARTICLE|SCHEDULE)\s+[IVXLCDM0-9]+/i.test(text) ||
+    /\bItem\s+\d+[\.:]/i.test(text) ||
+    /^[A-Z]\.\s+\S/.test(cleanText(node.textExcerpt ?? node.title, "")) ||
+    /\b(forms? and endorsements?|coverage parts?|limits? of liability|extended reporting period|producer|premium|aggregate|retroactive date|endorsement no\.?)\b/i.test(text);
+}
+
+function organizationBatchNodes(topLevelBatch: DocumentSourceNode[], byParent: Map<string | undefined, DocumentSourceNode[]>): DocumentSourceNode[] {
+  const nodes = new Map<string, DocumentSourceNode>();
+  const queue = [...topLevelBatch];
+
+  while (queue.length > 0 && nodes.size < ORGANIZER_MAX_BATCH_NODES) {
+    const node = queue.shift();
+    if (!node || nodes.has(node.id) || !isHighSignalOrganizationNode(node)) continue;
+    nodes.set(node.id, node);
+
+    for (const child of byParent.get(node.id) ?? []) {
+      if (nodes.size + queue.length >= ORGANIZER_MAX_BATCH_NODES) break;
+      if (isHighSignalOrganizationNode(child)) queue.push(child);
+    }
+  }
+
+  return [...nodes.values()];
 }
 
 function organizationBatches(sourceTree: DocumentSourceNode[]): OrganizationBatch[] {
@@ -1562,14 +1598,10 @@ function organizationBatches(sourceTree: DocumentSourceNode[]): OrganizationBatc
   const batches: OrganizationBatch[] = [];
   for (let index = 0; index < topLevelNodes.length; index += ORGANIZATION_TOP_LEVEL_BATCH_SIZE) {
     const topLevelBatch = topLevelNodes.slice(index, index + ORGANIZATION_TOP_LEVEL_BATCH_SIZE);
-    const candidates = new Map<string, DocumentSourceNode>();
-    for (const node of topLevelBatch) {
-      candidates.set(node.id, node);
-    }
     batches.push({
       label: `top-level nodes ${index + 1}-${index + topLevelBatch.length} of ${topLevelNodes.length}`,
       topLevelNodeIds: topLevelBatch.map((node) => node.id),
-      nodes: [...candidates.values()],
+      nodes: organizationBatchNodes(topLevelBatch, byParent),
     });
   }
   return batches;
@@ -1584,7 +1616,7 @@ function mergeOrganizationResults(results: SourceTreeOrganization[]): SourceTree
       labels.set(label.nodeId, { ...labels.get(label.nodeId), ...label });
     }
     for (const group of result.groups) {
-      const key = `${group.kind}:${group.childNodeIds.join("|")}`;
+      const key = `${group.parentNodeId ?? ""}:${group.kind}:${group.childNodeIds.join("|")}`;
       groups.set(key, group);
     }
   }
@@ -1610,9 +1642,16 @@ ${formatFormHintsForPrompt(formHints)}
 Rules:
 - Use only node IDs from the provided list.
 - Do not invent text, page numbers, source spans, limits, or policy facts.
-- You may relabel existing nodes and group adjacent top-level/page nodes from this batch only when they are clearly one continuous form, one declarations set, one schedule, or one clause family.
+- You may relabel existing nodes and group adjacent sibling nodes from this batch only when they are clearly one continuous form, one declarations item, one policy section, one schedule, or one clause family.
 - Treat the form inventory as a page-range hint for the expected order: front matter/notices, declarations, policy form, then endorsements.
 - Prefer section hierarchy from printed title elements inside a form over page-by-page grouping.
+- Printed section markers are hard hierarchy boundaries. If source text moves from "SECTION XI" to "SECTION XII", "Section 12", "PART III", or similar sequential headings, create a new sibling section at that marker even when the marker appears mid-page after prior section text.
+- Declarations pages often use "Item 1.", "Item 2.", ... as the real section structure. Preserve each item as its own section or schedule under "Declarations"; do not bury item labels inside a single table when they mark new declaration fields.
+- For declaration item tables, a table belongs only to the current item until the next "Item N" marker. Start a new declaration item section at the next marker, even if the parser presents the marker as a table row or cell.
+- Keep forms-and-endorsements schedules attached to declarations when they appear as "Item 10", "Forms and Endorsements Attached at Inception", or a continuation page listing form numbers. Do not discard that page just because it also contains countersignature or authorized-representative language.
+- Prefer sections/schedules over table grouping when a table-like node mixes structural labels such as "Item 7", "Item 8", "SECTION XII", "Producer", or "Forms and Endorsements" with values.
+- Use group.parentNodeId only when the source clearly shows a child was nested under the wrong earlier section/table. Example: a "SECTION XII" marker nested below "SECTION XI" should be grouped with parentNodeId set to the Policy Form node so Section XII becomes a sibling of Section XI.
+- Use group.parentNodeId to place "Item N" groups under the Declarations node when parser table structure would otherwise leave those items trapped inside one table.
 - Group adjacent separately numbered endorsements under a single generic "Endorsements" page_group parent, with each individual endorsement preserved as its own child node.
 - Never create rollup titles such as "Endorsements 1-3 (...)" or merge multiple endorsements into one endorsement node.
 - Add concise, human-readable titles to generic text, table, row, and cell nodes when the text makes their role clear.
@@ -1645,7 +1684,7 @@ function buildOutlineCleanupPrompt(sourceTree: DocumentSourceNode[], formHints: 
 
 Expected product-facing order:
 1. Optional front matter: policy jacket, important notices, privacy notices, OFAC notices, TRIA/terrorism notices, marketing/admin pages, signatures, countersignatures, or other pages that are not the declarations, policy wording, or endorsements.
-2. Declarations: declarations page(s), schedules, named insured/policy period/premium rows, coverage limit schedules, forms-and-endorsements schedules.
+2. Declarations: declarations page(s), schedules, itemized declaration fields, named insured/policy period/premium rows, coverage limit schedules, forms-and-endorsements schedules.
 3. Policy Form: the main policy wording, insuring agreements, definitions, exclusions, conditions, claim provisions, and general policy terms.
 4. Endorsements: one generic "Endorsements" page_group containing each separately numbered endorsement as its own child.
 
@@ -1659,7 +1698,9 @@ Rules:
 - Do not merge individually numbered endorsements into one endorsement node; use the generic "Endorsements" parent for the series.
 - Use canonical terse titles: "Notices and Jacket", "Declarations", "Policy Form", "Endorsements", or the printed endorsement number.
 - Keep page_group descriptions short and include the page range when pages are known, for example "Declarations pages 6-8".
-- If a page is an OFAC, privacy, terrorism/TRIA, claim-reporting notice, signature page, or jacket, do not label it as declarations or policy form.
+- If a page is only an OFAC, privacy, terrorism/TRIA, claim-reporting notice, signature page, or jacket, do not label it as declarations or policy form.
+- If a page contains declaration items, coverage schedules, premium rows, producer rows, or a forms-and-endorsements schedule, keep it in Declarations even if it also contains countersignature or authorized-representative text.
+- If a policy-form page contains a later printed section marker such as "SECTION XII — EXTENDED REPORTING PERIOD", preserve that marker as the start of a new sibling section rather than a paragraph under the previous section.
 - If the form inventory provides page ranges, keep groups aligned to those ranges unless the source node text clearly contradicts them.
 - If the existing deterministic outline is already correct, return empty labels and groups.
 
@@ -1712,6 +1753,10 @@ Rules:
 - Every returned value must include sourceNodeIds or sourceSpanIds from the provided nodes.
 - If a value is not directly supported, omit it.
 - Prefer declarations, schedules, premium tables, and endorsement schedules over generic policy wording.
+- On declarations pages, treat "Item N" labels as section boundaries. Use Item 6 or equivalent coverage-schedule rows for coverage limits, deductibles, aggregate terms, and retroactive dates; do not merge Item 7 premium, Item 8 ERP, Item 9 producer, or Item 10 forms into Item 6 coverage facts.
+- A coverage schedule row's coverage name should come from the "Coverage Part" or equivalent row label. Limit, deductible, aggregate, sublimit, retention, and retroactive-date values belong as nested terms under that coverage, not in the coverage title.
+- If a coverage schedule continues onto the next page before the next item marker, include the continuation rows in the same coverage or declaration item.
+- Forms-and-endorsements schedules are operational form inventory evidence, not coverage limits. Do not turn form schedule rows into coverage units unless the row also states a coverage-specific limit or deductible.
 - Keep each coverage unit tied to one evidence scope: a declaration/core schedule row, a core policy form section, or one specific endorsement schedule. Do not merge declaration facts and endorsement schedule facts into the same coverage unit, even when they use the same coverage name.
 - If the declarations schedule and an endorsement schedule both list Network Security, Social Engineering Fraud, Regulatory Proceedings, or another same-named coverage, return separate coverage units for each supported source scope.
 - Use the declaration coverage name for declaration/core schedule rows. Use the endorsement title or endorsement schedule coverage name for endorsement rows, and include formNumber and endorsementNumber when source-backed.
@@ -1858,6 +1903,22 @@ function groupNodeId(documentId: string, group: { kind: string; title: string; c
   ].join(":");
 }
 
+function isDescendantOf(
+  nodeId: string | undefined,
+  ancestorId: string,
+  byId: Map<string, DocumentSourceNode>,
+): boolean {
+  let parentId = nodeId ? byId.get(nodeId)?.parentId : undefined;
+  const seen = new Set<string>();
+  while (parentId) {
+    if (parentId === ancestorId) return true;
+    if (seen.has(parentId)) return false;
+    seen.add(parentId);
+    parentId = byId.get(parentId)?.parentId;
+  }
+  return false;
+}
+
 function applyOrganization(sourceTree: DocumentSourceNode[], organization: SourceTreeOrganization): DocumentSourceNode[] {
   const byId = new Map(sourceTree.map((node) => [node.id, node]));
   const labels = new Map(organization.labels.map((label) => [label.nodeId, label]));
@@ -1878,8 +1939,19 @@ function applyOrganization(sourceTree: DocumentSourceNode[], organization: Sourc
       .filter((node): node is DocumentSourceNode => Boolean(node));
     if (children.length === 0) continue;
     if (rejectsOrganizerGroup(group, children)) continue;
-    const parentId = children[0].parentId;
-    if (!children.every((child) => child.parentId === parentId)) continue;
+    const originalParentId = children[0].parentId;
+    const requestedParent = group.parentNodeId ? byId.get(group.parentNodeId) : undefined;
+    if (requestedParent && children.some((child) => child.id === requestedParent.id || isDescendantOf(requestedParent.id, child.id, byId))) {
+      continue;
+    }
+    if (requestedParent) {
+      if (!children.every((child) => child.parentId === requestedParent.id || hasAncestor(child, requestedParent.id, byId))) {
+        continue;
+      }
+    } else if (!children.every((child) => child.parentId === originalParentId)) {
+      continue;
+    }
+    const parentId = requestedParent?.id ?? originalParentId;
     const documentId = children[0].documentId;
     const title = simplifyOrganizerTitle(group.title, group.title, group.kind as DocumentSourceNodeKind);
     const description = descriptionWithPages(cleanText(group.description, title), children);

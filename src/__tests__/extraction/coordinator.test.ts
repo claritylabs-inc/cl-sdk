@@ -416,7 +416,7 @@ describe("createExtractor", () => {
     expect(result.document.documentMetadata?.sourceTreeCanonical).toBe(true);
   });
 
-  it("skips the source-tree organizer for large deterministic page sets", async () => {
+  it("runs bounded source-tree model checks for large deterministic page sets", async () => {
     safeGenerateObject
       .mockReset()
       .mockImplementation(async (_generateObject, params) => {
@@ -450,8 +450,11 @@ describe("createExtractor", () => {
     const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
 
     const sourceTreeCalls = safeGenerateObject.mock.calls.filter(([, params]) => params.taskKind === "extraction_source_tree");
-    expect(sourceTreeCalls).toHaveLength(1);
+    expect(sourceTreeCalls).toHaveLength(2);
     expect(sourceTreeCalls[0]?.[1]).toEqual(expect.objectContaining({
+      prompt: expect.stringContaining("You organize an insurance document source tree"),
+    }));
+    expect(sourceTreeCalls[1]?.[1]).toEqual(expect.objectContaining({
       prompt: expect.stringContaining("You clean a top-level source outline"),
     }));
     expect(sourceTreeCalls[0]?.[1]).not.toHaveProperty("providerOptions");
@@ -486,11 +489,13 @@ describe("createExtractor", () => {
                 },
               ],
               groups: [
-                {
-                  kind: "page_group",
-                  title: "Endorsements 1–2 (Network Security/Privacy; Bricking/Cyber Extortion)",
-                  childNodeIds: topLevelNodeIds.slice(2, 4),
-                },
+                ...(topLevelNodeIds.length >= 4
+                  ? [{
+                      kind: "page_group",
+                      title: "Endorsements 1–2 (Network Security/Privacy; Bricking/Cyber Extortion)",
+                      childNodeIds: topLevelNodeIds.slice(2, 4),
+                    }]
+                  : []),
               ],
             },
           };
@@ -817,7 +822,9 @@ describe("createExtractor", () => {
     });
 
     const result = await extractor.extract("full-pdf-base64", "doc-1", { sourceSpans });
-    expect(safeGenerateObject.mock.calls.filter(([, params]) => params.taskKind === "extraction_source_tree")).toHaveLength(0);
+    expect(safeGenerateObject.mock.calls.filter(([, params]) => params.taskKind === "extraction_source_tree")).toHaveLength(1);
+    expect(safeGenerateObject.mock.calls.find(([, params]) => params.taskKind === "extraction_source_tree")?.[1].prompt)
+      .toContain("You organize an insurance document source tree");
     const topLevel = result.sourceTree
       ?.filter((node) => node.parentId === result.sourceTree?.find((candidate) => candidate.kind === "document")?.id)
       .map((node) => ({ title: node.title, kind: node.kind, pageStart: node.pageStart, pageEnd: node.pageEnd, description: node.description }));

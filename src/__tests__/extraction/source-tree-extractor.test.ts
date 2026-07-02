@@ -37,6 +37,19 @@ function modelStub(): GenerateObject {
   }) as GenerateObject;
 }
 
+function sourceNodesFromOrganizerPrompt(prompt: string): Array<{
+  id: string;
+  kind: string;
+  title: string;
+  text?: string;
+}> {
+  const marker = "Source nodes:\n";
+  const start = prompt.indexOf(marker);
+  const end = prompt.indexOf("\n\nReturn JSON", start);
+  if (start < 0 || end < 0) return [];
+  return JSON.parse(prompt.slice(start + marker.length, end));
+}
+
 describe("source-tree extraction", () => {
   it("uses form inventory page ranges as the source-tree skeleton", async () => {
     const sourceSpans = buildPageSourceSpans([
@@ -393,6 +406,309 @@ describe("source-tree extraction", () => {
       pageStart: 11,
       pageEnd: 11,
     }));
+  });
+
+  it("lets the model organizer promote embedded later sections out of the previous section", async () => {
+    const pageSpans = buildPageSourceSpans([
+      {
+        documentId: "doc-1",
+        pageNumber: 16,
+        text: "SECTION XI - COOPERATION The Insured shall cooperate. SECTION XII - EXTENDED REPORTING PERIOD",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 17,
+        text: "A. Right to Elect. The Named Insured shall have the right to purchase an extended reporting period.",
+      },
+    ]);
+    const sectionEleven = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      text: "SECTION XI - COOPERATION",
+      pageStart: 16,
+      pageEnd: 16,
+      sourceUnit: "text",
+      metadata: { sourceUnit: "title", elementType: "title" },
+    }, 2);
+    const cooperationBody = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      text: "The Insured shall cooperate with the Insurer in the investigation, defense, and settlement of any Claim.",
+      pageStart: 16,
+      pageEnd: 16,
+      sourceUnit: "text",
+    }, 3);
+    const sectionTwelve = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      text: "SECTION XII - EXTENDED REPORTING PERIOD",
+      pageStart: 16,
+      pageEnd: 16,
+      sourceUnit: "text",
+    }, 4);
+    const erpBody = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      text: "A. Right to Elect. The Named Insured shall have the right to purchase an Extended Reporting Period.",
+      pageStart: 17,
+      pageEnd: 17,
+      sourceUnit: "text",
+    }, 5);
+    const generateObject = vi.fn(async (params) => {
+      if (params.taskKind === "extraction_source_tree" && params.prompt.includes("You organize an insurance document source tree")) {
+        const nodes = sourceNodesFromOrganizerPrompt(params.prompt);
+        const policyForm = nodes.find((node) => node.title === "Policy Form");
+        const heading = nodes.find((node) =>
+          node.kind === "text" &&
+          node.text?.includes("SECTION XII - EXTENDED REPORTING PERIOD")
+        );
+        const body = nodes.find((node) =>
+          node.kind === "text" &&
+          node.text?.includes("A. Right to Elect")
+        );
+        return {
+          object: {
+            labels: [],
+            groups: policyForm && heading && body
+              ? [{
+                  kind: "section",
+                  title: "SECTION XII - EXTENDED REPORTING PERIOD",
+                  description: "Extended reporting period section",
+                  parentNodeId: policyForm.id,
+                  childNodeIds: [heading.id, body.id],
+                }]
+              : [],
+          },
+        };
+      }
+      if (params.taskKind === "extraction_operational_profile") {
+        return {
+          object: {
+            documentType: "policy",
+            policyTypes: ["cyber"],
+          },
+        };
+      }
+      if (params.taskKind === "extraction_coverage_cleanup") {
+        return { object: { coverageDecisions: [], warnings: [] } };
+      }
+      return { object: { labels: [], groups: [] } };
+    }) as GenerateObject & ReturnType<typeof vi.fn>;
+
+    const result = await runSourceTreeExtraction({
+      id: "doc-1",
+      sourceSpans: [...pageSpans, sectionEleven, cooperationBody, sectionTwelve, erpBody],
+      formInventory: {
+        forms: [{
+          formNumber: "NWC-TEC 04 25",
+          title: "TECHNOLOGY ERRORS & OMISSIONS AND CYBER LIABILITY INSURANCE POLICY",
+          formType: "coverage",
+          pageStart: 16,
+          pageEnd: 17,
+        }],
+      },
+      generateObject,
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    const policyForm = result.sourceTree.find((node) => node.title === "Policy Form" && node.kind === "form");
+    const sectionXi = result.sourceTree.find((node) => node.title === "SECTION XI - COOPERATION" && node.kind === "section");
+    const sectionXii = result.sourceTree.find((node) => node.title === "SECTION XII - EXTENDED REPORTING PERIOD" && node.kind === "section");
+
+    expect(sectionXii?.parentId).toBe(policyForm?.id);
+    expect(sectionXi?.parentId).toBe(policyForm?.id);
+    expect(sectionXii?.parentId).not.toBe(sectionXi?.id);
+  });
+
+  it("keeps declaration continuation pages with form schedules out of administrative notices", async () => {
+    const sourceSpans = buildPageSourceSpans([
+      {
+        documentId: "doc-1",
+        pageNumber: 5,
+        text: "DECLARATIONS Item 1. Named Insured Clarity Labs Inc. Item 6. Coverage Parts, Limits of Liability, Deductibles, and Retroactive Dates",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 6,
+        text: "Item 7. Premium Annual Premium (all Coverage Parts) $14,475 Item 8. Extended Reporting Period Options Item 9. Producer Bayshore Insurance Brokers Item 10. Forms and Endorsements Attached at Inception SPS-PJ 01 24 Policy Jacket",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 7,
+        text: "SPS-TPC 03 25 Technology Professional and Cyber Liability Policy SPS-END 001 03 25 Endorsement No. 1 Network Security and Privacy Liability Coverage SPS-END 002 03 25 Endorsement No. 2 Social Engineering Fraud Coverage These Declarations, together with the application(s), the policy form, and any endorsement(s) issued, shall constitute the entire contract. Countersigned April 22, 2026 By Authorized Representative.",
+      },
+    ]);
+
+    const result = await runSourceTreeExtraction({
+      id: "doc-1",
+      sourceSpans,
+      formInventory: {
+        forms: [{
+          formNumber: "",
+          title: "DECLARATIONS",
+          formType: "declarations",
+          pageStart: 5,
+          pageEnd: 7,
+        }],
+      },
+      generateObject: modelStub(),
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    const declarations = result.sourceTree.find((node) => node.title === "Declarations" && node.kind === "page_group");
+    const pageSeven = result.sourceTree.find((node) => node.kind === "page" && node.pageStart === 7);
+    const notices = result.sourceTree.find((node) => node.title === "Notices and Jacket" && node.kind === "page_group");
+
+    expect(declarations).toEqual(expect.objectContaining({ pageStart: 5, pageEnd: 7 }));
+    expect(pageSeven?.parentId).toBe(declarations?.id);
+    expect(pageSeven?.parentId).not.toBe(notices?.id);
+  });
+
+  it("lets the model organizer split declaration table rows into item sections", async () => {
+    const page = buildPageSourceSpans([{
+      documentId: "doc-1",
+      pageNumber: 6,
+      text: "DECLARATIONS Item 7. Premium Annual Premium $14,475 Item 8. Extended Reporting Period Options",
+    }])[0]!;
+    const itemSeven = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      text: "Item 7. Premium | Annual Premium (all Coverage Parts) | $14,475",
+      pageStart: 6,
+      pageEnd: 6,
+      sourceUnit: "table_row",
+      table: { tableId: "declarations-items", rowIndex: 7 },
+    }, 2);
+    const itemEight = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      text: "Item 8. Extended Reporting Period Options | ERP Option 1 | 12 Months | 100%",
+      pageStart: 6,
+      pageEnd: 6,
+      sourceUnit: "table_row",
+      table: { tableId: "declarations-items", rowIndex: 8 },
+    }, 3);
+    const generateObject = vi.fn(async (params) => {
+      if (params.taskKind === "extraction_source_tree" && params.prompt.includes("You organize an insurance document source tree")) {
+        const nodes = sourceNodesFromOrganizerPrompt(params.prompt);
+        const declarations = nodes.find((node) => node.title === "Declarations");
+        const rowSeven = nodes.find((node) => node.kind === "table_row" && node.text?.includes("Item 7. Premium"));
+        const rowEight = nodes.find((node) => node.kind === "table_row" && node.text?.includes("Item 8. Extended Reporting Period Options"));
+        return {
+          object: {
+            labels: [],
+            groups: [
+              declarations && rowSeven
+                ? {
+                    kind: "section",
+                    title: "Item 7. Premium",
+                    description: "Premium declaration item",
+                    parentNodeId: declarations.id,
+                    childNodeIds: [rowSeven.id],
+                  }
+                : undefined,
+              declarations && rowEight
+                ? {
+                    kind: "section",
+                    title: "Item 8. Extended Reporting Period Options",
+                    description: "ERP declaration item",
+                    parentNodeId: declarations.id,
+                    childNodeIds: [rowEight.id],
+                  }
+                : undefined,
+            ].filter(Boolean),
+          },
+        };
+      }
+      if (params.taskKind === "extraction_operational_profile") {
+        return {
+          object: {
+            documentType: "policy",
+            policyTypes: ["cyber"],
+          },
+        };
+      }
+      return { object: { labels: [], groups: [] } };
+    }) as GenerateObject & ReturnType<typeof vi.fn>;
+
+    const result = await runSourceTreeExtraction({
+      id: "doc-1",
+      sourceSpans: [page, itemSeven, itemEight],
+      formInventory: {
+        forms: [{
+          formNumber: "",
+          title: "DECLARATIONS",
+          formType: "declarations",
+          pageStart: 6,
+          pageEnd: 6,
+        }],
+      },
+      generateObject,
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    const declarations = result.sourceTree.find((node) => node.title === "Declarations" && node.kind === "page_group");
+    const premium = result.sourceTree.find((node) => node.title === "Item 7. Premium" && node.kind === "section");
+    const erp = result.sourceTree.find((node) => node.title === "Item 8. Extended Reporting Period Options" && node.kind === "section");
+
+    expect(premium?.parentId).toBe(declarations?.id);
+    expect(erp?.parentId).toBe(declarations?.id);
+  });
+
+  it("runs the source-tree organizer for realistic policies instead of trusting deterministic outline only", async () => {
+    const pageSpans = buildPageSourceSpans(Array.from({ length: 33 }, (_, index) => ({
+      documentId: "doc-1",
+      pageNumber: index + 1,
+      text: index === 4
+        ? "DECLARATIONS Item 1. Named Insured Example Corp."
+        : index === 10
+          ? "TECHNOLOGY ERRORS & OMISSIONS AND CYBER LIABILITY INSURANCE POLICY PLEASE READ THIS ENTIRE POLICY CAREFULLY."
+          : index === 18
+            ? "ENDORSEMENT NO. 1 THIS ENDORSEMENT CHANGES THE POLICY."
+            : `Page ${index + 1} policy text`,
+    })));
+    const extraSpans = Array.from({ length: 410 }, (_, index) => buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      text: `Supplemental source span ${index}`,
+      pageStart: (index % 33) + 1,
+      pageEnd: (index % 33) + 1,
+      sourceUnit: "text",
+    }, 1000 + index));
+    const generateObject = vi.fn(async (params) => {
+      if (params.taskKind === "extraction_operational_profile") {
+        return {
+          object: {
+            documentType: "policy",
+            policyTypes: ["cyber"],
+          },
+        };
+      }
+      return { object: { labels: [], groups: [] } };
+    }) as GenerateObject & ReturnType<typeof vi.fn>;
+
+    await runSourceTreeExtraction({
+      id: "doc-1",
+      sourceSpans: [...pageSpans, ...extraSpans],
+      formInventory: {
+        forms: [
+          { formNumber: "", title: "DECLARATIONS", formType: "declarations", pageStart: 5, pageEnd: 7 },
+          { formNumber: "", title: "TECHNOLOGY ERRORS & OMISSIONS AND CYBER LIABILITY INSURANCE POLICY", formType: "coverage", pageStart: 11, pageEnd: 18 },
+          { formNumber: "", title: "ENDORSEMENT NO. 1", formType: "endorsement", pageStart: 19, pageEnd: 33 },
+        ],
+      },
+      generateObject,
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    expect(generateObject.mock.calls.some(([params]) =>
+      params.taskKind === "extraction_source_tree" &&
+      params.prompt.includes("You organize an insurance document source tree")
+    )).toBe(true);
   });
 
   it("runs a model cleanup pass over malformed operational profile projections", async () => {
