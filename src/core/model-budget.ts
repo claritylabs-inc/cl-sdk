@@ -105,13 +105,10 @@ export function resolveModelBudget(params: ResolveModelBudgetParams): ModelBudge
     constrainedPreference
     ?? taskCapability
     ?? longListCapability
-    ?? defaultCapability
-    ?? hintTokens;
+    ?? hintTokens
+    ?? defaultCapability;
 
-  let maxTokens =
-    hardMaxOutputTokens
-    ?? modelMaxOutputTokens
-    ?? preferredOutputTokens;
+  let maxTokens = preferredOutputTokens;
 
   if (minOutputTokens) {
     maxTokens = Math.max(maxTokens, minOutputTokens);

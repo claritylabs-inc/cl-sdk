@@ -711,6 +711,86 @@ describe("source-tree extraction", () => {
     )).toBe(true);
   });
 
+  it("keeps source-tree organizer batches bounded to structural evidence", async () => {
+    const pageSpans = buildPageSourceSpans([
+      { documentId: "doc-1", pageNumber: 1, text: "SPECIMEN POLICY" },
+      { documentId: "doc-1", pageNumber: 5, text: "DECLARATIONS Item 1. Named Insured Example Corp. Item 7. Premium Item 8. Extended Reporting Period Options" },
+      { documentId: "doc-1", pageNumber: 11, text: "TECHNOLOGY PROFESSIONAL AND CYBER LIABILITY INSURANCE POLICY SECTION XI COOPERATION SECTION XII EXTENDED REPORTING PERIOD" },
+      { documentId: "doc-1", pageNumber: 19, text: "ENDORSEMENT NO. 1 NETWORK SECURITY AND PRIVACY LIABILITY COVERAGE" },
+    ]);
+    const tableRows = [
+      buildSourceSpan({
+        documentId: "doc-1",
+        sourceKind: "policy_pdf",
+        text: "Item 7. Premium | Annual Premium | $14,475",
+        pageStart: 5,
+        pageEnd: 5,
+        sourceUnit: "table_row",
+        table: { tableId: "dec", rowIndex: 0 },
+      }, 2000),
+      buildSourceSpan({
+        documentId: "doc-1",
+        sourceKind: "policy_pdf",
+        text: "Item 8. Extended Reporting Period Options | ERP Option 1 | 12 Months",
+        pageStart: 5,
+        pageEnd: 5,
+        sourceUnit: "table_row",
+        table: { tableId: "dec", rowIndex: 1 },
+      }, 2001),
+      ...Array.from({ length: 140 }, (_, index) => buildSourceSpan({
+        documentId: "doc-1",
+        sourceKind: "policy_pdf",
+        text: `Generic filler row ${index} | value ${index}`,
+        pageStart: 5,
+        pageEnd: 5,
+        sourceUnit: "table_row",
+        table: { tableId: "dec", rowIndex: index + 2 },
+      }, 2100 + index)),
+    ];
+    const generateObject = vi.fn(async (params) => {
+      if (params.taskKind === "extraction_operational_profile") {
+        return {
+          object: {
+            documentType: "policy",
+            policyTypes: ["cyber"],
+          },
+        };
+      }
+      return { object: { labels: [], groups: [] } };
+    }) as GenerateObject & ReturnType<typeof vi.fn>;
+
+    await runSourceTreeExtraction({
+      id: "doc-1",
+      sourceSpans: [...pageSpans, ...tableRows],
+      formInventory: {
+        forms: [
+          { formNumber: "SPS-DEC 03 25", title: "DECLARATIONS", formType: "declarations", pageStart: 5, pageEnd: 7 },
+          { formNumber: "SPS-TPC 03 25", title: "TECHNOLOGY PROFESSIONAL AND CYBER LIABILITY INSURANCE POLICY", formType: "coverage", pageStart: 11, pageEnd: 18 },
+          { formNumber: "SPS-END 001 03 25", title: "ENDORSEMENT NO. 1", formType: "endorsement", pageStart: 19, pageEnd: 20 },
+        ],
+      },
+      generateObject,
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    const organizerPrompts = generateObject.mock.calls
+      .map(([params]) => params)
+      .filter((params) =>
+        params.taskKind === "extraction_source_tree" &&
+        params.prompt.includes("You organize an insurance document source tree"),
+      )
+      .map((params) => params.prompt);
+
+    expect(organizerPrompts.length).toBeGreaterThan(0);
+    for (const prompt of organizerPrompts) {
+      expect(sourceNodesFromOrganizerPrompt(prompt).length).toBeLessThanOrEqual(80);
+      expect(prompt).not.toContain("Generic filler row 139");
+    }
+    expect(organizerPrompts.some((prompt) => prompt.includes("Item 7. Premium"))).toBe(true);
+    expect(organizerPrompts.some((prompt) => prompt.includes("SECTION XII EXTENDED REPORTING PERIOD"))).toBe(true);
+  });
+
   it("runs a model cleanup pass over malformed operational profile projections", async () => {
     const evidence = buildSourceSpan({
       documentId: "doc-1",

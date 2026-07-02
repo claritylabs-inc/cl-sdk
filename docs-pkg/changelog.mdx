@@ -5,6 +5,13 @@ description: Release history for @claritylabs/cl-sdk
 
 All notable changes to `@claritylabs/cl-sdk` are documented here.
 
+## Unreleased
+
+### Fixed
+
+- Source-tree organization keeps model prompts bounded by batching adjacent top-level nodes, filtering generic table rows out of organizer context, and preserving only structural rows such as declaration items, section headings, premiums, aggregate rows, and endorsement references.
+- Model budget resolution treats `maxOutputTokens` as a ceiling instead of the preferred request size, so small organizer and classifier calls do not expand to a model's full output window.
+
 ## v3.0.5 -- Terse Source-Tree Organization
 
 Released 2026-06-03.

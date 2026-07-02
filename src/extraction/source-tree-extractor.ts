@@ -37,9 +37,9 @@ const ORGANIZABLE_KINDS = [
   "clause",
 ] as const;
 
-const ORGANIZATION_TOP_LEVEL_BATCH_SIZE = 12;
+const ORGANIZATION_TOP_LEVEL_BATCH_SIZE = 4;
 const ORGANIZER_MAX_TOP_LEVEL_NODES = 120;
-const ORGANIZER_MAX_BATCH_NODES = 180;
+const ORGANIZER_MAX_BATCH_NODES = 80;
 const OUTLINE_CLEANUP_MAX_TOP_LEVEL_NODES = 80;
 
 export type SourceTreeFormHint = {
@@ -1551,10 +1551,10 @@ function organizationCandidateText(node: DocumentSourceNode): string {
 
 function isHighSignalOrganizationNode(node: DocumentSourceNode): boolean {
   if (node.kind === "document") return false;
-  if (["page", "page_group", "form", "endorsement", "section", "schedule", "clause", "table", "table_row"].includes(node.kind)) {
+  if (["page", "page_group", "form", "endorsement", "section", "schedule", "clause", "table"].includes(node.kind)) {
     return true;
   }
-  if (node.kind !== "text" && node.kind !== "table_cell") return false;
+  if (node.kind !== "text" && node.kind !== "table_cell" && node.kind !== "table_row") return false;
   const text = organizationCandidateText(node);
   return /\b(SECTION|PART|ARTICLE|SCHEDULE)\s+[IVXLCDM0-9]+/i.test(text) ||
     /\bItem\s+\d+[\.:]/i.test(text) ||
@@ -1587,7 +1587,7 @@ function organizationBatches(sourceTree: DocumentSourceNode[]): OrganizationBatc
     .filter((node) => node.kind !== "document");
 
   if (topLevelNodes.length === 0) {
-    const nodes = sourceTree.filter((node) => node.kind !== "document").slice(0, 240);
+    const nodes = sourceTree.filter((node) => node.kind !== "document").slice(0, ORGANIZER_MAX_BATCH_NODES);
     return [{
       label: "fallback node prefix because no document root children were found",
       topLevelNodeIds: nodes.map((node) => node.id),
@@ -1605,6 +1605,33 @@ function organizationBatches(sourceTree: DocumentSourceNode[]): OrganizationBatc
     });
   }
   return batches;
+}
+
+function pageRangeOverlaps(
+  leftStart: number | undefined,
+  leftEnd: number | undefined,
+  rightStart: number | undefined,
+  rightEnd: number | undefined,
+): boolean {
+  if (leftStart === undefined || rightStart === undefined) return true;
+  const leftLast = leftEnd ?? leftStart;
+  const rightLast = rightEnd ?? rightStart;
+  return leftStart <= rightLast && rightStart <= leftLast;
+}
+
+function formHintsForBatch(batch: OrganizationBatch, formHints: SourceTreeFormHint[]): SourceTreeFormHint[] {
+  const batchStart = batch.nodes
+    .map((node) => node.pageStart)
+    .filter((page): page is number => typeof page === "number")
+    .reduce<number | undefined>((min, page) => min === undefined ? page : Math.min(min, page), undefined);
+  const batchEnd = batch.nodes
+    .map((node) => node.pageEnd ?? node.pageStart)
+    .filter((page): page is number => typeof page === "number")
+    .reduce<number | undefined>((max, page) => max === undefined ? page : Math.max(max, page), undefined);
+
+  return formHints
+    .filter((form) => pageRangeOverlaps(batchStart, batchEnd, form.pageStart, form.pageEnd))
+    .slice(0, 24);
 }
 
 function mergeOrganizationResults(results: SourceTreeOrganization[]): SourceTreeOrganization {
@@ -1628,7 +1655,8 @@ function mergeOrganizationResults(results: SourceTreeOrganization[]): SourceTree
 }
 
 function buildOrganizationPrompt(batch: OrganizationBatch, formHints: SourceTreeFormHint[]): string {
-  const nodes = batch.nodes.map((node) => compactNode(node, node.kind === "page" ? 900 : 320));
+  const nodes = batch.nodes.map((node) => compactNode(node, node.kind === "page" ? 520 : 260));
+  const localFormHints = formHintsForBatch(batch, formHints);
   return `You organize an insurance document source tree.
 
 Scope:
@@ -1637,7 +1665,7 @@ Scope:
 - Top-level page/form candidates in this batch: ${JSON.stringify(batch.topLevelNodeIds)}
 
 Expected form inventory / page ranges:
-${formatFormHintsForPrompt(formHints)}
+${formatFormHintsForPrompt(localFormHints)}
 
 Rules:
 - Use only node IDs from the provided list.
