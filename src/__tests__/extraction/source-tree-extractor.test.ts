@@ -440,6 +440,66 @@ describe("source-tree extraction", () => {
     expect(pageSeven?.parentId).not.toBe(notices?.id);
   });
 
+  it("guides producer extraction to use the agency name instead of the license role", async () => {
+    const evidence = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      text: [
+        "Item 9. Producer",
+        "Bayshore Insurance Brokers, LLC",
+        "Surplus Lines Broker - CA License No. 0H81-44529",
+        "1130 Embarcadero Street, Suite 400, Oakland, CA 94607",
+      ].join("\n"),
+      pageStart: 6,
+      pageEnd: 6,
+    }, 900);
+    let operationalPrompt = "";
+    const generateObject = vi.fn(async (params) => {
+      if (params.prompt.includes("Review and clean a source-backed operational profile projection")) {
+        return { object: { coverageDecisions: [], warnings: [] } };
+      }
+      if (params.taskKind === "extraction_operational_profile") {
+        operationalPrompt = params.prompt;
+        return {
+          object: {
+            documentType: "policy",
+            policyTypes: ["cyber"],
+            broker: {
+              value: "Bayshore Insurance Brokers, LLC",
+              sourceNodeIds: [],
+              sourceSpanIds: [evidence.id],
+            },
+          },
+        };
+      }
+      return { object: { labels: [], groups: [] } };
+    }) as GenerateObject;
+
+    const result = await runSourceTreeExtraction({
+      id: "doc-1",
+      sourceSpans: [evidence],
+      formInventory: {
+        forms: [{
+          formNumber: "",
+          title: "Declarations",
+          formType: "declarations",
+          pageStart: 6,
+          pageEnd: 6,
+        }],
+      },
+      generateObject,
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    expect(operationalPrompt).toContain("broker.value must be \"Bayshore Insurance Brokers, LLC\"");
+    expect(operationalPrompt).toContain("Surplus Lines Broker");
+    expect(ProducerInfoSchema.parse(result.document.producer)).toEqual({
+      agencyName: "Bayshore Insurance Brokers, LLC",
+      sourceSpanIds: [evidence.id],
+    });
+  });
+
   it("does not run model source-tree organizer calls for realistic policies", async () => {
     const pageSpans = buildPageSourceSpans(Array.from({ length: 33 }, (_, index) => ({
       documentId: "doc-1",

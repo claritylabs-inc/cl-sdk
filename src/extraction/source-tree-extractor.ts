@@ -1514,6 +1514,7 @@ Rules:
 - Every returned value must include sourceNodeIds or sourceSpanIds from the provided nodes.
 - If a value is not directly supported, omit it.
 - Prefer declarations, schedules, premium tables, and endorsement schedules over generic policy wording.
+- For broker/producer, extract the agency or company legal name, not the license role, credential, or type. In a block like "Bayshore Insurance Brokers, LLC" followed by "Surplus Lines Broker - CA License No. ...", broker.value must be "Bayshore Insurance Brokers, LLC"; the surplus-lines role and license number are not the broker name.
 - On declarations pages, treat "Item N" labels as section boundaries. Use Item 6 or equivalent coverage-schedule rows for coverage limits, deductibles, aggregate terms, and retroactive dates; do not merge Item 7 premium, Item 8 ERP, Item 9 producer, or Item 10 forms into Item 6 coverage facts.
 - A coverage schedule row's coverage name should come from the "Coverage Part" or equivalent row label. Limit, deductible, aggregate, sublimit, retention, and retroactive-date values belong as nested terms under that coverage, not in the coverage title.
 - If a coverage schedule continues onto the next page before the next item marker, include the continuation rows in the same coverage or declaration item.
