@@ -303,7 +303,6 @@ Projection defects to look for:
 - Header/value splits where "Limit of Liability", "Deductible", "Retroactive Date", "Aggregate", "Each Claim", or similar terms are attached to the wrong coverage row.
 - Collapsed combined bases where one candidate term says "Each Claim / Aggregate", "Each Loss / Aggregate", "Each Proceeding / Aggregate", or a continuation line supplies a separate policy aggregate, sub-limit, deductible, retention, retroactive date, or coinsurance term.
 - Repeated schedule headings projected as separate coverages when they only introduce the next coverage group.
-- Generic policy form rows projected as scheduled coverages when their values only say "as stated in Item...", "shown in the Declarations", or similar cross-references instead of actual scheduled amounts.
 
 Rules:
 - Use internal reasoning, but return JSON decisions only.
@@ -311,12 +310,12 @@ Rules:
 - Use sourceNodeIds and sourceSpanIds only from the provided source nodes or from the existing candidate entry.
 - Prefer dropping a malformed fact over speculative rewriting.
 - Keep a coverage when it is a real operational coverage/benefit even if only one term needs cleanup.
+- Never drop a declaration or schedule coverage row that names a coverage and states policy-specific amounts, dates, deductibles, retentions, premiums, or coverage terms. Repair its terms instead.
 - When changing a term's semantic meaning, set kind to the corrected normalized term kind.
 - Do not add new coverage rows.
 - Add termAdditions only when a provided source node directly supports the missing term and the candidate already has the correct coverage row.
 - When replacing one combined term with split terms, drop the combined term and add one term per basis. For example, "$1,000,000 Each Claim / Aggregate" should become one each_claim_limit term and one aggregate_limit term, both with value "$1,000,000".
 - When a schedule continues onto the next page before the next item marker, attach continuation terms such as "Aggregate", "Policy Aggregate", coinsurance, deductible, or retroactive date to the previous coverage row.
-- Drop a coverage row when it is only generic policy wording that points back to a declarations item or schedule and does not itself state policy-specific limits, deductibles, retentions, premiums, dates, or coverage names.
 - Include every JSON key in each decision. Use null for scalar fields you are not changing and [] for source ID lists you are not changing.
 - For each coverage decision, always include termDecisions and termAdditions. Use [] when no existing terms need cleanup or no new terms are needed.
 - Keep reasons concise and factual.
