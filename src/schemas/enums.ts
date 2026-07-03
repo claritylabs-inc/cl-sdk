@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// ── PolicyType (42 values) ──
+// ── PolicyType ──
 
 export const PolicyTypeSchema = z.enum([
   // Commercial lines
@@ -42,6 +42,10 @@ export const PolicyTypeSchema = z.enum([
   "watercraft",
   "recreational_vehicle",
   "farm_ranch",
+  "life",
+  "critical_illness",
+  "disability",
+  "long_term_care",
   "pet",
   "travel",
   "identity_theft",

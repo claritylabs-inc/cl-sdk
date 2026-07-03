@@ -6,6 +6,10 @@ import type {
   SourceBackedValue,
 } from "./schemas";
 import { PolicyOperationalProfileSchema } from "./schemas";
+import {
+  POLICY_TYPES_FROM_COVERAGES_WARNING,
+  resolveOperationalProfilePolicyTypes,
+} from "./policy-types";
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
@@ -81,11 +85,11 @@ export function mergeOperationalProfile(
     premium,
   ].filter((value): value is SourceBackedValue => Boolean(value));
 
-  const coverages = base.coverages.length > 0
+  const coverages: OperationalCoverageLine[] = base.coverages.length > 0
     ? base.coverages
     : Array.isArray(candidate.coverages)
     ? candidate.coverages
-        .map((coverage) => {
+        .map((coverage): OperationalCoverageLine | undefined => {
           const record = coverage as Record<string, unknown>;
           const name = typeof record.name === "string" ? cleanValue(record.name) : undefined;
           const limits: OperationalCoverageTerm[] = Array.isArray(record.limits)
@@ -118,6 +122,7 @@ export function mergeOperationalProfile(
             ...keepIds(record.sourceSpanIds, validSpanIds),
             ...limits.flatMap((term) => term.sourceSpanIds),
           ])];
+          if (!name || (sourceNodeIds.length === 0 && sourceSpanIds.length === 0)) return undefined;
           return {
             name,
             coverageCode: typeof record.coverageCode === "string" ? cleanValue(record.coverageCode) : undefined,
@@ -133,7 +138,7 @@ export function mergeOperationalProfile(
             sourceSpanIds,
           };
         })
-        .filter((coverage) => coverage.name && (coverage.sourceNodeIds.length > 0 || coverage.sourceSpanIds.length > 0))
+        .filter((coverage): coverage is OperationalCoverageLine => Boolean(coverage))
     : base.coverages;
 
   const sourceBackedParty = (
@@ -226,11 +231,19 @@ export function mergeOperationalProfile(
       ? candidate.warnings.filter((warning): warning is string => typeof warning === "string" && warning.trim().length > 0)
       : []),
   ];
+  const resolvedPolicyTypes = resolveOperationalProfilePolicyTypes({
+    profileTypes: candidate.policyTypes,
+    existingTypes: base.policyTypes,
+    coverages,
+  });
+  if (resolvedPolicyTypes.source === "profile_augmented" || resolvedPolicyTypes.source === "existing_augmented" || resolvedPolicyTypes.source === "inferred") {
+    warnings.push(POLICY_TYPES_FROM_COVERAGES_WARNING);
+  }
 
   return PolicyOperationalProfileSchema.parse({
     ...base,
     documentType: candidate.documentType === "policy" ? "policy" : base.documentType,
-    policyTypes: Array.isArray(candidate.policyTypes) && candidate.policyTypes.length > 0 ? candidate.policyTypes : base.policyTypes,
+    policyTypes: resolvedPolicyTypes.policyTypes,
     policyNumber,
     namedInsured,
     insurer,
