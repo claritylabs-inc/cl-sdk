@@ -1398,8 +1398,10 @@ Rules:
 - When citing an evidence entry, copy its sourceSpanId into the returned sourceSpanIds array.
 - If a value is not directly supported, omit it.
 - Prefer declarations, schedules, premium tables, and endorsement schedules over generic policy wording.
+- For effective, expiration, retroactive, and other date fields, return a normalized YYYY-MM-DD value when the source date is unambiguous, including month-name dates such as "20 Feb 2026". Do not emit fragmented date text such as "20 2 2026".
 - For broker/producer, extract the agency or company legal name, not the license role, credential, or type. In a block like "Bayshore Insurance Brokers, LLC" followed by "Surplus Lines Broker - CA License No. ...", broker.value must be "Bayshore Insurance Brokers, LLC"; the surplus-lines role and license number are not the broker name.
 - On declarations pages, treat "Item N" labels as section boundaries. Use Item 6 or equivalent coverage-schedule rows for coverage limits, deductibles, aggregate terms, and retroactive dates; do not merge Item 7 premium, Item 8 ERP, Item 9 producer, or Item 10 forms into Item 6 coverage facts.
+- Premium, tax, fee, payment-plan, rating, exposure, and reporting-value schedules are billing evidence, not coverage schedules. Extract the total policy premium into premium when supported, but do not create coverages[] entries from premium-only or fee-only rows, and never use Total Premium, MGA Fee, tax, stamping fee, reporting values, or exposure annual rate as a coverage limit.
 - A coverage schedule row's coverage name should come from the "Coverage Part" or equivalent row label. Limit, deductible, aggregate, sublimit, retention, and retroactive-date values belong as nested terms under that coverage, not in the coverage title.
 - If a coverage schedule continues onto the next page before the next item marker, include the continuation rows in the same coverage or declaration item.
 - If one schedule row or continuation row states the same amount with multiple bases, such as "$1,000,000 Each Claim / Aggregate", return separate limit terms for each basis using the same value instead of one combined "Each Claim / Aggregate" term.
@@ -1494,6 +1496,9 @@ const NORMALIZED_COMPATIBILITY_FIELDS = new Set<keyof PolicyOperationalProfile>(
   "namedInsured",
   "insurer",
   "broker",
+  "effectiveDate",
+  "expirationDate",
+  "retroactiveDate",
 ]);
 
 function valueOf(profile: PolicyOperationalProfile, key: keyof PolicyOperationalProfile): string | undefined {

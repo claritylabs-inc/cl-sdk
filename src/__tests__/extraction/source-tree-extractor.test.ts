@@ -177,11 +177,13 @@ describe("source-tree extraction", () => {
     }));
     expect(cleanupCalls[0]?.prompt).toContain('"coverageIndex": 0');
     expect(cleanupCalls[0]?.prompt).toContain('"coverageIndex": 1');
+    expect(cleanupCalls[0]?.prompt).toContain("Premium-only, tax-only, fee-only");
 
     const profileCalls = generateObject.mock.calls
       .map(([params]) => params)
       .filter((params) => params.taskKind === "extraction_operational_profile");
     expect(profileCalls[0]?.prompt).toContain("Do not merge declaration facts and endorsement schedule facts");
+    expect(profileCalls[0]?.prompt).toContain("Premium, tax, fee, payment-plan, rating, exposure, and reporting-value schedules are billing evidence");
     expect(result.operationalProfile.coverages.map((coverage) => ({
       name: coverage.name,
       endorsementNumber: coverage.endorsementNumber,

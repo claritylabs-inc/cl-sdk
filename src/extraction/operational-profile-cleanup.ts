@@ -274,9 +274,11 @@ Task:
 Projection defects to look for:
 - Generic labels such as "Column 3" that should be renamed from nearby row/header evidence.
 - Declaration or section headers projected as coverage names when the row evidence is actually a specific coverage, sub-limit, deductible, retention, retroactive date, or premium.
+- Premium-only, tax-only, fee-only, rating, exposure, reporting-value, or payment-plan rows projected as coverage rows.
 - Dangling continuation punctuation such as a trailing "/" copied into values.
 - Item references such as "shown in Item 7" or bare item numbers treated as money amounts.
 - Policy wording, exclusions, or unsupported prose copied into operational limit/deductible fields.
+- Premium, MGA Fee, taxes, stamping fees, total premium, total due, reporting values, or exposure annual rate used as a coverage limit.
 - Header/value splits where "Limit of Liability", "Deductible", "Retroactive Date", "Aggregate", "Each Claim", or similar terms are attached to the wrong coverage row.
 - Repeated schedule headings projected as separate coverages when they only introduce the next coverage group.
 
@@ -286,7 +288,8 @@ Rules:
 - Use sourceNodeIds and sourceSpanIds only from the provided source nodes or from the existing candidate entry.
 - Prefer dropping a malformed fact over speculative rewriting.
 - Keep a coverage when it is a real operational coverage/benefit even if only one term needs cleanup.
-- Never drop a declaration or schedule coverage row that names a coverage and states policy-specific amounts, dates, deductibles, retentions, premiums, or coverage terms. Repair its terms instead.
+- Drop a coverage row when its only facts are premium, tax, fee, rating, reporting-value, exposure, or payment-plan facts and it has no source-backed limit, deductible, retention, retroactive date, sublimit, or benefit term.
+- Never drop a declaration or schedule coverage row that names a coverage and states policy-specific limits, dates, deductibles, retentions, sublimits, or benefit terms. Repair its terms instead.
 - When changing a term's semantic meaning, set kind to the corrected normalized term kind.
 - Do not add new coverage rows or new terms; this pass cleans the existing projection.
 - If one existing term combines multiple real limit bases, such as "Each Claim / Aggregate", keep the combined term unless another existing term already represents the other basis. Do not relabel it to only one basis and lose information.
