@@ -550,6 +550,11 @@ describe("source-tree extraction", () => {
     expect(generateObject.mock.calls.some(([params]) =>
       params.taskKind === "extraction_source_tree"
     )).toBe(false);
+    const operationalCall = generateObject.mock.calls.find(([params]) =>
+      params.taskKind === "extraction_operational_profile"
+    );
+    expect(operationalCall?.[0].prompt).toContain("DECLARATIONS Item 1. Named Insured Example Corp.");
+    expect(operationalCall?.[0].prompt).not.toContain("Supplemental source span 409");
   });
 
   it("runs a model cleanup pass over malformed operational profile projections", async () => {

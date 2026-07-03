@@ -1454,6 +1454,16 @@ function compactNode(node: DocumentSourceNode, maxText = 700) {
   };
 }
 
+type OperationalProfileEvidenceEntry = {
+  sourceSpanId: string;
+  sourceNodeIds: string[];
+  pageStart?: number;
+  pageEnd?: number;
+  sourceUnit?: string;
+  formNumber?: string;
+  text: string;
+};
+
 function nodesByParent(sourceTree: DocumentSourceNode[]): Map<string | undefined, DocumentSourceNode[]> {
   const byParent = new Map<string | undefined, DocumentSourceNode[]>();
   for (const node of sourceTree) {
@@ -1465,6 +1475,88 @@ function nodesByParent(sourceTree: DocumentSourceNode[]): Map<string | undefined
     children.sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
   }
   return byParent;
+}
+
+function sourceNodeIdsBySpanId(sourceTree: DocumentSourceNode[]): Map<string, string[]> {
+  const bySpan = new Map<string, string[]>();
+  for (const node of sourceTree) {
+    for (const spanId of node.sourceSpanIds) {
+      const nodes = bySpan.get(spanId) ?? [];
+      nodes.push(node.id);
+      bySpan.set(spanId, nodes);
+    }
+  }
+  return bySpan;
+}
+
+function operationalEvidenceScore(span: SourceSpan): number {
+  const text = cleanText([
+    span.text,
+    span.formNumber,
+    span.sourceUnit,
+    span.metadata?.elementType,
+    span.metadata?.sourceUnit,
+  ].filter(Boolean).join(" "), "");
+  if (!text) return 0;
+
+  let score = 0;
+  if (span.sourceUnit === "table_row" || span.sourceUnit === "table") score += 5;
+  if (span.metadata?.elementType === "title") score += 4;
+  if (span.sourceUnit === "page") score -= 3;
+
+  if (/\b(policy\s*(number|period|term)|effective date|expiration date|expiry date|named insured|insurer|carrier|security|broker|producer|premium|total due)\b/i.test(text)) score += 12;
+  if (/\b(coverage part|limit(?:s)? of liability|deductible|retention|retroactive date|aggregate|sublimit|sub-limit|each claim|each loss|each occurrence|coinsurance)\b/i.test(text)) score += 14;
+  if (/\bendorsement\s+(?:no\.?|number|#)?\s*[A-Z0-9]|forms? and endorsements?|attached at inception|schedule\b/i.test(text)) score += 8;
+  if (/\bitem\s+\d+\.?\s*(?:named insured|policy number|policy period|renewal|form of business|coverage parts?|premium|extended reporting|producer|forms? and endorsements?)\b/i.test(text)) score += 10;
+  if (/\$[\d,.]+|[0-9]{1,2}\/[0-9]{1,2}\/[0-9]{2,4}|[0-9]{1,2}\s+[A-Za-z]{3,9}\s+[0-9]{4}/.test(text)) score += 3;
+
+  return score;
+}
+
+function operationalProfileEvidence(sourceTree: DocumentSourceNode[], sourceSpans: SourceSpan[]): OperationalProfileEvidenceEntry[] {
+  const sorted = [...sourceSpans].sort((left, right) =>
+    (spanPageStart(left) ?? Number.MAX_SAFE_INTEGER) - (spanPageStart(right) ?? Number.MAX_SAFE_INTEGER) ||
+    (left.location?.charStart ?? Number.MAX_SAFE_INTEGER) - (right.location?.charStart ?? Number.MAX_SAFE_INTEGER) ||
+    left.id.localeCompare(right.id)
+  );
+  const selected = new Set<number>();
+  for (let index = 0; index < sorted.length; index += 1) {
+    const score = operationalEvidenceScore(sorted[index]);
+    if (score < 8) continue;
+    const page = spanPageStart(sorted[index]);
+    for (let offset = -2; offset <= 2; offset += 1) {
+      const neighborIndex = index + offset;
+      const neighbor = sorted[neighborIndex];
+      if (!neighbor || spanPageStart(neighbor) !== page) continue;
+      const neighborText = cleanText(neighbor.text, "");
+      if (!neighborText || neighborText.length > 5000) continue;
+      selected.add(neighborIndex);
+    }
+  }
+
+  const nodeIdsBySpanId = sourceNodeIdsBySpanId(sourceTree);
+  const seenText = new Set<string>();
+  return [...selected]
+    .sort((left, right) => left - right)
+    .map((index) => sorted[index])
+    .filter((span) => span.sourceUnit !== "table_cell")
+    .flatMap((span): OperationalProfileEvidenceEntry[] => {
+      const text = cleanText(span.text, "");
+      if (!text) return [];
+      const key = `${spanPageStart(span) ?? "na"}:${text.toLowerCase().slice(0, 240)}`;
+      if (seenText.has(key)) return [];
+      seenText.add(key);
+      return [{
+        sourceSpanId: span.id,
+        sourceNodeIds: [...new Set(nodeIdsBySpanId.get(span.id) ?? [])].slice(0, 4),
+        pageStart: spanPageStart(span),
+        pageEnd: spanPageEnd(span),
+        sourceUnit: spanSourceUnit(span),
+        formNumber: span.formNumber,
+        text: text.slice(0, span.sourceUnit === "page" ? 1200 : 900),
+      }];
+    })
+    .slice(0, 180);
 }
 
 function sourceTreeRootId(sourceTree: DocumentSourceNode[]): string | undefined {
@@ -1499,10 +1591,13 @@ function emptyOperationalProfile(): PolicyOperationalProfile {
   };
 }
 
-function buildOperationalProfilePrompt(sourceTree: DocumentSourceNode[]): string {
-  const nodes = operationalProfilePromptNodes(sourceTree).map((node) =>
-    compactNode(node, node.kind === "page" || node.kind === "endorsement" ? 900 : 700),
-  );
+function buildOperationalProfilePrompt(sourceTree: DocumentSourceNode[], sourceSpans: SourceSpan[]): string {
+  const evidence = operationalProfileEvidence(sourceTree, sourceSpans);
+  const fallbackNodes = evidence.length
+    ? []
+    : operationalProfilePromptNodes(sourceTree).map((node) =>
+        compactNode(node, node.kind === "page" || node.kind === "endorsement" ? 900 : 700),
+      );
   return `Extract a source-backed operational profile for an insurance policy or quote.
 
 Return only high-value operational facts needed for policy lists, Q&A, compliance, and certificate generation:
@@ -1511,7 +1606,8 @@ Return only high-value operational facts needed for policy lists, Q&A, complianc
 - coverage type labels
 
 Rules:
-- Every returned value must include sourceNodeIds or sourceSpanIds from the provided nodes.
+- Every returned value must include sourceNodeIds or sourceSpanIds from the provided evidence.
+- When citing an evidence entry, copy its sourceSpanId into the returned sourceSpanIds array.
 - If a value is not directly supported, omit it.
 - Prefer declarations, schedules, premium tables, and endorsement schedules over generic policy wording.
 - For broker/producer, extract the agency or company legal name, not the license role, credential, or type. In a block like "Bayshore Insurance Brokers, LLC" followed by "Surplus Lines Broker - CA License No. ...", broker.value must be "Bayshore Insurance Brokers, LLC"; the surplus-lines role and license number are not the broker name.
@@ -1527,10 +1623,10 @@ Rules:
 - For coverage schedules, put each claim, aggregate, sublimit, retention, deductible, and retroactive date values in coverages[].limits with labels and source IDs. Keep the legacy coverages[].limit as the primary display value only.
 - Extract coinsurance, participation percentage, or insurer/named-insured split terms as coverages[].limits entries with kind "other" when they are part of a coverage schedule.
 - Do not copy entire policy wording into fields.
-- Extract facts directly from source nodes. There is no deterministic fact baseline.
+- Extract facts directly from source evidence. There is no deterministic fact baseline.
 
-Source nodes:
-${JSON.stringify(nodes, null, 2)}
+Source evidence:
+${JSON.stringify(evidence.length ? evidence : fallbackNodes, null, 2)}
 
 Return JSON for the operational profile.`;
 }
@@ -1889,7 +1985,7 @@ export async function runSourceTreeExtraction(params: {
     const response = await safeGenerateObject(
       params.generateObject,
       {
-        prompt: buildOperationalProfilePrompt(sourceTree),
+        prompt: buildOperationalProfilePrompt(sourceTree, sourceSpans),
         schema: OperationalProfilePromptSchema,
         maxTokens: budget.maxTokens,
         taskKind: "extraction_operational_profile",
