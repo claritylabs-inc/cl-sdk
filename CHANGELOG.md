@@ -1,3 +1,10 @@
+## [3.2.8](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.7...v3.2.8) (2026-07-03)
+
+
+### Bug Fixes
+
+* **extraction:** preserve scheduled coverages during cleanup ([319c044](https://github.com/claritylabs-inc/cl-sdk/commit/319c044ee691303795db6553e1cd0f175263746f))
+
 ## [3.2.7](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.6...v3.2.7) (2026-07-03)
 
 
