@@ -39,7 +39,7 @@ export * from "./case";
 
 // ── Extraction pipeline ──
 export { createExtractor } from "./extraction/coordinator";
-export type { ExtractorConfig, ExtractionInput, ExtractionResult, ExtractionState, ExtractOptions } from "./extraction/coordinator";
+export type { ExtractorConfig, ExtractionInput, ExtractionResult, ExtractOptions } from "./extraction/coordinator";
 export type { ExtractionV3Result } from "./extraction/source-tree-extractor";
 export type {
   DoclingDocumentLike,
