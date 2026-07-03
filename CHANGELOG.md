@@ -1,3 +1,10 @@
+## [3.2.2](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.1...v3.2.2) (2026-07-03)
+
+
+### Bug Fixes
+
+* **extraction:** use compact source evidence for operational profiles ([71fc275](https://github.com/claritylabs-inc/cl-sdk/commit/71fc2754e141ae7b3fcb98f2c3fad0b85b5057bc))
+
 ## [3.2.1](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.0...v3.2.1) (2026-07-03)
 
 
