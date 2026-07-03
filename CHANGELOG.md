@@ -1,3 +1,10 @@
+## [3.2.9](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.8...v3.2.9) (2026-07-03)
+
+
+### Bug Fixes
+
+* **extraction:** keep coverage repair non-additive ([c42de67](https://github.com/claritylabs-inc/cl-sdk/commit/c42de6743c2302a6235016b8f1f1b5d9ea606e57))
+
 ## [3.2.8](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.7...v3.2.8) (2026-07-03)
 
 
