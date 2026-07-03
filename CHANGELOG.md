@@ -1,3 +1,10 @@
+## [3.2.6](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.5...v3.2.6) (2026-07-03)
+
+
+### Bug Fixes
+
+* **extraction:** allow coverage cleanup term additions ([62d173d](https://github.com/claritylabs-inc/cl-sdk/commit/62d173d614b30af4f92a25406d293b0859277a36))
+
 ## [3.2.5](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.4...v3.2.5) (2026-07-03)
 
 
