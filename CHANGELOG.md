@@ -1,3 +1,10 @@
+## [3.2.11](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.10...v3.2.11) (2026-07-03)
+
+
+### Bug Fixes
+
+* **extraction:** keep billing rows out of coverage profile ([0c6beca](https://github.com/claritylabs-inc/cl-sdk/commit/0c6beca7178b228084e9a09dfd14b18a4d068444))
+
 ## [3.2.10](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.9...v3.2.10) (2026-07-03)
 
 
