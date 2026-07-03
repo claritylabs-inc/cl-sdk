@@ -1,3 +1,10 @@
+## [3.2.5](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.4...v3.2.5) (2026-07-03)
+
+
+### Bug Fixes
+
+* **extraction:** keep declaration page context ([d9fe10c](https://github.com/claritylabs-inc/cl-sdk/commit/d9fe10c6268243a15cf235d404b5136648f0f60b))
+
 ## [3.2.4](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.3...v3.2.4) (2026-07-03)
 
 
