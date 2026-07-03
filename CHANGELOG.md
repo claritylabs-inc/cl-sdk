@@ -1,3 +1,10 @@
+## [3.2.7](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.6...v3.2.7) (2026-07-03)
+
+
+### Bug Fixes
+
+* **extraction:** include coverage schedule continuations ([8579d73](https://github.com/claritylabs-inc/cl-sdk/commit/8579d73890e6b95f79fd22784bdfde37b6d6c3b7))
+
 ## [3.2.6](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.5...v3.2.6) (2026-07-03)
 
 
