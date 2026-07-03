@@ -1,3 +1,10 @@
+## [3.2.3](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.2...v3.2.3) (2026-07-03)
+
+
+### Bug Fixes
+
+* **extraction:** prefer row evidence for operational profiles ([fe0618f](https://github.com/claritylabs-inc/cl-sdk/commit/fe0618f6ad9e3710f54f0c4c26606d866d8d2578))
+
 ## [3.2.2](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.1...v3.2.2) (2026-07-03)
 
 
