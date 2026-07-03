@@ -1,3 +1,10 @@
+## [3.2.4](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.3...v3.2.4) (2026-07-03)
+
+
+### Bug Fixes
+
+* **extraction:** focus operational evidence on schedules ([a13ce13](https://github.com/claritylabs-inc/cl-sdk/commit/a13ce136d037afb68df3ad961304b1b6b1b182c8))
+
 ## [3.2.3](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.2...v3.2.3) (2026-07-03)
 
 
