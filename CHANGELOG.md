@@ -1,3 +1,10 @@
+## [3.2.1](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.0...v3.2.1) (2026-07-03)
+
+
+### Bug Fixes
+
+* **extraction:** remove retired form inventory task kind ([81b56ca](https://github.com/claritylabs-inc/cl-sdk/commit/81b56ca637965f71e8bdf3c818def7778a2c6cfc))
+
 # [3.2.0](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.26...v3.2.0) (2026-07-03)
 
 
