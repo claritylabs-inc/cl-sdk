@@ -22,6 +22,17 @@ export const OPERATIONAL_COVERAGE_TERM_KINDS = [
 
 export const OperationalCoverageTermKindSchema = z.enum(OPERATIONAL_COVERAGE_TERM_KINDS);
 
+const CleanupTermSchema = z.object({
+  kind: OperationalCoverageTermKindSchema,
+  label: z.string(),
+  value: z.string(),
+  amount: z.number().nullable().optional(),
+  appliesTo: z.string().nullable().optional(),
+  sourceNodeIds: z.array(z.string()).optional(),
+  sourceSpanIds: z.array(z.string()).optional(),
+  reason: z.string().optional(),
+});
+
 export const OperationalProfileCleanupSchema = z.object({
   coverageDecisions: z.array(z.object({
     coverageIndex: z.number().int().nonnegative(),
@@ -46,6 +57,7 @@ export const OperationalProfileCleanupSchema = z.object({
       sourceNodeIds: z.array(z.string()).optional(),
       sourceSpanIds: z.array(z.string()).optional(),
     })).optional(),
+    termAdditions: z.array(CleanupTermSchema).optional(),
   })).default([]),
   warnings: z.array(z.string()).default([]),
 });
@@ -53,6 +65,7 @@ export const OperationalProfileCleanupSchema = z.object({
 export type OperationalProfileCleanup = z.infer<typeof OperationalProfileCleanupSchema>;
 type CoverageCleanupDecision = OperationalProfileCleanup["coverageDecisions"][number];
 type TermCleanupDecision = NonNullable<CoverageCleanupDecision["termDecisions"]>[number];
+type TermCleanupAddition = NonNullable<CoverageCleanupDecision["termAdditions"]>[number];
 type CoverageCleanupEntry = {
   coverage: OperationalCoverageLine;
   coverageIndex: number;
@@ -278,19 +291,22 @@ Projection defects to look for:
 - Item references such as "shown in Item 7" or bare item numbers treated as money amounts.
 - Policy wording, exclusions, or unsupported prose copied into operational limit/deductible fields.
 - Header/value splits where "Limit of Liability", "Deductible", "Retroactive Date", "Aggregate", "Each Claim", or similar terms are attached to the wrong coverage row.
+- Collapsed combined bases where one candidate term says "Each Claim / Aggregate", "Each Loss / Aggregate", "Each Proceeding / Aggregate", or a continuation line supplies a separate policy aggregate, sub-limit, deductible, retention, retroactive date, or coinsurance term.
 - Repeated schedule headings projected as separate coverages when they only introduce the next coverage group.
 
 Rules:
 - Use internal reasoning, but return JSON decisions only.
-- Do not invent policy facts. Keep, drop, or update only existing coverageIndex and termIndex entries.
+- Do not invent policy facts. Keep, drop, or update only existing coverageIndex and termIndex entries, except for source-backed termAdditions on an existing coverage.
 - Use sourceNodeIds and sourceSpanIds only from the provided source nodes or from the existing candidate entry.
 - Prefer dropping a malformed fact over speculative rewriting.
 - Keep a coverage when it is a real operational coverage/benefit even if only one term needs cleanup.
 - When changing a term's semantic meaning, set kind to the corrected normalized term kind.
-- Do not add new coverage rows or new terms; this pass cleans the existing projection.
-- If one existing term combines multiple real limit bases, such as "Each Claim / Aggregate", keep the combined term unless another existing term already represents the other basis. Do not relabel it to only one basis and lose information.
+- Do not add new coverage rows.
+- Add termAdditions only when a provided source node directly supports the missing term and the candidate already has the correct coverage row.
+- When replacing one combined term with split terms, drop the combined term and add one term per basis. For example, "$1,000,000 Each Claim / Aggregate" should become one each_claim_limit term and one aggregate_limit term, both with value "$1,000,000".
+- When a schedule continues onto the next page before the next item marker, attach continuation terms such as "Aggregate", "Policy Aggregate", coinsurance, deductible, or retroactive date to the previous coverage row.
 - Include every JSON key in each decision. Use null for scalar fields you are not changing and [] for source ID lists you are not changing.
-- For each coverage decision, always include termDecisions. Use [] when no terms need cleanup.
+- For each coverage decision, always include termDecisions and termAdditions. Use [] when no existing terms need cleanup or no new terms are needed.
 - Keep reasons concise and factual.
 
 Candidate projection:
@@ -473,6 +489,17 @@ function applyTermCleanupDecision(
   return next;
 }
 
+function termAdditionTouches(
+  addition: TermCleanupAddition,
+  predicate: (term: Pick<OperationalCoverageTerm, "kind" | "label" | "value">) => boolean,
+): boolean {
+  return predicate({
+    kind: addition.kind,
+    label: cleanProfileValue(addition.label) ?? "",
+    value: cleanProfileValue(addition.value) ?? "",
+  });
+}
+
 function termDecisionsTouch(
   coverage: OperationalCoverageLine,
   decisions: TermCleanupDecision[],
@@ -481,6 +508,55 @@ function termDecisionsTouch(
   return decisions
     .filter((decision) => decision.action !== "keep")
     .some((decision) => termDecisionTouches(coverage, decision, predicate));
+}
+
+function termAdditionsTouch(
+  additions: TermCleanupAddition[],
+  predicate: (term: Pick<OperationalCoverageTerm, "kind" | "label" | "value">) => boolean,
+): boolean {
+  return additions.some((addition) => termAdditionTouches(addition, predicate));
+}
+
+function termKey(term: Pick<OperationalCoverageTerm, "kind" | "label" | "value">): string {
+  return [
+    term.kind,
+    cleanProfileValue(term.label)?.toLowerCase(),
+    cleanProfileValue(term.value)?.toLowerCase(),
+  ].join("|");
+}
+
+function applyTermAddition(
+  addition: TermCleanupAddition,
+  validNodeIds: Set<string>,
+  validSpanIds: Set<string>,
+): OperationalCoverageTerm | undefined {
+  const label = cleanProfileValue(addition.label);
+  const value = cleanProfileValue(addition.value);
+  if (!label || !value) return undefined;
+
+  const sourceNodeIds = validIds(addition.sourceNodeIds, validNodeIds);
+  const sourceSpanIds = validIds(addition.sourceSpanIds, validSpanIds);
+  if (sourceNodeIds.length === 0 && sourceSpanIds.length === 0) return undefined;
+
+  const term: OperationalCoverageTerm = {
+    kind: addition.kind,
+    label,
+    value,
+    sourceNodeIds,
+    sourceSpanIds,
+  };
+
+  if (typeof addition.amount === "number" && Number.isFinite(addition.amount)) {
+    term.amount = addition.amount;
+  } else if (term.kind !== "retroactive_date") {
+    const amount = amountFromOperationalValue(value);
+    if (amount !== undefined) term.amount = amount;
+  }
+
+  const appliesTo = cleanProfileValue(addition.appliesTo);
+  if (appliesTo) term.appliesTo = appliesTo;
+
+  return term;
 }
 
 function applyCoverageCleanupDecision(
@@ -524,24 +600,46 @@ function applyCoverageCleanupDecision(
   next.limits = coverage.limits
     .map((term, index) => applyTermCleanupDecision(term, termDecisionByIndex.get(index), validNodeIds, validSpanIds))
     .filter((term): term is OperationalCoverageTerm => Boolean(term));
+  const termAdditions = (decision.termAdditions ?? [])
+    .map((addition) => applyTermAddition(addition, validNodeIds, validSpanIds))
+    .filter((term): term is OperationalCoverageTerm => Boolean(term));
+  const existingTermKeys = new Set(next.limits.map(termKey));
+  for (const term of termAdditions) {
+    const key = termKey(term);
+    if (existingTermKeys.has(key)) continue;
+    next.limits.push(term);
+    existingTermKeys.add(key);
+  }
 
-  if (termDecisions.length > 0) {
-    if (decision.limit == null && termDecisionsTouch(coverage, termDecisions, isLimitTerm)) {
+  if (termDecisions.length > 0 || termAdditions.length > 0) {
+    if (
+      decision.limit == null &&
+      (termDecisionsTouch(coverage, termDecisions, isLimitTerm) || termAdditionsTouch(termAdditions, isLimitTerm))
+    ) {
       const value = primaryLimitFromTerms(next.limits);
       if (value) next.limit = value;
       else delete next.limit;
     }
-    if (decision.deductible == null && termDecisionsTouch(coverage, termDecisions, isDeductibleTerm)) {
+    if (
+      decision.deductible == null &&
+      (termDecisionsTouch(coverage, termDecisions, isDeductibleTerm) || termAdditionsTouch(termAdditions, isDeductibleTerm))
+    ) {
       const value = deductibleFromTerms(next.limits);
       if (value) next.deductible = value;
       else delete next.deductible;
     }
-    if (decision.premium == null && termDecisionsTouch(coverage, termDecisions, isPremiumTerm)) {
+    if (
+      decision.premium == null &&
+      (termDecisionsTouch(coverage, termDecisions, isPremiumTerm) || termAdditionsTouch(termAdditions, isPremiumTerm))
+    ) {
       const value = premiumFromTerms(next.limits);
       if (value) next.premium = value;
       else delete next.premium;
     }
-    if (decision.retroactiveDate == null && termDecisionsTouch(coverage, termDecisions, isRetroactiveDateTerm)) {
+    if (
+      decision.retroactiveDate == null &&
+      (termDecisionsTouch(coverage, termDecisions, isRetroactiveDateTerm) || termAdditionsTouch(termAdditions, isRetroactiveDateTerm))
+    ) {
       const value = retroactiveDateFromTerms(next.limits);
       if (value) next.retroactiveDate = value;
       else delete next.retroactiveDate;
