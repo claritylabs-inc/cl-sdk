@@ -288,6 +288,7 @@ Rules:
 - Keep a coverage when it is a real operational coverage/benefit even if only one term needs cleanup.
 - When changing a term's semantic meaning, set kind to the corrected normalized term kind.
 - Do not add new coverage rows or new terms; this pass cleans the existing projection.
+- If one existing term combines multiple real limit bases, such as "Each Claim / Aggregate", keep the combined term unless another existing term already represents the other basis. Do not relabel it to only one basis and lose information.
 - Include every JSON key in each decision. Use null for scalar fields you are not changing and [] for source ID lists you are not changing.
 - For each coverage decision, always include termDecisions. Use [] when no terms need cleanup.
 - Keep reasons concise and factual.

@@ -1521,6 +1521,20 @@ function isTableCellSpan(span: SourceSpan): boolean {
   return spanSourceUnit(span) === "table_cell";
 }
 
+function isOperationalEvidenceAnchor(span: SourceSpan): boolean {
+  const sourceUnit = spanSourceUnit(span);
+  if (sourceUnit === "page" || sourceUnit === "table_cell") return false;
+  if (sourceUnit === "table" || sourceUnit === "table_row") return true;
+
+  const text = cleanText([span.text, span.formNumber].filter(Boolean).join(" "), "");
+  if (!text) return false;
+  if (/\bitem\s+\d+\.?\s*(?:named insured|policy number|policy period|renewal|form of business|coverage parts?|premium|extended reporting|producer|forms? and endorsements?)\b/i.test(text)) return true;
+  if (/\b(policy\s*(number|period)|effective date|expiration date|expiry date|named insured|insurer|carrier|broker|producer|premium|total due)\b/i.test(text)) return true;
+  if (/\b(coverage part|forms? and endorsements?|attached at inception|endorsement\s+(?:no\.?|number|#)?\s*[A-Z0-9])\b/i.test(text)) return true;
+  if (/\$[\d,.]+|[0-9]{1,2}\/[0-9]{1,2}\/[0-9]{2,4}|[0-9]{1,2}\s+[A-Za-z]{3,9}\s+[0-9]{4}/.test(text)) return true;
+  return false;
+}
+
 function operationalProfileEvidence(sourceTree: DocumentSourceNode[], sourceSpans: SourceSpan[]): OperationalProfileEvidenceEntry[] {
   const sorted = [...sourceSpans].sort((left, right) =>
     (spanPageStart(left) ?? Number.MAX_SAFE_INTEGER) - (spanPageStart(right) ?? Number.MAX_SAFE_INTEGER) ||
@@ -1532,6 +1546,7 @@ function operationalProfileEvidence(sourceTree: DocumentSourceNode[], sourceSpan
   for (let index = 0; index < sorted.length; index += 1) {
     const score = operationalEvidenceScore(sorted[index]);
     if (score < 8) continue;
+    if (!isOperationalEvidenceAnchor(sorted[index])) continue;
     const tableId = spanTableId(sorted[index]);
     if (tableId && !isTableCellSpan(sorted[index])) selectedTableIds.add(tableId);
     const page = spanPageStart(sorted[index]);
@@ -1636,6 +1651,7 @@ Rules:
 - On declarations pages, treat "Item N" labels as section boundaries. Use Item 6 or equivalent coverage-schedule rows for coverage limits, deductibles, aggregate terms, and retroactive dates; do not merge Item 7 premium, Item 8 ERP, Item 9 producer, or Item 10 forms into Item 6 coverage facts.
 - A coverage schedule row's coverage name should come from the "Coverage Part" or equivalent row label. Limit, deductible, aggregate, sublimit, retention, and retroactive-date values belong as nested terms under that coverage, not in the coverage title.
 - If a coverage schedule continues onto the next page before the next item marker, include the continuation rows in the same coverage or declaration item.
+- If one schedule row or continuation row states the same amount with multiple bases, such as "$1,000,000 Each Claim / Aggregate", return separate limit terms for each basis using the same value instead of one combined "Each Claim / Aggregate" term.
 - Forms-and-endorsements schedules are operational form inventory evidence, not coverage limits. Do not turn form schedule rows into coverage units unless the row also states a coverage-specific limit or deductible.
 - Keep each coverage unit tied to one evidence scope: a declaration/core schedule row, a core policy form section, or one specific endorsement schedule. Do not merge declaration facts and endorsement schedule facts into the same coverage unit, even when they use the same coverage name.
 - If the declarations schedule and an endorsement schedule both list Network Security, Social Engineering Fraud, Regulatory Proceedings, or another same-named coverage, return separate coverage units for each supported source scope.

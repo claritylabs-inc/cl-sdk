@@ -563,6 +563,17 @@ describe("source-tree extraction", () => {
       pageNumber: 5,
       text: "DECLARATIONS PAGE BLOB SHOULD NOT DRIVE COVERAGE EXTRACTION A. Technology Professional Liability only.",
     }])[0]!;
+    const genericPolicyWording = [
+      "Coverage applies only to those Insureds and Insuring Agreements for which a Limit of Liability has been purchased.",
+      "The terms, conditions, limitations, and exclusions set forth herein apply to this policy.",
+    ].map((text, index) => buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      text,
+      pageStart: 1,
+      pageEnd: 1,
+      sourceUnit: "text",
+    }, index + 50));
     const scheduleRows = [
       "Item 6. Coverage Parts, Limits of Liability, Deductibles, and Retroactive Dates",
       "Coverage Part Limit of Liability Deductible Retroactive Date",
@@ -600,7 +611,7 @@ describe("source-tree extraction", () => {
 
     await runSourceTreeExtraction({
       id: "doc-1",
-      sourceSpans: [page, ...scheduleRows],
+      sourceSpans: [page, ...genericPolicyWording, ...scheduleRows],
       formInventory: {
         forms: [{ formNumber: "", title: "DECLARATIONS", formType: "declarations", pageStart: 5, pageEnd: 5 }],
       },
@@ -612,6 +623,7 @@ describe("source-tree extraction", () => {
     expect(operationalPrompt).toContain("B. Network Security and Privacy Liability");
     expect(operationalPrompt).toContain("C. Regulatory Proceedings Sub-Limit");
     expect(operationalPrompt).toContain("D. Social Engineering Fraud");
+    expect(operationalPrompt).not.toContain("Coverage applies only to those Insureds");
     expect(operationalPrompt).not.toContain("PAGE BLOB SHOULD NOT DRIVE COVERAGE EXTRACTION");
   });
 
