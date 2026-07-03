@@ -1,3 +1,10 @@
+# [3.2.0](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.26...v3.2.0) (2026-07-03)
+
+
+### Features
+
+* **extraction:** require source spans for policy extraction ([c6d88da](https://github.com/claritylabs-inc/cl-sdk/commit/c6d88da88329e975e07bea696b1c194ee9156dda))
+
 ## [3.1.26](https://github.com/claritylabs-inc/cl-sdk/compare/v3.1.25...v3.1.26) (2026-07-02)
 
 
