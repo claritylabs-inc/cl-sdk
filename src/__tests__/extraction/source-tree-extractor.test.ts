@@ -624,7 +624,9 @@ describe("source-tree extraction", () => {
     expect(operationalPrompt).toContain("C. Regulatory Proceedings Sub-Limit");
     expect(operationalPrompt).toContain("D. Social Engineering Fraud");
     expect(operationalPrompt).not.toContain("Coverage applies only to those Insureds");
-    expect(operationalPrompt).not.toContain("PAGE BLOB SHOULD NOT DRIVE COVERAGE EXTRACTION");
+    expect(operationalPrompt.indexOf("B. Network Security and Privacy Liability")).toBeLessThan(
+      operationalPrompt.indexOf("PAGE BLOB SHOULD NOT DRIVE COVERAGE EXTRACTION"),
+    );
   });
 
   it("keeps policy uploads typed as policies when the model returns quote", async () => {

@@ -1523,11 +1523,15 @@ function isTableCellSpan(span: SourceSpan): boolean {
 
 function isOperationalEvidenceAnchor(span: SourceSpan): boolean {
   const sourceUnit = spanSourceUnit(span);
-  if (sourceUnit === "page" || sourceUnit === "table_cell") return false;
+  if (sourceUnit === "table_cell") return false;
   if (sourceUnit === "table" || sourceUnit === "table_row") return true;
 
   const text = cleanText([span.text, span.formNumber].filter(Boolean).join(" "), "");
   if (!text) return false;
+  if (sourceUnit === "page") {
+    return hasSubstantiveDeclarationsScheduleText(text) ||
+      /\b(declarations?|named insured|policy number|policy period|effective date|expiration date|premium|total due|producer)\b/i.test(text);
+  }
   if (/\bitem\s+\d+\.?\s*(?:named insured|policy number|policy period|renewal|form of business|coverage parts?|premium|extended reporting|producer|forms? and endorsements?)\b/i.test(text)) return true;
   if (/\b(policy\s*(number|period)|effective date|expiration date|expiry date|named insured|insurer|carrier|broker|producer|premium|total due)\b/i.test(text)) return true;
   if (/\b(coverage part|forms? and endorsements?|attached at inception|endorsement\s+(?:no\.?|number|#)?\s*[A-Z0-9])\b/i.test(text)) return true;
@@ -1593,7 +1597,7 @@ function operationalProfileEvidence(sourceTree: DocumentSourceNode[], sourceSpan
 
   const detailEntries = entries.filter((entry) => entry.sourceUnit !== "page");
   const pageEntries = entries.filter((entry) => entry.sourceUnit === "page");
-  return (detailEntries.length >= 20 ? detailEntries : [...detailEntries, ...pageEntries]).slice(0, 180);
+  return [...detailEntries, ...pageEntries].slice(0, 180);
 }
 
 function sourceTreeRootId(sourceTree: DocumentSourceNode[]): string | undefined {
