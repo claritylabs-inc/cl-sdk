@@ -37,10 +37,10 @@ The primary extraction path is v3 source-tree extraction when source spans are a
 
 1. **Normalize parser input**: hosts pass parser-neutral `SourceSpan[]` from LiteParse, Docling, PDF.js, OCR, or another parser. Spans carry page ranges, table row/cell metadata, parent span IDs, stable text hashes, and optional bounding boxes.
 2. **Build source tree** (`source/tree.ts`): deterministic construction creates `DocumentSourceNode[]` for document, page, page group/form/endorsement/section/schedule/clause, table, row, cell, and text levels. Nodes preserve `sourceSpanIds`, page range, bbox, order, and hierarchy path.
-3. **Organize labels/groups** (`extraction/source-tree-extractor.ts`): a small model pass may relabel existing nodes or group adjacent existing nodes. It cannot invent node IDs, text, pages, source spans, or bbox locations.
+3. **Organize labels/groups** (`extraction/source-tree-extractor.ts`): source-text and parser-title rules group existing nodes into declarations, policy forms, endorsements, sections, and schedules. They must not invent node IDs, text, pages, source spans, or bbox locations.
 4. **Operational profile** (`source/operational-profile.ts`): a bounded model pass extracts only product-critical facts: policy metadata, parties, policy types, coverage lines, limits, deductibles, premiums, key dates, and endorsement support. The merge layer rejects uncited facts and source IDs that are not present in the current source tree/spans. `policyTypes` is the single top-level policy classification field; do not add a parallel `coverageTypes` alias, `coverageOrigin` bucket, or deterministic coverage-origin projection. Do not reintroduce deterministic operational-fact scaffolding.
 5. **Compatibility projection** (`source-tree-extractor.ts`): `result.document`, `documentMetadata`, and `documentOutline` are materialized views over `sourceTree` and `operationalProfile`; `result.chunks` is empty on v3 paths.
-6. **Legacy fallback** (`coordinator.ts`): if no source spans are available, the older classify/page-map/focused-extractor pipeline can still run, but new production hosts should provide source spans and treat the source tree as canonical.
+6. **No raw-PDF fallback** (`coordinator.ts`): extraction fails fast without source spans. Hosts should preprocess documents with LiteParse, Docling, PDF.js, OCR, or another parser before calling the SDK.
 
 Entry point: `createExtractor(config)` returns `{ extract(pdfBase64, documentId?, { sourceSpans }) }`. On v3 paths, the result includes `sourceTree`, `sourceSpans`, `operationalProfile`, `warnings`, `tokenUsage`, and `performanceReport`.
 
@@ -57,10 +57,9 @@ Consumers provide plain callback functions:
 
 Important extraction contract:
 
-- `providerOptions.pdfBase64` carries document content for classify, page-map, review, and PDF-mode extractor calls
-- `providerOptions.images` carries rendered page images for image-mode extractor calls
-- `providerOptions.sourceSpans` carries source evidence; source-tree organizer and operational-profile prompts may label/group or extract only from existing source node/span IDs
-- the callback must translate those fields into actual file/image parts in the provider request
+- `providerOptions.sourceSpans` carries source evidence; the source tree is grouped from parser spans and semantic headings, and operational-profile prompts may extract only from existing source node/span IDs
+- `providerOptions.pdfBase64` and `providerOptions.images` are still available to other SDK workflows, but policy extraction should not send raw PDFs or page images as the primary input
+- the callback must translate any provider options it supports into actual file/image parts in the provider request
 - if usage is omitted by the callback, extraction still works but `usageReporting.callsMissingUsage` will surface that gap
 - callbacks may receive `trace` metadata identifying extractor/page range or formatting batch; hosts should preserve it in model-call telemetry
 
@@ -68,13 +67,13 @@ Important extraction contract:
 
 - **Parser-grounded hierarchy**: source tree nodes may be reorganized only around existing source node IDs and source span IDs.
 - **Operational profile as projection**: policy facts used by products must cite source nodes/spans and should not become the canonical source of wording.
-- **Legacy fallback isolation**: keep old focused extraction available only for no-source-span inputs; do not expand it as the primary path.
+- **Source-span-only extraction**: policy extraction requires caller-provided source spans from LiteParse, Docling, or another preprocessor. Do not reintroduce raw-PDF page-map extraction, form-inventory model calls, or source-tree organizer model calls.
 - **Bounded agentic workflows**: prefer deterministic planning with agentic decision points. Use workflow planners/gates to avoid unnecessary extractor, retrieval, lookup, or formatting calls while preserving follow-up paths for edge cases. Operational policy facts are the exception: they are model-extracted and source-validated, not deterministically inferred.
 - **Strict schema compatibility**: `toStrictSchema()` auto-transforms Zod schemas before `generateObject` calls.
 - **Safe generate**: `safeGenerateObject()` wraps `generateObject` with retry, strictification, and optional fallbacks.
 - **Output token caps**: `resolveModelBudget()` treats task budgets as preferences/diagnostics. When model capabilities provide `maxOutputTokens`, use that model maximum as the request cap so extraction does not truncate just because a cheap task preference was too low. Only explicit hard constraints should lower the cap.
-- **Task-routed model capabilities**: hosts that route SDK tasks to different models must pass `modelCapabilitiesByTaskKind` into `createExtractor(config)`. Do not pass only the generic focused-extraction model capability when source-tree, operational-profile, form-inventory, coverage-cleanup, review, or lookup calls use specialized routes.
-- **Parallel source-tree passes**: source-tree organizer batches may run concurrently, but their results should be applied in deterministic batch/page order. Operational coverage cleanup runs as one source-backed model pass and applies decisions by original `coverageIndex`.
+- **Task-routed model capabilities**: hosts that route SDK tasks to different models must pass `modelCapabilitiesByTaskKind` into `createExtractor(config)`. Do not pass only the generic focused-extraction model capability when operational-profile, coverage-cleanup, review, or lookup calls use specialized routes.
+- **Coverage cleanup**: operational coverage cleanup runs as one source-backed model pass and applies decisions by original `coverageIndex`; it should repair projection shape, not invent unsupported coverage rows.
 - **Token tracking**: `tokenUsage` aggregates available usage values; `usageReporting` tells you how many calls did or did not report usage.
 
 ### Query and Application Workflows

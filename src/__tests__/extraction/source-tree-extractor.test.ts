@@ -38,7 +38,7 @@ function modelStub(): GenerateObject {
 }
 
 describe("source-tree extraction", () => {
-  it("uses form inventory page ranges as the source-tree skeleton", async () => {
+  it("groups source pages into the source-tree skeleton", async () => {
     const sourceSpans = buildPageSourceSpans([
       {
         documentId: "doc-1",
@@ -80,34 +80,6 @@ describe("source-tree extraction", () => {
     const result = await runSourceTreeExtraction({
       id: "doc-1",
       sourceSpans,
-      formInventory: {
-        forms: [
-          {
-            formNumber: "NWC-DEC 04 25",
-            editionDate: "04/25",
-            title: "DECLARATIONS PAGE",
-            formType: "declarations",
-            pageStart: 2,
-            pageEnd: 3,
-          },
-          {
-            formNumber: "NWC-TEC 04 25",
-            editionDate: "04/25",
-            title: "TECHNOLOGY ERRORS & OMISSIONS AND CYBER LIABILITY INSURANCE POLICY",
-            formType: "coverage",
-            pageStart: 4,
-            pageEnd: 5,
-          },
-          {
-            formNumber: "NWC-END 001 04 25",
-            editionDate: "04/25",
-            title: "ENDORSEMENT NO. 1 - NETWORK SECURITY AND PRIVACY LIABILITY COVERAGE",
-            formType: "endorsement",
-            pageStart: 6,
-            pageEnd: 7,
-          },
-        ],
-      },
       generateObject: modelStub(),
       resolveBudget,
       trackUsage: vi.fn(),
@@ -188,7 +160,6 @@ describe("source-tree extraction", () => {
     const result = await runSourceTreeExtraction({
       id: "doc-1",
       sourceSpans,
-      formInventory: { forms: [] },
       generateObject,
       resolveBudget,
       trackUsage: vi.fn(),
@@ -263,15 +234,6 @@ describe("source-tree extraction", () => {
     const result = await runSourceTreeExtraction({
       id: "doc-1",
       sourceSpans: [page, formNumber, title, scheduleRow],
-      formInventory: {
-        forms: [{
-          formNumber: "SPS-END 002 03 25",
-          title: "ENDORSEMENT NO. 2 — SOCIAL ENGINEERING FRAUD COVERAGE",
-          formType: "endorsement",
-          pageStart: 21,
-          pageEnd: 21,
-        }],
-      },
       generateObject: modelStub(),
       resolveBudget,
       trackUsage: vi.fn(),
@@ -362,15 +324,6 @@ describe("source-tree extraction", () => {
     const result = await runSourceTreeExtraction({
       id: "doc-1",
       sourceSpans: [...pageSpans, titleOne, paragraphOne, continuation, titleTwo, paragraphTwo],
-      formInventory: {
-        forms: [{
-          formNumber: "NWC-TEC 04 25",
-          title: "TECHNOLOGY ERRORS & OMISSIONS AND CYBER LIABILITY INSURANCE POLICY",
-          formType: "coverage",
-          pageStart: 10,
-          pageEnd: 11,
-        }],
-      },
       generateObject: modelStub(),
       resolveBudget,
       trackUsage: vi.fn(),
@@ -417,15 +370,6 @@ describe("source-tree extraction", () => {
     const result = await runSourceTreeExtraction({
       id: "doc-1",
       sourceSpans,
-      formInventory: {
-        forms: [{
-          formNumber: "",
-          title: "DECLARATIONS",
-          formType: "declarations",
-          pageStart: 5,
-          pageEnd: 7,
-        }],
-      },
       generateObject: modelStub(),
       resolveBudget,
       trackUsage: vi.fn(),
@@ -478,15 +422,6 @@ describe("source-tree extraction", () => {
     const result = await runSourceTreeExtraction({
       id: "doc-1",
       sourceSpans: [evidence],
-      formInventory: {
-        forms: [{
-          formNumber: "",
-          title: "Declarations",
-          formType: "declarations",
-          pageStart: 6,
-          pageEnd: 6,
-        }],
-      },
       generateObject,
       resolveBudget,
       trackUsage: vi.fn(),
@@ -535,13 +470,6 @@ describe("source-tree extraction", () => {
     await runSourceTreeExtraction({
       id: "doc-1",
       sourceSpans: [...pageSpans, ...extraSpans],
-      formInventory: {
-        forms: [
-          { formNumber: "", title: "DECLARATIONS", formType: "declarations", pageStart: 5, pageEnd: 7 },
-          { formNumber: "", title: "TECHNOLOGY ERRORS & OMISSIONS AND CYBER LIABILITY INSURANCE POLICY", formType: "coverage", pageStart: 11, pageEnd: 18 },
-          { formNumber: "", title: "ENDORSEMENT NO. 1", formType: "endorsement", pageStart: 19, pageEnd: 33 },
-        ],
-      },
       generateObject,
       resolveBudget,
       trackUsage: vi.fn(),
@@ -612,9 +540,6 @@ describe("source-tree extraction", () => {
     await runSourceTreeExtraction({
       id: "doc-1",
       sourceSpans: [page, ...genericPolicyWording, ...scheduleRows],
-      formInventory: {
-        forms: [{ formNumber: "", title: "DECLARATIONS", formType: "declarations", pageStart: 5, pageEnd: 5 }],
-      },
       generateObject,
       resolveBudget,
       trackUsage: vi.fn(),
@@ -658,7 +583,6 @@ describe("source-tree extraction", () => {
     const result = await runSourceTreeExtraction({
       id: "doc-1",
       sourceSpans: [evidence],
-      formInventory: { forms: [] },
       generateObject,
       resolveBudget,
       trackUsage: vi.fn(),
