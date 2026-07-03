@@ -1,3 +1,10 @@
+## [3.2.10](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.9...v3.2.10) (2026-07-03)
+
+
+### Bug Fixes
+
+* **extraction:** simplify source-span profile evidence ([6a4ca76](https://github.com/claritylabs-inc/cl-sdk/commit/6a4ca768bc15b0a245c5e13b176bdbe1e10fc0b9))
+
 ## [3.2.9](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.8...v3.2.9) (2026-07-03)
 
 
