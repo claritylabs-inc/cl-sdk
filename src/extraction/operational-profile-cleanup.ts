@@ -76,6 +76,8 @@ const CLEANUP_SOURCE_NODE_LIMIT = 90;
 const CLEANUP_SIBLING_WINDOW = 4;
 const CLEANUP_KEYWORD =
   /\b(coverage|limit|liability|deductible|retention|retroactive|premium|aggregate|sublimit|sub-limit|claim|occurrence|loss|proceeding|endorsement|declarations?)\b|\$[0-9]/i;
+const CLEANUP_CONTINUATION_KEYWORD =
+  /\b(coverage part|limit of liability|deductible|retention|retroactive date|aggregate|sublimit|sub-limit|each claim|each occurrence|each loss|each proceeding|coinsurance)\b|\$[0-9]/i;
 
 function compactNode(node: DocumentSourceNode, maxText = 700) {
   return {
@@ -232,11 +234,19 @@ function selectCoverageCleanupNodes(
     for (const child of children.slice(0, 24)) addNode(child, 760);
   }
 
+  const continuationPages = new Set([...coveragePages].map((page) => page + 1));
   for (const node of sourceTree) {
     if (node.kind === "document") continue;
-    if (!node.pageStart || !coveragePages.has(node.pageStart)) continue;
+    if (typeof node.pageStart !== "number") continue;
+    const samePage = coveragePages.has(node.pageStart);
+    const nearbyContinuationPage = continuationPages.has(node.pageStart);
+    if (!samePage && !nearbyContinuationPage) continue;
     const text = nodeTextForSelection(node);
-    if (CLEANUP_KEYWORD.test(text) || nodeTextMatchesCoverage(node, coverageTerms)) {
+    if (
+      CLEANUP_KEYWORD.test(text) ||
+      nodeTextMatchesCoverage(node, coverageTerms) ||
+      (nearbyContinuationPage && CLEANUP_CONTINUATION_KEYWORD.test(text))
+    ) {
       addNode(node, 600);
     }
   }
@@ -265,7 +275,7 @@ export function buildOperationalProfileCleanupPrompt(
     .map((node) => compactNode(
       node,
       node.kind === "page" || node.kind === "page_group"
-        ? 260
+        ? 520
         : node.kind === "table_row" || node.kind === "table_cell"
           ? 520
           : 360,
@@ -293,6 +303,7 @@ Projection defects to look for:
 - Header/value splits where "Limit of Liability", "Deductible", "Retroactive Date", "Aggregate", "Each Claim", or similar terms are attached to the wrong coverage row.
 - Collapsed combined bases where one candidate term says "Each Claim / Aggregate", "Each Loss / Aggregate", "Each Proceeding / Aggregate", or a continuation line supplies a separate policy aggregate, sub-limit, deductible, retention, retroactive date, or coinsurance term.
 - Repeated schedule headings projected as separate coverages when they only introduce the next coverage group.
+- Generic policy form rows projected as scheduled coverages when their values only say "as stated in Item...", "shown in the Declarations", or similar cross-references instead of actual scheduled amounts.
 
 Rules:
 - Use internal reasoning, but return JSON decisions only.
@@ -305,6 +316,7 @@ Rules:
 - Add termAdditions only when a provided source node directly supports the missing term and the candidate already has the correct coverage row.
 - When replacing one combined term with split terms, drop the combined term and add one term per basis. For example, "$1,000,000 Each Claim / Aggregate" should become one each_claim_limit term and one aggregate_limit term, both with value "$1,000,000".
 - When a schedule continues onto the next page before the next item marker, attach continuation terms such as "Aggregate", "Policy Aggregate", coinsurance, deductible, or retroactive date to the previous coverage row.
+- Drop a coverage row when it is only generic policy wording that points back to a declarations item or schedule and does not itself state policy-specific limits, deductibles, retentions, premiums, dates, or coverage names.
 - Include every JSON key in each decision. Use null for scalar fields you are not changing and [] for source ID lists you are not changing.
 - For each coverage decision, always include termDecisions and termAdditions. Use [] when no existing terms need cleanup or no new terms are needed.
 - Keep reasons concise and factual.
