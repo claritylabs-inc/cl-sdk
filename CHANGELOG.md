@@ -1,3 +1,10 @@
+## [3.2.12](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.11...v3.2.12) (2026-07-03)
+
+
+### Bug Fixes
+
+* **extraction:** augment policy types from coverage evidence ([7ee7acd](https://github.com/claritylabs-inc/cl-sdk/commit/7ee7acd15c4e168870959c294ef4c0c389c23bd0))
+
 ## [3.2.11](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.10...v3.2.11) (2026-07-03)
 
 
