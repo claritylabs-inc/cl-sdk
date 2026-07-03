@@ -229,7 +229,7 @@ export function mergeOperationalProfile(
 
   return PolicyOperationalProfileSchema.parse({
     ...base,
-    documentType: candidate.documentType === "quote" ? "quote" : candidate.documentType === "policy" ? "policy" : base.documentType,
+    documentType: candidate.documentType === "policy" ? "policy" : base.documentType,
     policyTypes: Array.isArray(candidate.policyTypes) && candidate.policyTypes.length > 0 ? candidate.policyTypes : base.policyTypes,
     policyNumber,
     namedInsured,

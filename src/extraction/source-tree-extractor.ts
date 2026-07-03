@@ -1513,6 +1513,14 @@ function operationalEvidenceScore(span: SourceSpan): number {
   return score;
 }
 
+function spanTableId(span: SourceSpan): string | undefined {
+  return span.table?.tableId ?? span.metadata?.tableId;
+}
+
+function isTableCellSpan(span: SourceSpan): boolean {
+  return spanSourceUnit(span) === "table_cell";
+}
+
 function operationalProfileEvidence(sourceTree: DocumentSourceNode[], sourceSpans: SourceSpan[]): OperationalProfileEvidenceEntry[] {
   const sorted = [...sourceSpans].sort((left, right) =>
     (spanPageStart(left) ?? Number.MAX_SAFE_INTEGER) - (spanPageStart(right) ?? Number.MAX_SAFE_INTEGER) ||
@@ -1520,9 +1528,12 @@ function operationalProfileEvidence(sourceTree: DocumentSourceNode[], sourceSpan
     left.id.localeCompare(right.id)
   );
   const selected = new Set<number>();
+  const selectedTableIds = new Set<string>();
   for (let index = 0; index < sorted.length; index += 1) {
     const score = operationalEvidenceScore(sorted[index]);
     if (score < 8) continue;
+    const tableId = spanTableId(sorted[index]);
+    if (tableId && !isTableCellSpan(sorted[index])) selectedTableIds.add(tableId);
     const page = spanPageStart(sorted[index]);
     for (let offset = -2; offset <= 2; offset += 1) {
       const neighborIndex = index + offset;
@@ -1533,13 +1544,21 @@ function operationalProfileEvidence(sourceTree: DocumentSourceNode[], sourceSpan
       selected.add(neighborIndex);
     }
   }
+  if (selectedTableIds.size > 0) {
+    sorted.forEach((span, index) => {
+      const tableId = spanTableId(span);
+      if (!tableId || !selectedTableIds.has(tableId) || isTableCellSpan(span)) return;
+      const text = cleanText(span.text, "");
+      if (text && text.length <= 5000) selected.add(index);
+    });
+  }
 
   const nodeIdsBySpanId = sourceNodeIdsBySpanId(sourceTree);
   const seenText = new Set<string>();
-  return [...selected]
+  const entries = [...selected]
     .sort((left, right) => left - right)
     .map((index) => sorted[index])
-    .filter((span) => span.sourceUnit !== "table_cell")
+    .filter((span) => !isTableCellSpan(span))
     .flatMap((span): OperationalProfileEvidenceEntry[] => {
       const text = cleanText(span.text, "");
       if (!text) return [];
@@ -1555,8 +1574,11 @@ function operationalProfileEvidence(sourceTree: DocumentSourceNode[], sourceSpan
         formNumber: span.formNumber,
         text: text.slice(0, span.sourceUnit === "page" ? 1200 : 900),
       }];
-    })
-    .slice(0, 180);
+    });
+
+  const detailEntries = entries.filter((entry) => entry.sourceUnit !== "page");
+  const pageEntries = entries.filter((entry) => entry.sourceUnit === "page");
+  return (detailEntries.length >= 20 ? detailEntries : [...detailEntries, ...pageEntries]).slice(0, 180);
 }
 
 function sourceTreeRootId(sourceTree: DocumentSourceNode[]): string | undefined {
@@ -1598,7 +1620,7 @@ function buildOperationalProfilePrompt(sourceTree: DocumentSourceNode[], sourceS
     : operationalProfilePromptNodes(sourceTree).map((node) =>
         compactNode(node, node.kind === "page" || node.kind === "endorsement" ? 900 : 700),
       );
-  return `Extract a source-backed operational profile for an insurance policy or quote.
+  return `Extract a source-backed operational profile for an insurance policy.
 
 Return only high-value operational facts needed for policy lists, Q&A, compliance, and certificate generation:
 - policy number, named insured, insurer/carrier/security, broker/producer, policy period, retroactive date, premium

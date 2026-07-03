@@ -557,6 +557,103 @@ describe("source-tree extraction", () => {
     expect(operationalCall?.[0].prompt).not.toContain("Supplemental source span 409");
   });
 
+  it("uses declaration schedule rows instead of page blobs for operational profile evidence", async () => {
+    const page = buildPageSourceSpans([{
+      documentId: "doc-1",
+      pageNumber: 5,
+      text: "DECLARATIONS PAGE BLOB SHOULD NOT DRIVE COVERAGE EXTRACTION A. Technology Professional Liability only.",
+    }])[0]!;
+    const scheduleRows = [
+      "Item 6. Coverage Parts, Limits of Liability, Deductibles, and Retroactive Dates",
+      "Coverage Part Limit of Liability Deductible Retroactive Date",
+      "A. Technology Professional Liability $2,000,000 Each Claim $10,000 01/01/2024",
+      "$2,000,000 Policy Aggregate",
+      "B. Network Security and Privacy Liability $1,000,000 Each Claim / $5,000 Each 05/01/2025",
+      "Aggregate (sub-limit, part of and not in addition to Aggregate Policy Limit) $1,000,000",
+      "C. Regulatory Proceedings Sub-Limit $100,000 Each Proceeding / $5,000 Each 05/01/2025",
+      "Aggregate (sub-limit, part of Coverage Part B) $100,000",
+      "D. Social Engineering Fraud $250,000 Each Loss / $5,000 Each 05/01/2026",
+      ...Array.from({ length: 14 }, (_, index) =>
+        `Coverage Part Supplemental ${index + 1} Limit of Liability $${index + 1},000 Deductible $500`,
+      ),
+    ].map((text, index) => buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      text,
+      pageStart: 5,
+      pageEnd: 5,
+      sourceUnit: "text",
+    }, index + 100));
+    let operationalPrompt = "";
+    const generateObject = vi.fn(async (params) => {
+      if (params.taskKind === "extraction_operational_profile") {
+        operationalPrompt = params.prompt;
+        return {
+          object: {
+            documentType: "policy",
+            policyTypes: ["cyber"],
+          },
+        };
+      }
+      return { object: { labels: [], groups: [] } };
+    }) as GenerateObject;
+
+    await runSourceTreeExtraction({
+      id: "doc-1",
+      sourceSpans: [page, ...scheduleRows],
+      formInventory: {
+        forms: [{ formNumber: "", title: "DECLARATIONS", formType: "declarations", pageStart: 5, pageEnd: 5 }],
+      },
+      generateObject,
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    expect(operationalPrompt).toContain("B. Network Security and Privacy Liability");
+    expect(operationalPrompt).toContain("C. Regulatory Proceedings Sub-Limit");
+    expect(operationalPrompt).toContain("D. Social Engineering Fraud");
+    expect(operationalPrompt).not.toContain("PAGE BLOB SHOULD NOT DRIVE COVERAGE EXTRACTION");
+  });
+
+  it("keeps policy uploads typed as policies when the model returns quote", async () => {
+    const evidence = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      text: "Policy Number APD-1 Named Insured Example Logistics Inc.",
+      pageStart: 1,
+      pageEnd: 1,
+      sourceUnit: "text",
+    });
+    const generateObject = vi.fn(async (params) => {
+      if (params.taskKind === "extraction_operational_profile") {
+        return {
+          object: {
+            documentType: "quote",
+            policyTypes: ["inland_marine"],
+            policyNumber: {
+              value: "APD-1",
+              sourceNodeIds: [],
+              sourceSpanIds: [evidence.id],
+            },
+          },
+        };
+      }
+      return { object: { labels: [], groups: [] } };
+    }) as GenerateObject;
+
+    const result = await runSourceTreeExtraction({
+      id: "doc-1",
+      sourceSpans: [evidence],
+      formInventory: { forms: [] },
+      generateObject,
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    expect(result.operationalProfile.documentType).toBe("policy");
+    expect(result.document.type).toBe("policy");
+  });
+
   it("runs a model cleanup pass over malformed operational profile projections", async () => {
     const evidence = buildSourceSpan({
       documentId: "doc-1",
