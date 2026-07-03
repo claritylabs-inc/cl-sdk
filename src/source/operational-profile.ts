@@ -6,10 +6,7 @@ import type {
   SourceBackedValue,
 } from "./schemas";
 import { PolicyOperationalProfileSchema } from "./schemas";
-import {
-  POLICY_TYPES_FROM_COVERAGES_WARNING,
-  resolveOperationalProfilePolicyTypes,
-} from "./policy-types";
+import { resolveOperationalProfilePolicyTypes } from "./policy-types";
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
@@ -236,9 +233,6 @@ export function mergeOperationalProfile(
     existingTypes: base.policyTypes,
     coverages,
   });
-  if (resolvedPolicyTypes.source === "profile_augmented" || resolvedPolicyTypes.source === "existing_augmented" || resolvedPolicyTypes.source === "inferred") {
-    warnings.push(POLICY_TYPES_FROM_COVERAGES_WARNING);
-  }
 
   return PolicyOperationalProfileSchema.parse({
     ...base,

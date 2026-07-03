@@ -106,14 +106,11 @@ const POLICY_TYPE_TEXT_PATTERNS: Array<{ type: string; pattern: RegExp }> = [
   { type: "title", pattern: /\btitle\s+insurance\b/i },
 ];
 
-export const POLICY_TYPES_FROM_COVERAGES_WARNING = "Policy types augmented from extracted coverage labels.";
-
 export type PolicyTypeResolutionSource =
-  | "profile"
-  | "profile_augmented"
-  | "existing"
-  | "existing_augmented"
-  | "inferred";
+  | "coverage"
+  | "profile_hint"
+  | "existing_hint"
+  | "default";
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
@@ -165,43 +162,21 @@ export function inferPolicyTypesFromOperationalCoverages(coverages: OperationalC
   return inferred.slice(0, 6);
 }
 
-function mergePolicyTypes(base: string[], additions: string[]): string[] {
-  const merged = [
-    ...base.filter((type) => type !== "other"),
-    ...additions.filter((type) => type !== "other"),
-  ];
-  const unique = [...new Set(merged)].slice(0, 6);
-  return unique.length ? unique : base;
-}
-
 export function resolveOperationalProfilePolicyTypes(params: {
   profileTypes: unknown;
   existingTypes?: unknown;
   coverages?: OperationalCoverageLine[];
 }): { policyTypes: string[]; source: PolicyTypeResolutionSource } {
   const inferred = inferPolicyTypesFromOperationalCoverages(params.coverages ?? []);
-  const controlled = normalizeOperationalPolicyTypes(params.profileTypes);
-  if (hasSpecificPolicyType(controlled)) {
-    const policyTypes = mergePolicyTypes(controlled, inferred);
-    return {
-      policyTypes,
-      source: policyTypes.length > controlled.filter((type) => type !== "other").length
-        ? "profile_augmented"
-        : "profile",
-    };
-  }
-  const existingControlled = normalizeOperationalPolicyTypes(params.existingTypes);
-  if (hasSpecificPolicyType(existingControlled)) {
-    const policyTypes = mergePolicyTypes(existingControlled, inferred);
-    return {
-      policyTypes,
-      source: policyTypes.length > existingControlled.filter((type) => type !== "other").length
-        ? "existing_augmented"
-        : "existing",
-    };
-  }
   if (inferred.length > 0) {
-    return { policyTypes: inferred, source: "inferred" };
+    return { policyTypes: inferred, source: "coverage" };
   }
-  return { policyTypes: controlled, source: "profile" };
+
+  const controlled = normalizeOperationalPolicyTypes(params.profileTypes);
+  if (hasSpecificPolicyType(controlled)) return { policyTypes: controlled, source: "profile_hint" };
+
+  const existingControlled = normalizeOperationalPolicyTypes(params.existingTypes);
+  if (hasSpecificPolicyType(existingControlled)) return { policyTypes: existingControlled, source: "existing_hint" };
+
+  return { policyTypes: controlled, source: "default" };
 }
