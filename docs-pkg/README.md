@@ -2,7 +2,7 @@
 
 Documentation content for [@claritylabs/cl-sdk](https://github.com/claritylabs-inc/cl-sdk). This package contains the raw MDX files and navigation metadata — no rendering code.
 
-This package is versioned with the CL SDK major release line. Use `@claritylabs/cl-sdk-docs@^1.0.0` with `@claritylabs/cl-sdk@^1.0.0`.
+This package is versioned with the CL SDK release line. Use `@claritylabs/cl-sdk-docs@3.2.13` with `@claritylabs/cl-sdk@3.2.13`, or keep both packages on the same compatible semver range.
 
 ## Usage
 
@@ -28,7 +28,7 @@ const nav = JSON.parse(fs.readFileSync(path.join(docsRoot, "meta.json"), "utf-8"
 - `meta.json` — navigation structure (sections and pages)
 - `**/*.mdx` — documentation pages with YAML frontmatter
 
-v1 documentation includes source grounding, extraction performance controls, PCE workflows, case workflow primitives, migration notes, API references, storage guidance, and the release changelog.
+Current documentation includes source-tree extraction, source grounding, query/application/PCE workflows, case workflow primitives, migration notes, API references, storage guidance, and the release changelog.
 
 ## Frontmatter
 

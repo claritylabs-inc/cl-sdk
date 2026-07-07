@@ -1,469 +1,211 @@
 ---
 title: Extraction Pipeline
-description: Turn insurance PDFs into structured data with the agentic extraction pipeline
+description: Turn parser-provided insurance PDF spans into a source tree and source-backed operational facts
 ---
 
 import { Callout } from "@/components/ui/callout";
 
-CL SDK's extraction pipeline uses an agentic coordinator/worker pattern to process insurance documents. It classifies the document, maps pages to focused extractors, builds extraction tasks, dispatches focused extractors in parallel, conditionally runs supplementary extraction for hidden retrieval facts, resolves referential coverage values, reviews for completeness and quality when configured, assembles a fully typed `InsuranceDocument`, promotes non-financial declaration data into convenience top-level fields, generates a document summary, formats content in bounded parallel batches, and produces retrieval-ready chunks.
+CL SDK 3.2 uses a source-tree extraction pipeline. The host owns PDF parsing; CL SDK owns deterministic source-tree construction, source-text grouping, source-backed operational fact extraction, citation validation, coverage cleanup, and compatibility projection.
+
+Raw-PDF page-map extraction, focused extractor dispatch, form-inventory model calls, source-tree organizer model calls, and review-mode follow-up extractors are not part of the current published extraction path.
 
 ## Quick start
 
 ```typescript
-import { createExtractor } from "@claritylabs/cl-sdk";
+import { buildPageSourceSpans, createExtractor } from "@claritylabs/cl-sdk";
+
+const sourceSpans = buildPageSourceSpans([
+  {
+    documentId: "doc-123",
+    sourceKind: "policy_pdf",
+    pageNumber: 1,
+    text: pageOneText,
+  },
+]);
 
 const extractor = createExtractor({
-  generateText: myGenerateText,   // Your provider callback
   generateObject: myGenerateObject,
-  extractorConcurrency: 4,
-  formatConcurrency: 2,
-  reviewMode: "auto",
   onProgress: (msg) => console.log(msg),
 });
 
-const { document, chunks, tokenUsage, usageReporting } = await extractor.extract(pdfBase64, "doc-123");
+const result = await extractor.extract(pdfBase64, "doc-123", { sourceSpans });
 
-console.log(document.type);       // "policy" | "quote"
-console.log(document.carrier);    // "Hartford"
-console.log(chunks.length);       // 42
-console.log(tokenUsage);          // { inputTokens: 85000, outputTokens: 12000 }
-console.log(usageReporting);      // { modelCalls: 14, callsWithUsage: 14, callsMissingUsage: 0 }
+console.log(result.sourceTree?.length);          // canonical source hierarchy
+console.log(result.operationalProfile?.coverages); // source-backed coverage units
+console.log(result.document);                    // compatibility InsuranceDocument projection
+console.log(result.chunks.length);               // 0 on v3 source-tree paths
 ```
 
 <Callout type="info">
-CL SDK is provider-agnostic. You supply plain callback functions (`GenerateText`, `GenerateObject`) that wrap your preferred provider (Anthropic, OpenAI, etc.). The SDK never imports any provider package.
+  PDF inputs require `ExtractOptions.sourceSpans`. Use LiteParse, Docling, PDF.js, OCR, or another parser before calling the SDK. Docling inputs are the exception because the SDK derives spans from the serialized Docling document.
 </Callout>
 
 ## Pipeline overview
 
-The pipeline runs twelve phases sequentially. Page mapping, extraction, review follow-ups, referential lookups, and formatting dispatch in parallel internally where useful.
-
 ```mermaid
 flowchart TD
-    A[PDF Input] --> B[1. Classify]
-    B --> C[2. Page Map]
-    C --> D[3. Plan]
-    D --> E[4. Extract + Merge]
-    E --> F{5. Supplementary signal?}
-    F -->|yes| G[Page-scoped Supplementary]
-    F -->|no| H[6. Resolve Referential]
-    G --> H
-    H --> I[7. Review or Deterministic Skip]
-    I -->|gaps found| E
-    I -->|complete| J[8. Assemble]
-    J --> K[9. Promote]
-    K --> L[10. Summarize]
-    L --> M[11. Cost-aware Format]
-    M --> N[12. Chunk]
-    N --> O[InsuranceDocument + DocumentChunks]
+    A[Parser Source Spans] --> B[Normalize + Merge Spans]
+    B --> C[Build Deterministic Source Tree]
+    C --> D[Group Forms, Endorsements, Sections, Schedules]
+    D --> E[Operational Profile Model Pass]
+    E --> F[Validate Source IDs + Merge]
+    F --> G{Coverages present?}
+    G -->|yes| H[Coverage Cleanup Model Pass]
+    G -->|no| I[Compatibility Projection]
+    H --> I
+    I --> J[SourceTree + OperationalProfile + Document]
 ```
 
-## Phase 1: Classify
+## Phase 1: Normalize source spans
 
-The classifier examines the document and determines:
+The coordinator merges spans derived from a Docling input with spans passed in `ExtractOptions.sourceSpans`. It normalizes text, removes unusable repeated boilerplate, preserves original span IDs in metadata when text is merged, and derives compatibility `SourceChunk[]` windows.
 
-- **Document type** — `"policy"` (bound coverage) or `"quote"` (proposed coverage)
-- **Policy types** — array of line-of-business types (e.g., `["general_liability", "commercial_auto"]`)
-- **Confidence** — numeric score from 0 to 1
+If no source spans remain, extraction throws. This is intentional: policy extraction no longer falls back to raw PDF page maps.
 
-Classification uses `generateObject` with the `ClassifyResultSchema` and drives template selection in the next phase. The coordinator passes the full PDF through `providerOptions.pdfBase64`, or host-provided Docling text through `providerOptions.doclingText`. See [Classification](/docs/extraction/classification) for details.
+## Phase 2: Persist source evidence
 
-## Phase 2: Page Map
+When `sourceStore` is configured, the coordinator stores source spans and source chunks before building the tree:
 
-The coordinator first maps each page to one or more focused extractors with a model pass. This is the step that prevents broad, mixed ranges from sending declaration pages and generic policy forms through the same extractor without distinction.
+```typescript
+const extractor = createExtractor({
+  generateObject,
+  sourceStore,
+});
+```
 
-The page mapper receives chunked PDFs through `providerOptions.pdfBase64`, page-scoped Docling text through `providerOptions.doclingText`, or caller-provided source-span text, then assigns pages one by one. Page-map chunks run with `pageMapConcurrency` when configured, otherwise the shared `concurrency` value.
+Production hosts should also persist `result.sourceTree` in their own hierarchy/index tables. `SourceStore` persists spans and chunks; source-tree persistence is host-owned.
 
-## Phase 3: Plan
+## Phase 3: Build the source tree
 
-The planner selects a line-of-business template based on the primary policy type and builds an extraction plan from the page map — a list of tasks that map focused extractors to page ranges.
+`buildDocumentSourceTree()` converts `SourceSpan[]` into `DocumentSourceNode[]`.
 
-Each task specifies:
-- **Extractor name** — which focused extractor to run (e.g., `declarations`, `coverage_limits`)
-- **Page range** — `startPage` and `endPage` for the extractor to focus on
+The tree preserves:
 
-The planner receives template hints including expected sections, page hints, and total page count. In the current coordinator, the plan is built deterministically from the page map rather than delegated to the older broad prompt-only planning path.
+- document, page group, page, form, endorsement, section, schedule, clause, table, row, cell, and text node kinds
+- `sourceSpanIds` for every node
+- page ranges and bounding boxes when supplied by the parser
+- source order
+- stable hierarchy paths
 
-### Line-of-business templates
+Table structure matters. A Docling or parser row span is canonical evidence for table-derived facts; cell spans remain available for precise highlighting.
 
-The SDK includes 20 templates covering 42 policy types. Each template defines:
+## Phase 4: Group source structure
 
-| Field | Description |
-|-------|-------------|
-| `expectedSections` | Sections the template expects to find (e.g., `["declarations", "coverages", "conditions"]`) |
-| `pageHints` | Guidance on where sections typically appear (e.g., `"declarations: pages 1-3"`) |
-| `required` | Fields that must be extracted for completeness |
-| `optional` | Fields that may or may not be present |
+The source-tree extractor groups existing nodes into declarations, policy forms, endorsements, sections, and schedules using source text, form numbers, parser titles, and page structure.
 
-**Available templates:**
+Important constraints:
 
-| Template | Policy types |
-|----------|-------------|
-| General Liability | `general_liability` |
-| Commercial Property | `commercial_property` |
-| Commercial Auto | `commercial_auto`, `non_owned_auto` |
-| Workers' Comp | `workers_comp` |
-| Umbrella / Excess | `umbrella`, `excess_liability` |
-| Professional Liability | `professional_liability` |
-| Cyber | `cyber` |
-| D&O | `directors_officers` |
-| EPLI | `epli` |
-| Crime | `crime_fidelity` |
-| Inland Marine | `inland_marine` |
-| Builders Risk | `builders_risk` |
-| Environmental | `environmental` |
-| Homeowners | `homeowners_ho3`, `homeowners_ho5`, `renters_ho4`, `condo_ho6` |
-| Personal Auto | `personal_auto` |
-| Dwelling Fire | `dwelling_fire`, `mobile_home` |
-| Flood | `flood_nfip`, `flood_private` |
-| Personal Umbrella | `personal_umbrella` |
-| Farm & Ranch | `farm_ranch` |
-| Default | All other types |
+- grouping may relabel or move existing nodes
+- grouping must not invent node IDs, text, page numbers, source spans, or bounding boxes
+- separately numbered endorsements remain separate endorsement nodes
+- source-heading-derived titles stay terse
+- generic table rows are retained in the tree but filtered out of operational-profile prompt context unless they carry product-relevant signals
 
-Templates are accessed internally via `getTemplate(policyType)`.
+## Phase 5: Extract the operational profile
 
-## Phase 4: Extract And Merge
+The operational profile is the product fact projection. One `generateObject` call receives a bounded evidence packet of high-value declaration, schedule, premium, producer, endorsement, and coverage evidence.
 
-The coordinator dispatches focused extractors in parallel (concurrency-limited, default 2). `extractorConcurrency` can be set independently when extractor calls should use a different provider lane than page mapping or formatting. Each extractor targets a specific data domain against the page range assigned by the plan.
+It extracts:
 
-Results accumulate in an in-memory `Map` keyed by extractor name.
+- document type and `policyTypes`
+- policy number
+- named insured
+- insurer and broker
+- effective, expiration, and retroactive dates
+- premium
+- coverage units and nested `limits[]` terms
+- parties
+- endorsement support facts
 
-Before each worker callback is invoked, the SDK slices the assigned page range and passes that page-scoped PDF through `providerOptions.pdfBase64`. If `convertPdfToImages` is configured, it passes `providerOptions.images` instead. For Docling inputs, the SDK skips PDF slicing and passes page-scoped `providerOptions.doclingText`. Full-document provider options, page-scoped PDFs, rendered images, Docling text ranges, and in-flight range requests are cached for the lifetime of one extraction so overlapping extractor tasks reuse local work.
+Every fact must cite existing `sourceNodeIds` or `sourceSpanIds`. Uncited facts and unknown source IDs are rejected during merge.
 
-If the same extractor runs multiple times, results merge instead of overwrite. This is especially important for `coverage_limits`, `definitions`, `covered_reasons`, `endorsements`, `exclusions`, `conditions`, `sections`, `declarations`, and `supplementary`.
+## Phase 6: Clean up coverage units
 
-Focused extractors can declare fallback behavior. Definitions and covered reasons fall back through section extraction when the focused extractor fails or returns no usable records, so a single no-output response does not leave those first-class fields empty.
+When the profile contains coverages, the SDK may run one bounded cleanup pass. The cleanup pass can keep, drop, or update existing coverage rows and terms by original `coverageIndex`; it should repair projection shape, not invent unsupported coverage rows.
 
-### The 13 focused extractors
+Endorsement schedules are modeled as whole endorsement coverage units with their own `limits[]` terms. The extractor should not flatten adjacent labels into unrelated rows like `Aggregate Limit` without endorsement context.
 
-| Extractor | Domain | What it extracts |
-|-----------|--------|------------------|
-| `carrier_info` | Carrier | Carrier name, NAIC, AM Best, MGA, underwriter, broker/producer agency and license |
-| `named_insured` | Insured | Insured name, DBA, address, entity type, FEIN, SIC/NAICS, loss payees, mortgage holders |
-| `declarations` | Declarations | Line-specific structured declarations (varies by policy type) |
-| `coverage_limits` | Coverages | Coverage names, limits, deductibles, forms, triggers |
-| `definitions` | Definitions | Defined terms, full definition text, form/page provenance |
-| `covered_reasons` | Covered reasons | Covered causes of loss, covered losses, inclusions, qualifying reasons, attached conditions/exceptions |
-| `endorsements` | Endorsements | Form numbers, titles, types, content, affected parties |
-| `exclusions` | Exclusions | Exclusion titles, content, applicability |
-| `conditions` | Conditions | Duties after loss, cancellation, other insurance, etc. |
-| `premium_breakdown` | Premium | Premiums, taxes, fees, payment plans, rating basis |
-| `loss_history` | Loss history | Loss runs, claim records, experience modification |
-| `supplementary` | Supplementary | Regulatory context, contacts, TPA, claims contacts, and hidden retrieval-only facts |
-| `sections` | Sections | Raw section content (fallback for unmatched sections) |
+## Phase 7: Project compatibility output
 
-Each extractor is defined with `{ buildPrompt(), schema, maxTokens }` and accessed via `getExtractor(name)`.
-
-## Phase 5: Conditional supplementary facts pass
-
-The coordinator decides whether a `supplementary` pass is needed. This pass is intended for memory and retrieval rather than consumer-facing structured output.
-
-The pass is skipped when there are no signals that hidden retrieval facts are present. It runs when page assignments, form inventory, existing extracted text, or review follow-up tasks indicate regulatory, claims, notice, cancellation/nonrenewal, contact, TPA, driver, household, lienholder, or schedule-row facts are likely present. Page/form signals are run as narrow page-scoped supplementary tasks in the main extractor batch; text signals discovered only after extraction fall back to a full-document supplementary pass.
-
-The pass still captures regulatory contacts and notice periods, but it also emits `auxiliaryFacts`: normalized key/value facts that do not fit the strict primary schema.
-
-Typical `auxiliaryFacts` include:
-
-- policyholder names
-- insured or driver names
-- ages and dates of birth
-- marital status
-- garaging ZIPs
-- vehicle-to-driver assignments
-- household members
-- lienholder and schedule row details
-
-Each auxiliary fact can include optional `subject` and `context` fields so downstream agents can distinguish document-level facts from person-specific or schedule-specific facts.
-
-This data is assembled onto the final document as `supplementaryFacts` and chunked for vector retrieval, but it is meant to remain hidden from normal consumer UI rendering unless your application explicitly chooses to surface it.
-
-## Phase 6: Resolve referential coverage values
-
-Some coverage rows contain referential text such as "shown in the declarations", "see schedule", or "per endorsement". The resolver handles these values before review so downstream coverage fields are more useful.
-
-Resolution is bounded. It first tries cheap local matches against already extracted sections and forms. Only unresolved high-value references can trigger targeted actions such as declaration lookup, schedule lookup, section lookup, page-location lookup, or skip. This avoids turning every vague form phrase into an expensive search chain.
-
-## Phase 7: Review
-
-After initial extraction, deterministic quality checks always run. The LLM review loop (up to `maxReviewRounds`, default 2) checks completeness and quality against the template's `required` fields when `reviewMode` allows it. The reviewer compares what has been extracted against what is expected, sees the document again, and receives a summary of extracted outputs and page assignments.
-
-If gaps or quality issues are found, the reviewer generates additional extraction tasks. These follow-up extractors are dispatched in parallel, just like the main extraction phase. The loop continues until either:
-- All required fields are present, or
-- The maximum review rounds are reached
-
-Typical quality issues include generic placeholders like "shown in declarations", "per schedule", values that look copied from generic form wording instead of declaration-specific schedules, mapped definitions pages with no definition records, and mapped covered-cause/inclusion pages with no covered reason records.
-
-The reviewer receives the live extractor catalog, including registered fallback-capable extractors, so follow-up work can target definitions, covered reasons, supplementary facts, declarations, or section fallback extraction without relying on a hardcoded task list.
-
-`reviewMode` controls the expensive LLM review pass:
-
-| Mode | Behavior |
-|------|----------|
-| `"auto"` | Default. Runs LLM review unless deterministic checks are clean and source spans are available. |
-| `"always"` | Always runs LLM review up to `maxReviewRounds`. |
-| `"skip"` | Skips LLM review and relies on deterministic checks plus the configured `qualityGate`. |
-
-## Phase 8: Assemble
-
-The assembler merges all extractor results from the in-memory `Map` into a single validated `InsuranceDocument` (either `PolicyDocument` or `QuoteDocument`).
-
-## Phase 9: Promote
-
-After assembly, a promotion pass fills in non-financial convenience fields from data that was extracted but not directly surfaced. Numeric coverage and financial values remain owned by focused extractor and review LLM passes.
-
-The promoter runs pure data transformations with no model calls:
-
-| Sub-pass | What it does |
-|----------|-------------|
-| **Carrier field mapping** | Maps extractor short names to canonical schema names (`naicNumber` → `carrierNaicNumber`, `admittedStatus` → `carrierAdmittedStatus`, `amBestRating` → `carrierAmBestRating`). Also builds the structured `insurer` sub-object. |
-| **Broker promotion** | Scans declarations for broker/agent/producer fields and promotes to `brokerAgency`, `brokerContactName`, `brokerLicenseNumber`, and the structured `producer` object. Falls back to declarations if the carrier extractor didn't capture broker data. |
-| **Loss payee / mortgage holder promotion** | Scans declarations for loss payees and mortgage holders and populates `lossPayees[]` and `mortgageHolders[]` as `EndorsementParty` objects. |
-| **Location promotion** | Groups location-related declaration fields (address, construction type, occupancy, building value, etc.) by location number and populates the `locations[]` array. |
-
-Financial fields and numeric coverage fields are extracted by focused LLM passes and review follow-up tasks, not inferred in promotion from declaration aliases or coverage-name patterns. This keeps premium, total payable, taxes, fees, limits, deductibles, and payment-plan values tied to source-evidence extraction instead of hardcoded field-name matching.
-
-All promotion sub-passes are idempotent — they never overwrite fields that already have values from direct extraction.
-
-<Callout type="info">
-  The promotion pass runs in `src/extraction/promote.ts` and is called automatically by `assembleDocument()`. It produces no model calls and adds no latency.
-</Callout>
-
-## Phase 10: Summarize
-
-After promotion, the pipeline generates a 1–3 sentence summary of the document using a model call. The summary captures the essential facts a broker or underwriter would want at a glance: who is insured, by whom, key coverages, policy period, and premium.
-
-The summarizer receives a compact snapshot of the assembled document (not the full PDF), so it adds minimal token cost. The `summary` field appears on the final `InsuranceDocument`.
-
-If summary generation fails, the pipeline continues without it — the field remains `undefined`.
-
-## Phase 11: Cost-aware format
-
-After assembly, a formatting agent pass cleans up markdown in content-bearing string fields only when the content is likely to need it. Plain prose skips the model call. Long text, markdown artifacts, lists/headings, excessive spacing, and table-like content are batched for cleanup and processed with `formatConcurrency`.
-
-Insurance document extraction commonly produces content with formatting issues that prevent proper markdown rendering:
-
-| Issue | Example | Fix |
-|-------|---------|-----|
-| Pipe tables missing separator rows | `COVERAGE \| LIMIT \| DEDUCTIBLE` with no `\| --- \| --- \|` | Add separator row, leading/trailing pipes |
-| Space-aligned tables | Columns padded with whitespace instead of pipes | Convert to proper markdown table syntax |
-| Sub-items mixed into tables | Indented lines like `  Waiting Period (Hours): 24` inside a pipe table | Pull sub-items out into lists |
-| Mixed table/prose content | Paragraphs followed by tables followed by more paragraphs | Handle each segment independently |
-| General cleanup | Excessive blank lines, trailing whitespace, orphaned `**` or `*` markers | Standard markdown normalization |
-
-Content fields are collected and batched (up to 20 per model call) for efficient processing. Batches run in parallel up to `formatConcurrency`. The formatting prompt includes specific before/after examples for each pattern. Token usage from formatting is tracked and included in the total, but no-op formatting calls are avoided.
-
-<Callout type="info">
-  The formatter only fixes formatting — it never changes the meaning or substance of extracted content. Dollar amounts, dates, policy numbers, and technical terms are preserved exactly as extracted.
-</Callout>
-
-## Phase 12: Chunk
-
-The formatted document is broken into retrieval-ready `DocumentChunk` objects via `chunkDocument()`. Chunks inherit the cleaned formatting, ensuring consistent rendering in downstream applications like query results and chat UIs.
-
-Definitions and covered reasons produce dedicated `definition` and `covered_reason` chunks so retrieval can answer questions like "what does this term mean?" or "what losses are covered?" without depending on generic section text. Covered-reason conditions are chunked separately under the same `covered_reason` type.
-
-If supplementary data exists, `chunkDocument()` also emits a `supplementary` chunk containing claims and regulatory contacts plus any hidden `supplementaryFacts`, making those facts searchable by agents without polluting the primary visible fields.
-
-The final `ExtractionResult` contains:
+The final result includes both source-native and compatibility views:
 
 ```typescript
 interface ExtractionResult {
-  document: InsuranceDocument;  // Fully typed policy or quote
-  chunks: DocumentChunk[];       // Ready for vector storage
-  tokenUsage: TokenUsage;        // Cumulative { inputTokens, outputTokens }
+  sourceTree?: DocumentSourceNode[];
+  operationalProfile?: PolicyOperationalProfile;
+  sourceSpans: SourceSpan[];
+  sourceChunks: SourceChunk[];
+  document: InsuranceDocument;
+  chunks: DocumentChunk[];
+  warnings?: string[];
+  tokenUsage: TokenUsage;
   usageReporting: {
     modelCalls: number;
     callsWithUsage: number;
     callsMissingUsage: number;
   };
+  performanceReport: PerformanceReport;
+  reviewReport: ExtractionReviewReport;
 }
 ```
 
-See [Extraction Results](/docs/extraction/applying-results) for details on working with the output.
+`document`, `documentMetadata`, and `documentOutline` are materialized views over `sourceTree` and `operationalProfile`. Keep existing screens working with `document`, but use `sourceTree` and `sourceSpans` for source viewers, retrieval, and citations.
 
-## Configuration
+`chunks` is empty on v3 source-tree extraction paths. Use `sourceTree` node descriptions and exact spans as the retrieval corpus.
 
-### ExtractorConfig
+## Provider callbacks
 
-```typescript
-interface ExtractorConfig {
-  generateText: GenerateText;                    // Required — text generation callback
-  generateObject: GenerateObject;                // Required — structured output callback
-  convertPdfToImages?: ConvertPdfToImagesFn;     // Optional — send pages as images instead of PDF
-  concurrency?: number;                          // Default: 2
-  pageMapConcurrency?: number;                   // Defaults to concurrency
-  extractorConcurrency?: number;                 // Defaults to concurrency
-  formatConcurrency?: number;                    // Defaults to concurrency
-  maxReviewRounds?: number;                      // Default: 2
-  reviewMode?: "always" | "auto" | "skip";       // Default: "auto"
-  onTokenUsage?: (usage: TokenUsage) => void;    // Per-call token usage callback
-  onProgress?: (message: string) => void;        // Progress message callback
-  log?: LogFn;                                   // Debug logging callback
-  providerOptions?: Record<string, unknown>;     // Pass-through to provider
-}
-```
-
-### Provider callbacks
+Extraction uses `GenerateObject`:
 
 ```typescript
-type GenerateText = (params: {
-  prompt: string;
-  system?: string;
-  maxTokens: number;
-  providerOptions?: Record<string, unknown>;
-}) => Promise<{ text: string; usage?: TokenUsage }>;
-
 type GenerateObject<T = unknown> = (params: {
   prompt: string;
   system?: string;
   schema: ZodSchema<T>;
   maxTokens: number;
+  taskKind?: ModelTaskKind;
+  budgetDiagnostics?: ModelBudgetResolution;
   providerOptions?: Record<string, unknown>;
+  trace?: Record<string, unknown>;
 }) => Promise<{ object: T; usage?: TokenUsage }>;
 ```
 
-Your callback must treat `providerOptions` as part of the model input contract, not just optional metadata. In the extraction pipeline, the document reaches the model through `providerOptions.pdfBase64`, `providerOptions.images`, or `providerOptions.doclingText`.
+The callback should preserve `providerOptions.sourceSpans`, `providerOptions.sourceChunks`, and `trace` in host telemetry. The operational profile evidence is included in the prompt; source spans/chunks in provider options let hosts correlate model calls with parser evidence.
 
-### Tuning concurrency
+## Model routing and budgets
 
-The default concurrency of 2 balances throughput against rate limits. Use the shared `concurrency` value for simple setups, or split the lanes when your provider plan can handle more extractor work than formatting or page mapping:
+Hosts that route tasks to different models should pass per-task capabilities:
 
 ```typescript
 const extractor = createExtractor({
-  generateText: myGenerateText,
-  generateObject: myGenerateObject,
-  concurrency: 3,
-  pageMapConcurrency: 3,
-  extractorConcurrency: 4,
-  formatConcurrency: 2,
-  reviewMode: "auto",
-});
-```
-
-## Token usage tracking
-
-Track cumulative token usage across the entire pipeline:
-
-```typescript
-let totalInput = 0, totalOutput = 0;
-
-const extractor = createExtractor({
-  generateText: myGenerateText,
-  generateObject: myGenerateObject,
-  onTokenUsage: ({ inputTokens, outputTokens }) => {
-    totalInput += inputTokens;
-    totalOutput += outputTokens;
+  generateObject,
+  modelCapabilitiesByTaskKind: {
+    extraction_operational_profile: { maxOutputTokens: 16000 },
+    extraction_coverage_cleanup: { maxOutputTokens: 8000 },
   },
 });
-
-const { tokenUsage, usageReporting } = await extractor.extract(pdfBase64);
-console.log(`Total: ${tokenUsage.inputTokens} input, ${tokenUsage.outputTokens} output`);
-console.log(`Usage reported for ${usageReporting.callsWithUsage}/${usageReporting.modelCalls} model calls`);
 ```
 
-The `onTokenUsage` callback fires after every model call that returns usage metadata, making it useful for cost monitoring. The `tokenUsage` field on the result provides the cumulative total, and `usageReporting` tells you whether some provider calls omitted usage entirely.
+`resolveModelBudget()` treats task budgets as preferences and diagnostics. When model capabilities provide `maxOutputTokens`, that model maximum is the request cap unless an explicit hard constraint lowers it. This avoids truncating extraction just because a cheap task preference was too low.
 
 ## Progress callbacks
 
-Monitor pipeline progress in real time:
+Current extraction progress is intentionally small:
 
 ```typescript
 const extractor = createExtractor({
-  generateText: myGenerateText,
-  generateObject: myGenerateObject,
-  onProgress: (message) => {
-    // "Classifying document..."
-    // "Mapping document pages for commercial_auto policy..."
-    // "Building extraction plan from page map for commercial_auto policy..."
-    // "Dispatching 8 extractors..."
-    // "Extracting carrier_info (pages 1-3)..."
-    // "Extracting coverage_limits (pages 4-12)..."
-    // "Review round 1: dispatching 2 follow-up extractors..."
-    // "Extraction complete."
-    // "Assembling document..."
-    // "Formatting extracted content..."
-    // "Formatting 24 content fields..."
-    console.log(message);
-  },
+  generateObject,
+  onProgress: (message) => console.log(message),
 });
 ```
 
-## PDF input modes
+Typical messages:
 
-By default, the SDK sends PDF content directly to the model. If your provider works better with images, supply a `convertPdfToImages` callback:
-
-```typescript
-const extractor = createExtractor({
-  generateText: myGenerateText,
-  generateObject: myGenerateObject,
-  convertPdfToImages: async (pdfBase64, startPage, endPage) => {
-    // Convert pages to images using your preferred library
-    return pages.map((page) => ({
-      imageBase64: page.base64,
-      mimeType: "image/png",
-    }));
-  },
-});
+```text
+Building source-native document tree...
+Source-tree extraction complete.
 ```
 
-## Schema compatibility
+## Retry and schema compatibility
 
-The SDK automatically handles compatibility with strict structured output APIs like OpenAI. Before every `generateObject` call, schemas are transformed by `toStrictSchema()` which converts `.optional()` fields to `.nullable()`. This ensures all properties appear in the JSON Schema `required` array — a requirement for OpenAI's strict mode.
-
-This happens transparently inside the pipeline. You don't need to modify your schemas or provider adapter.
-
-<Callout type="warn">
-  **Never use `z.record()` in schemas passed to `generateObject`** — it generates `propertyNames` in JSON Schema, which is unsupported by most structured output APIs. Use `z.array(z.object({ key: z.string(), value: z.string() }))` instead.
-</Callout>
-
-For custom pipelines, you can use `safeGenerateObject()` which wraps `generateObject` with schema strictification, retry on transient errors, and optional fallback values:
-
-```typescript
-import { safeGenerateObject } from "@claritylabs/cl-sdk";
-
-const { object } = await safeGenerateObject(
-  myGenerateObject,
-  { prompt: "...", schema: MySchema, maxTokens: 1024 },
-  { fallback: { field: "default" }, maxRetries: 2 },
-);
-```
-
-## Retry resilience
-
-All model calls are wrapped with `withRetry()`, which provides exponential backoff on transient errors. Retry behavior:
-
-- Up to 5 retries
-- Delays: 2s, 4s, 8s, 16s, 32s (plus random jitter)
-- Non-retryable errors are re-thrown immediately
-- Retry attempts are logged via the `log` callback
-
-Retryable errors include:
-- Rate limits (HTTP 429, "rate limit" / "too many requests")
-- Grammar compilation timeouts
-- No output generated
-- Server overloaded
-- HTTP 500, 502, 503, 504
-
-## Utility functions
-
-### `stripFences(text)`
-
-Removes markdown code fences from AI responses before JSON parsing:
-
-```typescript
-import { stripFences } from "@claritylabs/cl-sdk";
-
-stripFences('```json\n{"key": "value"}\n```');
-// '{"key": "value"}'
-```
-
-### `sanitizeNulls(obj)`
-
-Recursively converts `null` values to `undefined`. Required for frameworks like Convex that reject `null` for optional fields:
-
-```typescript
-import { sanitizeNulls } from "@claritylabs/cl-sdk";
-
-sanitizeNulls({ a: null, b: [null, 1] });
-// { a: undefined, b: [undefined, 1] }
-```
+The pipeline uses strictified Zod schemas before `generateObject` calls. `safeGenerateObject()` remains available for custom workflows that need the same strictification, retry, and fallback behavior.

@@ -51,7 +51,7 @@ const sourceSpans = buildPageSourceSpans([
 ]);
 
 const sourceStore = new MemorySourceStore();
-const extractor = createExtractor({ generateText, generateObject, sourceStore });
+const extractor = createExtractor({ generateObject, sourceStore });
 
 const result = await extractor.extract("base64-pdf", "policy-123", { sourceSpans });
 ```

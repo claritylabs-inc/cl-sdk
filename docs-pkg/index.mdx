@@ -9,12 +9,12 @@ import { Cards, Card } from "fumadocs-ui/components/card";
 
 CL SDK is the insurance intelligence layer behind those agents: a pure TypeScript library for extracting, reasoning about, and acting on insurance documents with deterministic scaffolding around model calls. It is provider-agnostic by design: bring any LLM via plain callback functions. No framework dependency.
 
-Version 1.0 makes source-grounded workflows first class. Extraction records page-aware source spans, query and application agents can reason over those spans, and policy change endorsement workflows produce validated submission packets with quoted evidence.
+The current 3.2 release line makes source-tree extraction the policy extraction path. Hosts preprocess PDFs into source spans with LiteParse, Docling, PDF.js, OCR, or another parser; CL SDK builds the canonical source tree from those spans and returns source-backed operational facts plus a compatibility `InsuranceDocument` projection.
 
 ## Capabilities
 
 <Cards>
-  <Card title="Document Extraction" description="Deterministic extraction pipeline with focused model calls that turns insurance PDFs into structured data — coverages, limits, definitions, covered reasons, exclusions, endorsements — with page-level provenance and review loops." />
+  <Card title="Document Extraction" description="Source-tree extraction that turns parser-provided spans into document, page, form, endorsement, section, schedule, table, row, cell, and text nodes, then extracts cited operational facts from bounded evidence." />
   <Card title="Source Grounding" description="Reusable source spans, page references, quoted evidence, and retrievers for extraction, query, application, and endorsement workflows." />
   <Card title="Query Agent" description="Citation-backed question answering over stored documents plus inbound photos, PDFs, and text. Decomposes questions, retrieves source evidence, reasons with intent-specific prompts, and verifies grounding." />
   <Card title="Application Processing" description="Bounded application workflows handle intake — field extraction, auto-fill from prior answers, topic-based question batching, PDF mapping, and source-backed field provenance." />
@@ -31,15 +31,20 @@ npm install @claritylabs/cl-sdk pdf-lib zod
 ```
 
 ```typescript
-import { createExtractor } from "@claritylabs/cl-sdk";
+import { buildPageSourceSpans, createExtractor } from "@claritylabs/cl-sdk";
 
-const extractor = createExtractor({ generateText, generateObject });
-const { document, chunks, sourceSpans } = await extractor.extract(pdfBase64);
+const sourceSpans = buildPageSourceSpans([
+  { documentId: "policy-123", sourceKind: "policy_pdf", pageNumber: 1, text: pageOneText },
+]);
+
+const extractor = createExtractor({ generateObject });
+const { document, sourceTree, operationalProfile, chunks } =
+  await extractor.extract(pdfBase64, "policy-123", { sourceSpans });
 
 console.log(document.carrier);    // "Hartford"
-console.log(document.coverages);  // [{ name: "General Liability", limit: "$1,000,000", ... }]
-console.log(sourceSpans.length);  // page-backed source references, when provided
-console.log(chunks.length);       // 24 chunks ready for vector storage
+console.log(sourceTree.length);    // canonical source hierarchy
+console.log(operationalProfile);   // source-backed policy facts
+console.log(chunks.length);        // 0 on v3 source-tree extraction paths
 ```
 
 ## Get started
