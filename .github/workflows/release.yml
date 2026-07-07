@@ -63,8 +63,16 @@ jobs:
         id: semantic
         run: |
           # Run semantic-release and capture output
-          OUTPUT=$(npx semantic-release 2>&1 || true)
+          set +e
+          OUTPUT=$(npx semantic-release 2>&1)
+          STATUS=$?
+          set -e
           echo "$OUTPUT"
+
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::semantic-release failed"
+            exit "$STATUS"
+          fi
 
           # Check if a new version was released
           if echo "$OUTPUT" | grep -q "Published GitHub release"; then
@@ -126,25 +134,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Rollback on npm publish failure
+      - name: Report npm publish failure
         if: failure() && steps.semantic.outputs.released == 'true' && steps.npm_publish.outputs.published != 'true'
         run: |
-          echo "::error::npm publish failed! Rolling back GitHub release..."
           VERSION="${{ steps.semantic.outputs.version }}"
-
-          # Delete the GitHub release
-          gh release delete "v$VERSION" --yes || echo "Release may not exist"
-
-          # Delete the tag. checkout uses persist-credentials: false, so use
-          # the authenticated GitHub API instead of unauthenticated git push.
-          gh api \
-            --method DELETE \
-            "repos/${GITHUB_REPOSITORY}/git/refs/tags/v$VERSION" \
-            || echo "Tag may not exist"
-
-          echo "Rollback complete. Fix the npm issue and retry."
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          echo "::error::npm publish failed for v$VERSION. Leaving the GitHub release and tag in place so a tombstoned npm version is not retried indefinitely. Push a follow-up fix release after resolving the npm state."
 
       - name: Verify release consistency
         if: (steps.semantic.outputs.released == 'true' && steps.npm_publish.outputs.published == 'true') || steps.npm_publish_repair.outputs.published == 'true'
@@ -156,14 +150,21 @@ jobs:
           gh release view "v$VERSION" --json tagName || exit 1
 
           # Verify npm package exists (with retry)
+          NPM_VERIFIED=false
           for i in 1 2 3; do
             if npm view "@claritylabs/cl-sdk@$VERSION" version 2>/dev/null; then
               echo "✓ npm package verified"
+              NPM_VERIFIED=true
               break
             fi
             echo "Waiting for npm to propagate... (attempt $i/3)"
             sleep 5
           done
+
+          if [ "$NPM_VERIFIED" != "true" ]; then
+            echo "::error::npm package @claritylabs/cl-sdk@$VERSION was not visible after publish"
+            exit 1
+          fi
 
           echo "✓ Release consistency verified - GitHub and npm are in sync"
         env:
