@@ -1,3 +1,13 @@
+# [4.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.13...v4.0.0) (2026-07-07)
+
+
+* feat!: migrate extraction classification to ACORD lines of business ([de418c6](https://github.com/claritylabs-inc/cl-sdk/commit/de418c68bdf3687b77dc302d1373233b1f5fa681))
+
+
+### BREAKING CHANGES
+
+* PolicyOperationalProfile now emits linesOfBusiness with ACORD AcordLobCode values instead of the legacy policyTypes field, and the public PolicyType enum is replaced by ACORD LOB exports.
+
 ## [3.2.13](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.12...v3.2.13) (2026-07-03)
 
 
