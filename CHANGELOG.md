@@ -1,3 +1,10 @@
+## [4.0.1](https://github.com/claritylabs-inc/cl-sdk/compare/v4.0.0...v4.0.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* **release:** publish cl-sdk after npm tombstone ([966b3d3](https://github.com/claritylabs-inc/cl-sdk/commit/966b3d3f6b3d39e226159d49d26ecd47e0a24f36))
+
 # [4.0.0](https://github.com/claritylabs-inc/cl-sdk/compare/v3.2.13...v4.0.0) (2026-07-07)
 
 
