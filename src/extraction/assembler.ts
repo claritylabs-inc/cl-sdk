@@ -87,7 +87,7 @@ export function assembleDocument(
     coverages: coverageRecords,
     documentMetadata: {},
     documentOutline: [],
-    policyTypes: readRecordValue(classify, "policyTypes"),
+    linesOfBusiness: readRecordValue(classify, "linesOfBusiness"),
     ...sanitizeNulls(carrier ?? {}),
     ...sanitizeNulls(insured ?? {}),
     // Map named_insured extractor's loss payees/mortgage holders to EndorsementParty shape

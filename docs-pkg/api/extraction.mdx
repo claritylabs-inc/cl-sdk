@@ -179,7 +179,7 @@ The operational profile is the bounded source-backed fact layer:
 ```typescript
 interface PolicyOperationalProfile {
   documentType: "policy" | "quote";
-  policyTypes: string[];
+  linesOfBusiness: AcordLobCode[];
   policyNumber?: SourceBackedValue;
   namedInsured?: SourceBackedValue;
   insurer?: SourceBackedValue;
@@ -197,7 +197,7 @@ interface PolicyOperationalProfile {
 }
 ```
 
-`policyTypes` is the single top-level policy classification field. Do not add a parallel `coverageTypes` alias or deterministic coverage-origin projection in consumers.
+`linesOfBusiness` is the single top-level policy classification field. Values are ACORD line of business codes. Serialized legacy `policyTypes` blobs are accepted at parse time and normalized to `linesOfBusiness`.
 
 ---
 

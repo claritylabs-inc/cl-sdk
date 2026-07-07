@@ -1,19 +1,39 @@
 import { describe, it, expect } from "vitest";
-import { PolicyTypeSchema, POLICY_TYPES, EndorsementTypeSchema } from "../../schemas/enums";
+import { EndorsementTypeSchema } from "../../schemas/enums";
+import {
+  ACORD_LOB_CODES,
+  AcordLobCodeSchema,
+  normalizeOperationalLinesOfBusiness,
+} from "../../schemas/lines-of-business";
 
 describe("enum schemas", () => {
-  it("validates known policy types", () => {
-    expect(PolicyTypeSchema.parse("general_liability")).toBe("general_liability");
-    expect(PolicyTypeSchema.parse("homeowners_ho3")).toBe("homeowners_ho3");
-    expect(PolicyTypeSchema.parse("life")).toBe("life");
+  it("validates known ACORD line of business codes", () => {
+    expect(AcordLobCodeSchema.parse("CGL")).toBe("CGL");
+    expect(AcordLobCodeSchema.parse("HOME")).toBe("HOME");
+    expect(AcordLobCodeSchema.parse("UN")).toBe("UN");
   });
-  it("rejects unknown policy types", () => {
-    expect(() => PolicyTypeSchema.parse("not_a_type")).toThrow();
+
+  it("rejects unknown and excluded ACORD line of business codes", () => {
+    expect(() => AcordLobCodeSchema.parse("not_a_type")).toThrow();
+    expect(() => AcordLobCodeSchema.parse("ACHE")).toThrow();
   });
-  it("POLICY_TYPES contains all values", () => {
-    expect(POLICY_TYPES.length).toBeGreaterThan(30);
-    expect(POLICY_TYPES.length).toBe(46);
+
+  it("ACORD_LOB_CODES contains the accepted code set", () => {
+    expect(ACORD_LOB_CODES.length).toBe(88);
+    expect(ACORD_LOB_CODES).toContain("Motorcycle");
+    expect(ACORD_LOB_CODES).not.toContain("CRIM");
   });
+
+  it("normalizes legacy policy types to ACORD codes", () => {
+    expect(normalizeOperationalLinesOfBusiness(["general_liability", "management_liability_package", "cyber"])).toEqual([
+      "CGL",
+      "DO",
+      "EPLI",
+      "FIDUC",
+      "OLIB",
+    ]);
+  });
+
   it("validates endorsement types", () => {
     expect(EndorsementTypeSchema.parse("additional_insured")).toBe("additional_insured");
   });

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveOperationalProfilePolicyTypes } from "../../source";
+import { resolveOperationalProfileLinesOfBusiness } from "../../source";
 import type { OperationalCoverageLine } from "../../source";
 
-describe("operational profile policy type resolution", () => {
-  it("infers policy types from extracted coverage labels before using profile hints", () => {
+describe("operational profile line of business resolution", () => {
+  it("infers ACORD lines of business from extracted coverage labels before using profile hints", () => {
     const coverages: OperationalCoverageLine[] = [
       {
         name: "Motor Truck Cargo Legal Liability",
@@ -19,18 +19,18 @@ describe("operational profile policy type resolution", () => {
       },
     ];
 
-    expect(resolveOperationalProfilePolicyTypes({
-      profileTypes: ["inland_marine"],
+    expect(resolveOperationalProfileLinesOfBusiness({
+      profileLinesOfBusiness: ["inland_marine"],
       coverages,
     })).toEqual({
-      policyTypes: ["inland_marine", "commercial_auto"],
+      linesOfBusiness: ["INMRC", "AUTOB"],
       source: "coverage",
     });
   });
 
   it("does not carry incorrect profile hints when coverage evidence is specific", () => {
-    expect(resolveOperationalProfilePolicyTypes({
-      profileTypes: ["cyber"],
+    expect(resolveOperationalProfileLinesOfBusiness({
+      profileLinesOfBusiness: ["cyber"],
       coverages: [
         {
           name: "Commercial Auto Physical Damage",
@@ -40,14 +40,14 @@ describe("operational profile policy type resolution", () => {
         },
       ],
     })).toEqual({
-      policyTypes: ["commercial_auto"],
+      linesOfBusiness: ["AUTOB"],
       source: "coverage",
     });
   });
 
-  it("uses profile types only when coverage labels are not classifiable", () => {
-    expect(resolveOperationalProfilePolicyTypes({
-      profileTypes: ["professional_liability"],
+  it("uses profile lines only when coverage labels are not classifiable", () => {
+    expect(resolveOperationalProfileLinesOfBusiness({
+      profileLinesOfBusiness: ["professional_liability"],
       coverages: [
         {
           name: "Primary Coverage",
@@ -57,7 +57,7 @@ describe("operational profile policy type resolution", () => {
         },
       ],
     })).toEqual({
-      policyTypes: ["professional_liability"],
+      linesOfBusiness: ["EO"],
       source: "profile_hint",
     });
   });

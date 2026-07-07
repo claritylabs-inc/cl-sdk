@@ -191,7 +191,7 @@ interface SourceBackedValue {
 
 interface PolicyOperationalProfile {
   documentType: "policy" | "quote";
-  policyTypes: string[];
+  linesOfBusiness: AcordLobCode[];
   policyNumber?: SourceBackedValue;
   namedInsured?: SourceBackedValue;
   insurer?: SourceBackedValue;
@@ -248,7 +248,7 @@ interface BaseDocument {
   premium?: string;
   premiumAmount?: number;
   summary?: string;
-  policyTypes?: string[];
+  linesOfBusiness?: AcordLobCode[];
   coverages: Coverage[];
 
   // Required source-native structure in v2.
@@ -1136,26 +1136,17 @@ Runtime array of all context key mappings. Used to bridge extracted policy data 
 
 ## Union types
 
-### Policy & coverage classification
+### Line of business and coverage classification
 
 ```typescript
-type PolicyType =
-  // Commercial lines
-  | "general_liability" | "commercial_property" | "commercial_auto"
-  | "non_owned_auto" | "workers_comp" | "umbrella" | "excess_liability"
-  | "professional_liability" | "cyber" | "epli" | "directors_officers"
-  | "fiduciary_liability" | "crime_fidelity" | "inland_marine"
-  | "builders_risk" | "environmental" | "ocean_marine" | "surety"
-  | "product_liability" | "bop" | "management_liability_package"
-  | "property"
-  // Personal lines
-  | "homeowners_ho3" | "homeowners_ho5" | "renters_ho4" | "condo_ho6"
-  | "dwelling_fire" | "mobile_home" | "personal_auto" | "personal_umbrella"
-  | "flood_nfip" | "flood_private" | "earthquake" | "personal_inland_marine"
-  | "watercraft" | "recreational_vehicle" | "farm_ranch" | "pet"
-  | "travel" | "identity_theft" | "title"
-  // Other
-  | "other";
+type AcordLobCode =
+  | "CGL" | "PROPC" | "AUTOB" | "WORK" | "UMBRC" | "EXLIA"
+  | "EO" | "OLIB" | "EPLI" | "DO" | "FIDUC" | "CRIME"
+  | "INMRC" | "COMAR" | "SURE" | "BOP" | "PROP"
+  | "HOME" | "DFIRE" | "MHOME" | "AUTOP" | "UMBRP"
+  | "FLOOD" | "EQ" | "INMRP" | "BOAT" | "RECV"
+  | "CFRM" | "DISAB" | "UN"
+  // plus the full accepted ACORD code list exported as ACORD_LOB_CODES.
 
 type EndorsementType =
   | "additional_insured" | "waiver_of_subrogation" | "primary_noncontributory"
@@ -1253,12 +1244,12 @@ type PetSpecies = "dog" | "cat" | "other";
 
 ## Constants
 
-### `POLICY_TYPES`
+### `ACORD_LOB_CODES`
 
-All 42 policy types as a runtime array, useful for building prompts and validation.
+All accepted ACORD line of business codes as a runtime array, useful for building prompts and validation. Unknown or unsupported legacy values normalize to `UN`; the unknown ACORD codes `ACHE`, `INTER`, `LICPT`, `LSTIN`, `NWFGR`, `PAPER`, `SCAP`, and `SFRNC` are intentionally excluded.
 
 ```typescript
-const POLICY_TYPES: PolicyType[];
+const ACORD_LOB_CODES: AcordLobCode[];
 ```
 
 ### `CONTEXT_KEY_MAP`

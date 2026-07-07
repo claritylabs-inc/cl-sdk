@@ -6,7 +6,7 @@ describe("operational profile cleanup", () => {
   it("reconstructs coverage display limits from scoped limit terms when cleanup returns a bare amount", () => {
     const profile: PolicyOperationalProfile = {
       documentType: "policy",
-      policyTypes: ["cyber"],
+      linesOfBusiness: ["OLIB"],
       coverages: [{
         name: "Network Security and Privacy Liability",
         limit: "$1,000,000",

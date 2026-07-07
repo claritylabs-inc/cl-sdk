@@ -259,7 +259,7 @@ export function buildOperationalProfileCleanupPrompt(
     ));
   const candidate = {
     documentType: profile.documentType,
-    policyTypes: profile.policyTypes,
+    linesOfBusiness: profile.linesOfBusiness,
     coverages: coverageEntries.map(({ coverage, coverageIndex }) => compactCoverageForCleanup(coverage, coverageIndex)),
   };
 

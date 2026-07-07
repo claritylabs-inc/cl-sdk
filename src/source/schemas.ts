@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AcordLobCodeSchema, toLobCodes } from "../schemas/lines-of-business";
 
 export const SourceSpanKindSchema = z.enum([
   "pdf_text",
@@ -204,22 +205,41 @@ export const OperationalEndorsementSupportSchema = z.object({
 });
 export type OperationalEndorsementSupport = z.infer<typeof OperationalEndorsementSupportSchema>;
 
-export const PolicyOperationalProfileSchema = z.object({
-  documentType: z.enum(["policy", "quote"]).default("policy"),
-  policyTypes: z.array(z.string()).default(["other"]),
-  policyNumber: SourceBackedValueSchema.optional(),
-  namedInsured: SourceBackedValueSchema.optional(),
-  insurer: SourceBackedValueSchema.optional(),
-  broker: SourceBackedValueSchema.optional(),
-  effectiveDate: SourceBackedValueSchema.optional(),
-  expirationDate: SourceBackedValueSchema.optional(),
-  retroactiveDate: SourceBackedValueSchema.optional(),
-  premium: SourceBackedValueSchema.optional(),
-  coverages: z.array(OperationalCoverageLineSchema).default([]),
-  parties: z.array(OperationalPartySchema).default([]),
-  endorsementSupport: z.array(OperationalEndorsementSupportSchema).default([]),
-  sourceNodeIds: z.array(z.string().min(1)).default([]),
-  sourceSpanIds: z.array(z.string().min(1)).default([]),
-  warnings: z.array(z.string()).default([]),
-});
+function legacyOperationalProfileInput(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  if ("linesOfBusiness" in record) return value;
+  if (!("policyTypes" in record)) return value;
+  return {
+    ...record,
+    linesOfBusiness: record.policyTypes,
+  };
+}
+
+const OperationalLinesOfBusinessSchema = z.preprocess(
+  (value) => (Array.isArray(value) ? toLobCodes(value.filter((item): item is string => typeof item === "string")) : undefined),
+  z.array(AcordLobCodeSchema).default(["UN"]),
+);
+
+export const PolicyOperationalProfileSchema = z.preprocess(
+  legacyOperationalProfileInput,
+  z.object({
+    documentType: z.enum(["policy", "quote"]).default("policy"),
+    linesOfBusiness: OperationalLinesOfBusinessSchema,
+    policyNumber: SourceBackedValueSchema.optional(),
+    namedInsured: SourceBackedValueSchema.optional(),
+    insurer: SourceBackedValueSchema.optional(),
+    broker: SourceBackedValueSchema.optional(),
+    effectiveDate: SourceBackedValueSchema.optional(),
+    expirationDate: SourceBackedValueSchema.optional(),
+    retroactiveDate: SourceBackedValueSchema.optional(),
+    premium: SourceBackedValueSchema.optional(),
+    coverages: z.array(OperationalCoverageLineSchema).default([]),
+    parties: z.array(OperationalPartySchema).default([]),
+    endorsementSupport: z.array(OperationalEndorsementSupportSchema).default([]),
+    sourceNodeIds: z.array(z.string().min(1)).default([]),
+    sourceSpanIds: z.array(z.string().min(1)).default([]),
+    warnings: z.array(z.string()).default([]),
+  }),
+);
 export type PolicyOperationalProfile = z.infer<typeof PolicyOperationalProfileSchema>;

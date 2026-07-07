@@ -53,7 +53,7 @@ For EACH exclusion, extract:
 - exceptions: any exceptions to the exclusion (things still covered despite the exclusion)
 - buybackAvailable: whether coverage can be purchased back via endorsement
 - buybackEndorsement: the form number of the buyback endorsement if known
-- appliesTo: which policy types or lines this exclusion applies to (as an array)
+- appliesTo: which lines of business or coverages this exclusion applies to (as an array)
 - content: full verbatim exclusion text — REQUIRED
 - pageNumber: page number where the exclusion appears
 

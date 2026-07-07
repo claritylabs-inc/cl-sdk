@@ -17,7 +17,7 @@ export function buildSummaryPrompt(doc: InsuranceDocument): string {
     type: doc.type,
     carrier: doc.carrier,
     insuredName: doc.insuredName,
-    policyTypes: doc.policyTypes,
+    linesOfBusiness: doc.linesOfBusiness,
     premium: doc.premium,
     coverageCount: doc.coverages?.length ?? 0,
   };

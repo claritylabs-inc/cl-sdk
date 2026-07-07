@@ -791,7 +791,7 @@ describe("source-tree extraction", () => {
 
     const profile: PolicyOperationalProfile = {
       documentType: "policy",
-      policyTypes: ["cyber"],
+      linesOfBusiness: ["OLIB"],
       coverages: [{
         name: "Technology Professional Liability",
         coverageCode: "A",

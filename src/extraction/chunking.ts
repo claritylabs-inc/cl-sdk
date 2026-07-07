@@ -38,7 +38,7 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
   };
   const chunks: DocumentChunk[] = [];
   const docId = doc.id;
-  const policyTypesStr = doc.policyTypes?.length ? doc.policyTypes.join(",") : undefined;
+  const linesOfBusinessStr = doc.linesOfBusiness?.length ? doc.linesOfBusiness.join(",") : undefined;
   const extendedDoc = doc as InsuranceDocument & {
     definitions?: Array<Record<string, unknown>>;
     coveredReasons?: Array<Record<string, unknown>>;
@@ -52,7 +52,7 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
         .filter(([, value]) => value !== undefined && value !== null && String(value).length > 0)
         .map(([key, value]) => [key, String(value)]),
     );
-    if (policyTypesStr) base.policyTypes = policyTypesStr;
+    if (linesOfBusinessStr) base.linesOfBusiness = linesOfBusinessStr;
     return base;
   }
 
@@ -90,7 +90,7 @@ export function chunkDocument(doc: InsuranceDocument): DocumentChunk[] {
       doc.isRenewal != null ? `Renewal: ${doc.isRenewal ? "Yes" : "No"}` : null,
       doc.isPackage != null ? `Package: ${doc.isPackage ? "Yes" : "No"}` : null,
       doc.security ? `Security: ${doc.security}` : null,
-      doc.policyTypes?.length ? `Policy Types: ${doc.policyTypes.join(", ")}` : null,
+      doc.linesOfBusiness?.length ? `Lines of Business: ${doc.linesOfBusiness.join(", ")}` : null,
     ]),
     { carrier: doc.carrier, documentType: doc.type },
   );

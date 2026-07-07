@@ -225,7 +225,7 @@ const BaseDocumentFields = {
   premium: z.string().optional(),
   premiumAmount: z.number().optional(),
   summary: z.string().optional(),
-  policyTypes: z.array(z.string()).optional(),
+  linesOfBusiness: z.array(z.string()).optional(),
   coverages: z.array(CoverageSchema),
   documentMetadata: DocumentMetadataSchema,
   documentOutline: z.array(DocumentNodeSchema),

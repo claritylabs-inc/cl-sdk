@@ -32,7 +32,7 @@ function buildPolicySpans(): SourceSpan[] {
   ];
 }
 
-function mockOperationalProfile(policyTypes = ["professional_liability"]) {
+function mockOperationalProfile(linesOfBusiness = ["EO"]) {
   safeGenerateObject.mockImplementation(async (_generateObject, params) => {
     if (params.taskKind !== "extraction_operational_profile") {
       throw new Error(`Unexpected task ${String(params.taskKind)}`);
@@ -41,7 +41,7 @@ function mockOperationalProfile(policyTypes = ["professional_liability"]) {
     return {
       object: {
         documentType: "policy",
-        policyTypes,
+        linesOfBusiness,
         policyNumber: {
           value: "GL-1",
           confidence: "high",
@@ -110,7 +110,7 @@ describe("createExtractor", () => {
     expect(taskKinds).not.toContain("extraction_format");
     expect(result.chunks).toEqual([]);
     expect(result.sourceTree?.length).toBeGreaterThan(0);
-    expect(result.operationalProfile?.policyTypes).toEqual(["professional_liability"]);
+    expect(result.operationalProfile?.linesOfBusiness).toEqual(["EO"]);
     expect(result.usageReporting).toEqual({
       modelCalls: 1,
       callsWithUsage: 1,

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PolicyTypeSchema } from "./enums";
+import { AcordLobCodeSchema } from "./lines-of-business";
 import { SourceSpanLocationSchema } from "../source/schemas";
 
 // ── Query Intent ──
@@ -55,8 +55,8 @@ export const SubQuestionSchema = z.object({
       insuredName: z.string().optional(),
       policyNumber: z.string().optional(),
       quoteNumber: z.string().optional(),
-      policyTypes: z.array(PolicyTypeSchema).optional()
-        .describe("Filter by policy type (e.g. homeowners_ho3, renters_ho4, pet) to avoid mixing up similar policies"),
+      linesOfBusiness: z.array(AcordLobCodeSchema).optional()
+        .describe("Filter by ACORD line of business code (e.g. HOME, AUTOP, DISAB) to avoid mixing up similar policies"),
     })
     .optional()
     .describe("Structured filters to narrow document lookup"),

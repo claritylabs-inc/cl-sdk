@@ -6,7 +6,7 @@ import type {
   SourceBackedValue,
 } from "./schemas";
 import { PolicyOperationalProfileSchema } from "./schemas";
-import { resolveOperationalProfilePolicyTypes } from "./policy-types";
+import { resolveOperationalProfileLinesOfBusiness } from "./policy-types";
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
@@ -37,8 +37,8 @@ function normalizeTermKind(value: unknown): OperationalCoverageTerm["kind"] {
 }
 
 export function mergeOperationalProfile(
-  base: PolicyOperationalProfile,
-  candidate: Partial<PolicyOperationalProfile>,
+  base: PolicyOperationalProfile & { policyTypes?: unknown },
+  candidate: Partial<PolicyOperationalProfile> & { policyTypes?: unknown },
   validNodeIds: Set<string>,
   validSpanIds: Set<string>,
 ): PolicyOperationalProfile {
@@ -228,16 +228,18 @@ export function mergeOperationalProfile(
       ? candidate.warnings.filter((warning): warning is string => typeof warning === "string" && warning.trim().length > 0)
       : []),
   ];
-  const resolvedPolicyTypes = resolveOperationalProfilePolicyTypes({
-    profileTypes: candidate.policyTypes,
-    existingTypes: base.policyTypes,
+  const candidateLinesOfBusiness = candidate.linesOfBusiness ?? candidate.policyTypes;
+  const baseLinesOfBusiness = base.linesOfBusiness ?? base.policyTypes;
+  const resolvedLinesOfBusiness = resolveOperationalProfileLinesOfBusiness({
+    profileLinesOfBusiness: candidateLinesOfBusiness,
+    existingLinesOfBusiness: baseLinesOfBusiness,
     coverages,
   });
 
   return PolicyOperationalProfileSchema.parse({
     ...base,
     documentType: candidate.documentType === "policy" ? "policy" : base.documentType,
-    policyTypes: resolvedPolicyTypes.policyTypes,
+    linesOfBusiness: resolvedLinesOfBusiness.linesOfBusiness,
     policyNumber,
     namedInsured,
     insurer,

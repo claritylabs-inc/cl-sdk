@@ -1,106 +1,68 @@
 ---
 title: Policy Classification
-description: How policy type is represented in source-tree extraction
+description: How ACORD lines of business are represented in source-tree extraction
 ---
 
 import { Callout } from "@/components/ui/callout";
 
-In CL SDK 3.2, policy classification is part of the source-backed operational profile, not a separate raw-PDF classifier phase. The operational-profile model receives bounded source evidence from the source tree and returns `policyTypes` alongside the rest of the product-critical facts.
+In CL SDK 4.0, policy classification is part of the source-backed operational profile, not a separate raw-PDF classifier phase. The operational-profile model receives bounded source evidence from the source tree and returns `linesOfBusiness` alongside the rest of the product-critical facts.
 
 <Callout type="info">
-`policyTypes` is the single top-level policy classification field. Do not add a parallel `coverageTypes` alias or a deterministic coverage-origin projection in consumers.
+`linesOfBusiness` is the single top-level policy classification field. Values are ACORD line of business codes. Do not add a parallel `policyTypes`, `coverageTypes`, or deterministic coverage-origin projection in consumers.
 </Callout>
 
-## Operational profile field
+## Operational Profile Field
 
 ```typescript
 interface PolicyOperationalProfile {
   documentType: "policy" | "quote";
-  policyTypes: string[];
+  linesOfBusiness: AcordLobCode[];
   // policy number, parties, dates, premium, coverages, endorsements...
 }
 ```
 
-`policyTypes` contains all detected lines of business, for example:
+`linesOfBusiness` contains all detected ACORD codes, for example:
 
 ```typescript
-["general_liability", "commercial_auto"]
+["CGL", "AUTOB"]
 ```
 
-The compatibility `InsuranceDocument.policyTypes` field is projected from `operationalProfile.policyTypes`.
+The parser accepts serialized legacy profile blobs with `policyTypes` and normalizes them to `linesOfBusiness` when parsed. New extraction output emits `linesOfBusiness`.
 
-## How it is inferred
+## How It Is Inferred
 
-Classification is source-backed. The profile merge layer resolves `policyTypes` from:
+Classification is source-backed. The profile merge layer resolves `linesOfBusiness` from:
 
-- explicit policy type values returned by the operational-profile model
 - source-backed coverage names and declaration evidence
-- existing compatibility hints when available
-- a default of `["other"]` when the source evidence does not support a more specific type
+- explicit ACORD code values returned by the operational-profile model
+- legacy policy-type hints when parsing cached blobs
+- a default of `["UN"]` when the source evidence does not support a more specific code
 
 The SDK does not run the removed full-PDF classify/page-map/template flow in the current extraction path.
 
-## Supported policy types
+## Supported Mappings
 
-The SDK supports 42 policy types across commercial, personal, and specialty lines.
+The SDK exports `AcordLobCode`, `AcordLobCodeSchema`, `ACORD_LOB_CODES`, `ACORD_LOB_LABELS`, `LEGACY_POLICY_TYPE_TO_LOB`, `PERSONAL_LOB_CODES`, `normalizeOperationalLinesOfBusiness`, and `resolveOperationalProfileLinesOfBusiness`.
 
-### Commercial lines
+Key legacy mappings:
 
-| Policy type | Description |
-|-------------|-------------|
-| `general_liability` | Commercial general liability |
-| `commercial_property` | Commercial property |
-| `commercial_auto` | Commercial auto |
-| `non_owned_auto` | Non-owned / hired auto |
-| `workers_comp` | Workers' compensation |
-| `umbrella` | Commercial umbrella |
-| `excess_liability` | Excess liability |
-| `professional_liability` | Professional liability / E&O |
-| `cyber` | Cyber liability |
-| `epli` | Employment practices liability |
-| `directors_officers` | Directors & officers |
-| `fiduciary_liability` | Fiduciary liability |
-| `crime_fidelity` | Crime / fidelity |
-| `inland_marine` | Inland marine |
-| `builders_risk` | Builders risk |
-| `environmental` | Environmental liability |
-| `ocean_marine` | Ocean marine |
-| `surety` | Surety bonds |
-| `product_liability` | Product liability |
-| `bop` | Business owners policy |
-| `management_liability_package` | Management liability package |
-| `property` | Property |
+| Legacy value | ACORD output |
+| --- | --- |
+| `general_liability` | `CGL` |
+| `commercial_property` | `PROPC` |
+| `commercial_auto`, `non_owned_auto` | `AUTOB` |
+| `workers_comp` | `WORK` |
+| `umbrella` | `UMBRC` |
+| `excess_liability` | `EXLIA` |
+| `professional_liability` | `EO` |
+| `cyber`, `environmental`, `product_liability` | `OLIB` |
+| `management_liability_package` | `DO`, `EPLI`, `FIDUC` |
+| `homeowners_ho3`, `homeowners_ho5`, `renters_ho4`, `condo_ho6` | `HOME` |
+| `flood_nfip`, `flood_private` | `FLOOD` |
+| `life`, `long_term_care`, `pet`, `travel`, `identity_theft`, `title`, `other` | `UN` |
 
-### Personal lines
+The unknown/unsupported ACORD codes `ACHE`, `INTER`, `LICPT`, `LSTIN`, `NWFGR`, `PAPER`, `SCAP`, and `SFRNC` are not part of the accepted schema. `CRIM` is normalized to `CRIME`.
 
-| Policy type | Description |
-|-------------|-------------|
-| `homeowners_ho3` | Homeowners HO-3 |
-| `homeowners_ho5` | Homeowners HO-5 |
-| `renters_ho4` | Renters HO-4 |
-| `condo_ho6` | Condo HO-6 |
-| `dwelling_fire` | Dwelling fire |
-| `mobile_home` | Mobile home |
-| `personal_auto` | Personal auto |
-| `personal_umbrella` | Personal umbrella |
-| `flood_nfip` | Flood (NFIP) |
-| `flood_private` | Flood (private) |
-| `earthquake` | Earthquake |
-| `personal_inland_marine` | Personal inland marine |
-| `watercraft` | Watercraft |
-| `recreational_vehicle` | Recreational vehicle |
-| `farm_ranch` | Farm & ranch |
+## Multi-Line Documents
 
-### Specialty
-
-| Policy type | Description |
-|-------------|-------------|
-| `pet` | Pet insurance |
-| `travel` | Travel insurance |
-| `identity_theft` | Identity theft |
-| `title` | Title insurance |
-| `other` | Unrecognized policy type |
-
-## Multi-line documents
-
-Many package policies cover multiple lines of business. `policyTypes` can contain more than one value, and `operationalProfile.coverages` should preserve each source-backed coverage unit rather than forcing the document into a single line-specific template.
+Many package policies cover multiple lines of business. `linesOfBusiness` can contain more than one code, and `operationalProfile.coverages` should preserve each source-backed coverage unit rather than forcing the document into a single line-specific template.

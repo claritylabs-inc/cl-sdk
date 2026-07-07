@@ -46,7 +46,7 @@ const SourceBackedValueForPromptSchema = z.object({
 
 const OperationalProfilePromptSchema = z.object({
   documentType: z.enum(["policy", "quote"]).optional(),
-  policyTypes: z.array(z.string()).optional(),
+  linesOfBusiness: z.array(z.string()).optional(),
   policyNumber: SourceBackedValueForPromptSchema.optional(),
   namedInsured: SourceBackedValueForPromptSchema.optional(),
   insurer: SourceBackedValueForPromptSchema.optional(),
@@ -1369,7 +1369,7 @@ function operationalProfilePromptNodes(sourceTree: DocumentSourceNode[]): Docume
 function emptyOperationalProfile(): PolicyOperationalProfile {
   return {
     documentType: "policy",
-    policyTypes: ["other"],
+    linesOfBusiness: ["UN"],
     coverages: [],
     parties: [],
     endorsementSupport: [],
@@ -1582,7 +1582,7 @@ function materializeDocument(params: {
     carrier !== "Unknown" ? carrier : undefined,
     policyNumber !== "Unknown" ? `#${policyNumber}` : undefined,
     insuredName !== "Unknown" ? `for ${insuredName}` : undefined,
-    profile.policyTypes.length ? `covering ${profile.policyTypes.slice(0, 5).join(", ")}` : undefined,
+    profile.linesOfBusiness.length ? `covering ${profile.linesOfBusiness.slice(0, 5).join(", ")}` : undefined,
   ].filter(Boolean).join(" ");
 
   const base = {
@@ -1601,7 +1601,7 @@ function materializeDocument(params: {
           producer: { agencyName: broker, ...brokerProvenance },
         }
       : {}),
-    policyTypes: profile.policyTypes,
+    linesOfBusiness: profile.linesOfBusiness,
     formInventory: params.formInventory
       .filter((form): form is SourceTreeFormHint & { formNumber: string } => typeof form.formNumber === "string" && form.formNumber.trim().length > 0)
       .map((form) => ({

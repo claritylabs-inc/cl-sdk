@@ -24,7 +24,7 @@ export const CONTEXT_KEY_MAP: ContextKeyMapping[] = [
   { extractedField: "totalPremium", category: "financial", contextKey: "current_premium", description: "Total policy premium" },
   { extractedField: "locations[].buildingValue", category: "financial", contextKey: "total_property_values", description: "Sum of building values" },
   { extractedField: "locations[].contentsValue", category: "financial", contextKey: "total_contents_values", description: "Sum of contents values" },
-  { extractedField: "policyTypes", category: "coverage", contextKey: "coverage_types", description: "Lines of business covered" },
+  { extractedField: "linesOfBusiness", category: "coverage", contextKey: "coverage_types", description: "ACORD lines of business covered" },
   { extractedField: "coverages[].limit", category: "coverage", contextKey: "current_limits", description: "Current coverage limits" },
   { extractedField: "coverages[].deductible", category: "coverage", contextKey: "current_deductibles", description: "Current deductibles" },
   { extractedField: "experienceMod.factor", category: "loss_history", contextKey: "experience_mod", description: "Workers comp experience modification factor" },
