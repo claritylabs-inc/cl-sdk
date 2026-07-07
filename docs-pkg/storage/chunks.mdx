@@ -3,7 +3,7 @@ title: Document Chunks
 description: "How CL SDK breaks documents into retrieval-friendly chunks for vector search"
 ---
 
-The extraction pipeline produces structured `InsuranceDocument` objects, but the query agent needs smaller, focused pieces of text for semantic search. The `chunkDocument` function bridges these two worlds.
+`DocumentChunk` is the legacy structured-document retrieval format. It is still exported and useful for manually assembled or older `InsuranceDocument` objects, but current v3 source-tree extraction returns `chunks: []`. For newly extracted policies, index `result.sourceTree` and hydrate exact `result.sourceSpans` for citations.
 
 ## DocumentChunk structure
 
@@ -71,32 +71,20 @@ This format provides three guarantees:
 
 ## Using chunkDocument
 
-The extraction pipeline returns chunks alongside the document:
-
-```typescript
-import { createExtractor } from "@claritylabs/cl-sdk";
-
-const extractor = createExtractor({
-  generateText,
-  generateObject,
-});
-
-const { document, chunks } = await extractor.extract(pdfBase64, "doc-123");
-
-// document: InsuranceDocument — save to DocumentStore
-await documentStore.save(document);
-
-// chunks: DocumentChunk[] — add to MemoryStore
-await memoryStore.addChunks(chunks);
-```
-
-You can also chunk a document independently:
+Use `chunkDocument()` when you already have an `InsuranceDocument` and need legacy chunks:
 
 ```typescript
 import { chunkDocument } from "@claritylabs/cl-sdk";
 
 const chunks = chunkDocument(document);
 await memoryStore.addChunks(chunks);
+```
+
+For v3 extraction, prefer source-tree retrieval:
+
+```typescript
+const result = await extractor.extract(pdfBase64, "doc-123", { sourceSpans });
+await sourceNodeIndex.add(result.sourceTree ?? []);
 ```
 
 ## ConversationTurn
@@ -123,9 +111,8 @@ The query agent stores each interaction as conversation turns, enabling:
 ## How chunks flow through the system
 
 ```
-1. Extraction
-   extractFromPdf() → InsuranceDocument
-   chunkDocument()  → DocumentChunk[]
+1. Legacy/manual document
+   InsuranceDocument → chunkDocument() → DocumentChunk[]
 
 2. Storage
    DocumentStore.save(document)
@@ -142,4 +129,4 @@ The query agent stores each interaction as conversation turns, enabling:
    "The general liability limit is $1,000,000 [doc-123:coverage:0]"
 ```
 
-The chunk type filter is particularly useful during query retrieval. When the query agent classifies a question as coverage-related, it can filter to `coverage` chunks. When it classifies a question as definitional or about what is affirmatively covered, it can filter to `definition` or `covered_reason` chunks to improve precision and reduce noise from unrelated document sections.
+The chunk type filter remains useful for legacy chunk-backed retrieval. On source-tree-backed retrieval, use node kind, path, page/form metadata, and source spans instead.

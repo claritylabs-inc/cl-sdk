@@ -24,25 +24,20 @@ npm install @claritylabs/cl-sdk pdf-lib zod
 ## Quick Start
 
 ```typescript
-import { createExtractor } from "@claritylabs/cl-sdk";
+import { buildPageSourceSpans, createExtractor } from "@claritylabs/cl-sdk";
 
 const extractor = createExtractor({
-  generateText: async ({ prompt, system, maxTokens, taskKind, budgetDiagnostics, providerOptions }) => {
-    const result = await yourProvider.generate({ prompt, system, maxTokens, taskKind, budgetDiagnostics, providerOptions });
-    return { text: result.text, usage: result.usage };
-  },
   generateObject: async ({ prompt, system, schema, maxTokens, taskKind, budgetDiagnostics, providerOptions }) => {
-    // Pass providerOptions.pdfBase64 and/or providerOptions.images to your model
     const result = await yourProvider.generateStructured({ prompt, system, schema, maxTokens, taskKind, budgetDiagnostics, providerOptions });
     return { object: result.object, usage: result.usage };
   },
-  concurrency: 3,
-  extractorConcurrency: 4,
-  formatConcurrency: 2,
-  reviewMode: "auto",
 });
 
-const result = await extractor.extract(pdfBase64);
+const sourceSpans = buildPageSourceSpans([
+  { documentId: "policy-123", sourceKind: "policy_pdf", pageNumber: 1, text: pageOneText },
+]);
+
+const result = await extractor.extract(pdfBase64, "policy-123", { sourceSpans });
 console.log(result.sourceTree);          // DocumentSourceNode[] canonical hierarchy
 console.log(result.sourceSpans);         // SourceSpan[] smallest PDF evidence units
 console.log(result.operationalProfile);  // Source-backed facts for policy lists, COIs, compliance
@@ -75,7 +70,7 @@ const sourceSpans = buildPageSourceSpans([
 ]);
 
 const sourceStore = new MemorySourceStore();
-const extractor = createExtractor({ generateText, generateObject, sourceStore });
+const extractor = createExtractor({ generateObject, sourceStore });
 
 const result = await extractor.extract(pdfBase64, "policy-123", { sourceSpans });
 ```
@@ -149,7 +144,6 @@ CL-SDK uses deterministic scaffolding with agentic decision points rather than f
 - Source-tree construction stays deterministic from parser spans; the model is used for the operational profile and optional coverage cleanup because those are end-user facts.
 - Referential coverage resolution and application/query workflows still use bounded target-specific actions when those workflows need lookup or explanation steps.
 - Formatting skips the LLM cleanup pass for plain prose and formats long or noisy markdown/table/list content in parallel batches outside the v3 source-span extraction path.
-- `reviewMode: "auto"` skips the expensive LLM review pass when deterministic checks are clean and source spans are available. Use `"always"` for maximum review coverage or `"skip"` when the host owns quality review separately.
 - Application processing plans optional backfill, context auto-fill, document search, batching, reply parsing, lookup, explanations, and next-batch email generation based on current active question state. Conditional fields that are not active are skipped until their parent answers trigger them.
 
 These gates reduce unnecessary provider calls while preserving reliability for edge cases where additional focused extraction or retrieval is needed.

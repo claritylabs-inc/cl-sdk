@@ -10,10 +10,9 @@ CL SDK uses plain callback functions instead of framework-specific model objects
 
 ## Callback types
 
-There are four callback types. Only `generateText` and `generateObject` are required for all pipelines:
+There are four callback types. Source-tree extraction requires `generateObject`; query, application, PCE, and agent workflows also use `generateText`:
 
 ```typescript
-// Required — used by all pipelines (extraction, query, application)
 type GenerateText = (params: {
   prompt: string;
   system?: string;
@@ -33,10 +32,10 @@ type GenerateObject<T = unknown> = (params: {
   providerOptions?: Record<string, unknown>;
 }) => Promise<{ object: T; usage?: TokenUsage }>;
 
-// Required for MemoryStore (vector search over chunks)
+// Required for MemoryStore-backed vector search
 type EmbedText = (text: string) => Promise<number[]>;
 
-// Optional — enables vision-based extraction (PDF pages as images)
+// Optional utility callback for custom PDF/image workflows outside current source-tree extraction
 type ConvertPdfToImagesFn = (
   pdfBase64: string,
   startPage: number,
@@ -44,17 +43,16 @@ type ConvertPdfToImagesFn = (
 ) => Promise<Array<{ imageBase64: string; mimeType: string }>>;
 ```
 
-For extraction and multimodal query calls, `providerOptions` is also the document transport layer:
+For source-tree extraction and multimodal query calls, `providerOptions` carries evidence and attachments:
 
-- `providerOptions.pdfBase64` carries the PDF to include as a file/document part
-- `providerOptions.images` carries rendered page images to include as image parts
-- `providerOptions.doclingText` carries full or page-scoped text normalized from a host-provided DoclingDocument
-- `providerOptions.attachments` carries generic query attachments such as inbound photos, PDFs, and text snippets
-- `providerOptions.sourceSpans` carries source evidence relevant to the current call
+- `providerOptions.sourceSpans` carries source evidence relevant to the current extraction/application/query call
 - `providerOptions.sourceChunks` carries grouped source evidence windows derived from spans
-- classify and plan receive the full PDF, or Docling text when using Docling input
-- page-map and worker extractors receive cached page-scoped PDFs, unless `convertPdfToImages` is enabled and cached page images are sent instead; Docling inputs receive page-scoped text
+- `providerOptions.attachments` carries generic query attachments such as inbound photos, PDFs, and text snippets
+- `providerOptions.pdfBase64` carries PDF attachments for multimodal query/application workflows when available
+- `providerOptions.images` carries image attachments when available
 - query attachment interpretation calls may set both `providerOptions.attachments` and the convenience fields above for the current attachment
+
+Current policy extraction does not send raw PDF bytes, page-scoped PDFs, or rendered page images as its primary evidence. It builds a source tree from parser-provided spans and sends bounded source evidence to `generateObject`.
 
 `taskKind` is a provider-agnostic subtask label for host-side model routing, fallback, and telemetry. `budgetDiagnostics` carries the resolved token budget, task kind, truncation-risk estimate, and warnings. Hosts can route cheap-first by task and escalate only on their own risk/error policy; CL SDK does not hardcode provider or model names.
 
@@ -284,7 +282,7 @@ Pass your callbacks to any pipeline factory:
 import { createExtractor, createQueryAgent, createApplicationPipeline } from "@claritylabs/cl-sdk";
 
 // Extraction
-const extractor = createExtractor({ generateText, generateObject });
+const extractor = createExtractor({ generateObject });
 
 // Query agent (also needs document and memory stores)
 const agent = createQueryAgent({ generateText, generateObject, documentStore, memoryStore });
@@ -315,7 +313,7 @@ const generateText = async ({ prompt, system, maxTokens, providerOptions }) => {
 
 The SDK passes `providerOptions` from its internal pipeline calls, so your callback can decide how to handle them.
 
-For the extraction pipeline, that includes the document itself. For the query pipeline, that can also include inbound attachments. If your callback ignores `providerOptions.pdfBase64`, `providerOptions.images`, or `providerOptions.attachments`, the model will not actually see those files even if the prompt says they were provided.
+For the extraction pipeline, that includes source spans/chunks and trace metadata. For the query pipeline, it can also include inbound attachments. If your callback ignores `providerOptions.pdfBase64`, `providerOptions.images`, or `providerOptions.attachments`, multimodal query models will not actually see those files even if the prompt says they were provided.
 
 ## Multimodal query callbacks
 
@@ -331,11 +329,11 @@ That means your callback should support both extraction-style document transport
 
 | Callback | Required for | Purpose |
 |----------|-------------|---------|
-| `generateText` | All pipelines | Text generation (prompts, reviews, responses) |
-| `generateObject` | All pipelines | Structured output with Zod schema validation |
-| `embedText` | MemoryStore | Vector embeddings for semantic chunk search |
-| `convertPdfToImages` | Vision extraction | Send PDF pages as images instead of native PDF |
+| `generateText` | Query, application, PCE, agent workflows | Text generation, reasoning, and responses |
+| `generateObject` | Extraction and structured workflow steps | Structured output with Zod schema validation |
+| `embedText` | MemoryStore/vector retrieval | Vector embeddings for semantic chunk search |
+| `convertPdfToImages` | Custom PDF/image workflows | Convert PDF page ranges to images outside current source-tree extraction |
 
 <Callout type="info">
-  `convertPdfToImages` enables vision-based extraction where PDF pages are rendered as images and sent to the model. This can improve extraction quality for documents with complex layouts, tables, or scanned content.
+  Current source-tree extraction expects parser-provided text/table spans. Use OCR, Docling, LiteParse, PDF.js, or another parser for scanned or complex PDFs before calling `extract()`.
 </Callout>

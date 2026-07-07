@@ -20,7 +20,7 @@ npm install @claritylabs/cl-sdk pdf-lib zod
 
 ## Create provider callbacks
 
-CL SDK uses plain callback functions instead of framework-specific model objects. Wrap your preferred provider's SDK into `generateText` and `generateObject` callbacks:
+CL SDK uses plain callback functions instead of framework-specific model objects. Extraction needs `generateObject`; query, application, PCE, and agent prompt workflows also use `generateText`.
 
 ```typescript
 import Anthropic from "@anthropic-ai/sdk";
@@ -67,17 +67,15 @@ const generateObject = async ({ prompt, system, schema, maxTokens, taskKind, bud
 };
 ```
 
-For extraction calls, CL SDK uses `providerOptions` to carry document content into your callback:
+For extraction calls, CL SDK uses `providerOptions` to carry source evidence into your callback:
 
-- classify, form inventory, and review calls include the full PDF in `providerOptions.pdfBase64`
-- page mapping calls include page-scoped PDFs in `providerOptions.pdfBase64`
-- worker extractor calls include a page-scoped PDF in `providerOptions.pdfBase64`
-- if you configure `convertPdfToImages`, worker extractor calls include `providerOptions.images` instead
-- Docling document inputs include full or page-scoped extracted text in the prompt and `providerOptions.doclingText`
+- source-tree extraction passes `providerOptions.sourceSpans` and `providerOptions.sourceChunks`
+- operational-profile and coverage-cleanup calls receive bounded source evidence in the prompt
+- Docling document inputs are normalized into source spans before the source tree is built
 - multimodal query calls may include `providerOptions.attachments`, `providerOptions.pdfBase64`, and `providerOptions.images`
-- source-grounded workflows may include `providerOptions.sourceSpans` and `providerOptions.sourceChunks`
+- application and query workflows may include `providerOptions.sourceSpans` and `providerOptions.sourceChunks`
 
-Your callback must attach those values to the actual model request. Prompt text alone does not provide the document.
+Your callback must preserve the provider options it supports. For source-tree extraction, the source evidence is text in the prompt and metadata in `providerOptions`; raw PDF bytes are not the primary extraction input.
 
 Callbacks also receive optional `taskKind` and `budgetDiagnostics` metadata. Use `taskKind` for host-side routing/fallback decisions such as cheap classification, larger long-list extraction, review, query reasoning, application extraction, or PCE impact analysis. Use `budgetDiagnostics` for telemetry and escalation policies based on resolved token budgets or truncation-risk warnings.
 
@@ -85,7 +83,7 @@ See the [Provider Callbacks](/docs/getting-started/models) guide for examples wi
 
 ## Extract a document
 
-Pass your callbacks to `createExtractor` and extract structured data from any insurance PDF:
+Preprocess the PDF into source spans, then pass those spans to `createExtractor().extract()`. Extraction fails fast when neither `options.sourceSpans` nor a Docling input provides spans.
 
 ```typescript
 import { buildPageSourceSpans, createExtractor } from "@claritylabs/cl-sdk";
@@ -94,26 +92,27 @@ import { readFileSync } from "fs";
 // Load a PDF as base64
 const pdfBase64 = readFileSync("./policy.pdf").toString("base64");
 
-// Create the extractor with your provider callbacks
-const extractor = createExtractor({ generateText, generateObject });
+// Create the extractor with your structured-output provider callback
+const extractor = createExtractor({ generateObject });
 
-// Optional: provide source text spans for page-backed evidence
+// Required for PDF inputs: provide source text spans from your parser/OCR layer
 const pageOneText = "..."; // text from your PDF text/OCR pipeline
 const sourceSpans = buildPageSourceSpans([
   { documentId: "doc-123", sourceKind: "policy_pdf", pageNumber: 1, text: pageOneText },
 ]);
 
-// Run the agentic extraction pipeline
-const { document, chunks, sourceChunks, tokenUsage, usageReporting } =
+// Run the source-tree extraction pipeline
+const { document, sourceTree, operationalProfile, sourceChunks, chunks, tokenUsage, usageReporting } =
   await extractor.extract(pdfBase64, "doc-123", { sourceSpans });
 
 console.log(document.carrier);       // "Hartford"
 console.log(document.policyNumber);  // "GL-2024-001234"
-console.log(document.coverages);     // [{ name: "General Liability", limit: "$1,000,000", ... }]
-console.log(chunks.length);          // 24 chunks ready for vector storage
+console.log(sourceTree.length);       // canonical source hierarchy
+console.log(operationalProfile);      // source-backed product facts
+console.log(chunks.length);           // 0 on v3 source-tree extraction paths
 console.log(sourceChunks.length);    // Source evidence windows for source retrieval
-console.log(tokenUsage);             // { inputTokens: 45000, outputTokens: 12000 }
-console.log(usageReporting);         // { modelCalls: 14, callsWithUsage: 14, callsMissingUsage: 0 }
+console.log(tokenUsage);             // aggregate provider-reported usage
+console.log(usageReporting);         // calls with or without provider usage metadata
 ```
 
 ### Extract from a Docling document
@@ -185,7 +184,6 @@ Handle insurance application intake with a bounded agentic workflow:
 import { createApplicationPipeline } from "@claritylabs/cl-sdk";
 
 const pipeline = createApplicationPipeline({
-  generateText,
   generateObject,
 });
 
@@ -233,20 +231,14 @@ const extractor = createExtractor({
   onProgress: (message) => console.log(`[cl-sdk] ${message}`),
 });
 
-const { document } = await extractor.extract(pdfBase64);
+const { document } = await extractor.extract(pdfBase64, "doc-123", { sourceSpans });
 ```
 
 Output:
 
 ```
-[cl-sdk] Classifying document...
-[cl-sdk] Mapping document pages for commercial-auto policy...
-[cl-sdk] Building extraction plan from page map for commercial-auto policy...
-[cl-sdk] Dispatching 8 extractors across 45 pages...
-[cl-sdk] Extractor declarations (pages 1-5) complete
-[cl-sdk] Extractor coverage_limits (pages 6-20) complete
-[cl-sdk] Review round 1: 2 gaps found, dispatching follow-up...
-[cl-sdk] Assembling final document...
+[cl-sdk] Building source-native document tree...
+[cl-sdk] Source-tree extraction complete.
 ```
 
 ## Next steps

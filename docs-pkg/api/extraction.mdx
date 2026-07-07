@@ -1,6 +1,6 @@
 ---
 title: Extraction API
-description: Complete reference for the agentic extraction pipeline
+description: Complete reference for the source-tree extraction pipeline
 ---
 
 import { Callout } from "@/components/ui/callout";
@@ -9,29 +9,35 @@ import { Callout } from "@/components/ui/callout";
 
 ### `createExtractor(config)`
 
-Create an extraction pipeline instance. Returns an object with a single `extract` method that processes a PDF or host-provided Docling document and returns structured insurance data.
+Create a source-tree extraction pipeline. For PDF inputs, callers must provide preprocessed `SourceSpan[]` through `ExtractOptions.sourceSpans`. For Docling inputs, CL SDK derives spans from the serialized Docling document. If extraction receives no spans, it throws:
+
+```text
+cl-sdk extraction now requires preprocessed source spans. Run LiteParse or another source-span preprocessor and pass ExtractOptions.sourceSpans; legacy raw-PDF page-map extraction has been removed.
+```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `config` | `ExtractorConfig` | Pipeline configuration (required) |
+| `config` | `ExtractorConfig` | Pipeline configuration |
 
 **Returns:** `{ extract(input: ExtractionInput, documentId?: string, options?: ExtractOptions): Promise<ExtractionResult> }`
 
 ```typescript
-import { createExtractor } from "@claritylabs/cl-sdk";
+import { buildPageSourceSpans, createExtractor } from "@claritylabs/cl-sdk";
 
 const extractor = createExtractor({
-  generateText: myGenerateText,
   generateObject: myGenerateObject,
   onProgress: (msg) => console.log(msg),
   onTokenUsage: (usage) => console.log(`Tokens: ${usage.inputTokens} in, ${usage.outputTokens} out`),
 });
 
-const { document, chunks, sourceSpans, sourceChunks, tokenUsage, usageReporting } =
-  await extractor.extract(pdfBase64, "policy-123", { sourceSpans: callerSourceSpans });
+const sourceSpans = buildPageSourceSpans([
+  { documentId: "policy-123", sourceKind: "policy_pdf", pageNumber: 1, text: pageOneText },
+]);
+
+const result = await extractor.extract(pdfBase64, "policy-123", { sourceSpans });
 ```
 
-`ExtractionInput` is either the existing `PdfInput` value (`string`, `URL`, `Uint8Array`, or `{ fileId }`) or a Docling input:
+`ExtractionInput` is either a `PdfInput` value (`string`, `URL`, `Uint8Array`, or `{ fileId }`) plus `ExtractOptions.sourceSpans`, or a Docling input:
 
 ```typescript
 const result = await extractor.extract({
@@ -41,102 +47,37 @@ const result = await extractor.extract({
 }, "policy-123");
 ```
 
-Docling conversion is host-owned. CL SDK consumes serialized `DoclingDocument` JSON, normalizes page text and provenance into source spans, and runs the focused structuring pipeline without slicing or sending the original PDF.
+Docling conversion is host-owned. CL SDK consumes serialized `DoclingDocument` JSON, normalizes page text and provenance into source spans, and then runs the same source-tree extraction path.
 
-The pipeline runs twelve phases automatically:
+The current extraction path is:
 
-1. **Classify** -- detect document type (policy/quote) and identify policy types, using the full PDF from `providerOptions.pdfBase64` or Docling text from `providerOptions.doclingText`
-2. **Form inventory and page map** -- identify form signals and map each page to focused extractors using page-scoped PDFs, Docling page text, and caller-provided source spans
-3. **Plan** -- build extraction tasks from the model-produced page map and template hints
-4. **Extract + merge** -- dispatch focused extractors in parallel (concurrency-limited), with each worker receiving a cached page-scoped PDF via `providerOptions.pdfBase64`, cached rendered page images via `providerOptions.images`, or page-scoped Docling text via `providerOptions.doclingText`, plus page-filtered `providerOptions.sourceSpans` when available
-5. **Conditional supplementary extraction** -- run `supplementary` only when page assignments, form inventory, extracted text, or review follow-up tasks indicate hidden retrieval facts are likely present; page/form signals are dispatched as narrow page-scoped tasks with the main extractor batch
-6. **Referential coverage resolution** -- resolve values like "shown in declarations" or "per schedule" with cheap local matches first, then bounded targeted lookups when useful
-7. **Review** -- check completeness and quality against template requirements and the live extractor catalog, dispatch additional extractors for gaps (up to `maxReviewRounds`); `reviewMode` can skip the expensive LLM review when deterministic checks are sufficient. If the LLM review call itself fails, the fallback review round is recorded as non-clean with warning issues instead of silently approving the extraction.
-8. **Assemble** -- merge all extractor results into an `InsuranceDocument`
-9. **Promote** -- fill non-financial convenience fields from declarations data (carrier field mapping, broker, locations, loss payees); financial fields and numeric coverage fields remain owned by focused extractor and review LLM passes
-10. **Summarize** -- generate a 1-3 sentence document summary via model call
-11. **Cost-aware format** -- clean up markdown formatting in content fields only when content is likely to need it, using bounded parallel batches
-12. **Chunk** -- break the formatted document into `DocumentChunk[]` for vector storage
+1. **Normalize source spans** -- merge Docling-derived spans and caller-provided spans, normalize text, remove duplicate or unusable spans, and derive `sourceChunks`.
+2. **Persist source evidence** -- when `sourceStore` is configured, save source spans and chunks before extraction.
+3. **Build the source tree** -- deterministically construct document, page group, page, form, endorsement, section, schedule, clause, table, row, cell, and text nodes from existing spans.
+4. **Apply semantic grouping** -- group declarations, policy forms, endorsements, sections, and schedules from parser titles and source text. The grouping code may relabel or regroup existing source nodes; it does not invent source text, source span IDs, pages, or bounding boxes.
+5. **Extract the operational profile** -- call `generateObject` with a bounded source-evidence packet for product-critical facts such as policy number, named insured, insurer, broker, policy period, coverage units, limits, deductibles, premiums, and endorsement support.
+6. **Validate and merge citations** -- reject uncited facts and source IDs that are not present in the current source tree/spans.
+7. **Clean up coverages** -- when coverage units exist, run one bounded source-backed cleanup pass that keeps, drops, or updates existing coverage rows by `coverageIndex`.
+8. **Project compatibility output** -- materialize `document`, `documentMetadata`, and `documentOutline` as views over `sourceTree` and `operationalProfile`; return `chunks: []` on this v3 path.
 
 <Callout type="info">
   The `extract` method accepts an optional `documentId`. If omitted, a timestamped ID is generated automatically.
-</Callout>
-
-<Callout type="info">
-  Focused extractors can declare fallback behavior. Definitions and covered reasons fall back through section extraction when the focused extractor fails or returns no usable records.
 </Callout>
 
 ---
 
 ### `chunkDocument(doc)`
 
-Convert an `InsuranceDocument` into an array of `DocumentChunk` objects suitable for vector storage and retrieval.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `doc` | `InsuranceDocument` | The extracted document |
-
-**Returns:** `DocumentChunk[]`
+Convert an `InsuranceDocument` into `DocumentChunk[]`. This remains available for legacy or manually assembled documents, but source-tree extraction returns `chunks: []` because broad structured chunks are no longer the primary evidence corpus.
 
 ```typescript
 import { chunkDocument } from "@claritylabs/cl-sdk";
 
 const chunks = chunkDocument(document);
-// Each chunk has: id, documentId, type, text, metadata
+await memoryStore.addChunks(chunks);
 ```
 
-Chunk types include: `carrier_info`, `named_insured`, `coverage`, `definition`, `covered_reason`, `endorsement`, `exclusion`, `condition`, `section`, `declaration`, `loss_history`, `premium`, `supplementary`, `location`, `vehicle`, `classification`, `financial`, `party`, `subjectivity`, and `underwriting_condition`.
-
-The `definition` and `covered_reason` chunk types make definitions, covered causes, inclusions, and attached covered-reason conditions independently retrievable. The `supplementary` chunk type includes both contact-style supplementary data and hidden retrieval-only facts from `document.supplementaryFacts`.
-
----
-
-## Advanced -- Extractor definitions
-
-These are low-level APIs for consumers who want to inspect or customize the extraction prompts.
-
-### `getExtractor(name)`
-
-Look up a focused extractor definition by name.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `name` | `string` | Extractor name (e.g. `"declarations"`, `"coverage_limits"`, `"definitions"`, `"covered_reasons"`, `"endorsements"`) |
-
-**Returns:** `ExtractorDef | undefined`
-
-```typescript
-import { getExtractor } from "@claritylabs/cl-sdk";
-
-const ext = getExtractor("coverage_limits");
-if (ext) {
-  const prompt = ext.buildPrompt();
-  // ext.schema is the Zod schema for the extractor's output
-}
-```
-
-Available extractors: `carrier_info`, `named_insured`, `declarations`, `coverage_limits`, `definitions`, `covered_reasons`, `endorsements`, `exclusions`, `conditions`, `premium_breakdown`, `loss_history`, `sections`, and `supplementary`.
-
----
-
-### `getTemplate(policyType)`
-
-Get the line-of-business template for a given policy type. Templates define what sections the extraction pipeline expects and where to find them.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `policyType` | `string` | A `PolicyType` value (e.g. `"commercial_auto"`, `"workers_comp"`, `"cyber"`) |
-
-**Returns:** `DocumentTemplate`
-
-```typescript
-import { getTemplate } from "@claritylabs/cl-sdk";
-
-const template = getTemplate("workers_comp");
-// template.expectedSections: ["declarations", "coverage", "endorsements", ...]
-// template.required: ["declarations", "coverage"]
-// template.pageHints: { declarations: "Usually pages 1-3", ... }
-```
+For newly extracted v3 documents, index `result.sourceTree` for retrieval and keep `result.sourceSpans` for exact highlights.
 
 ---
 
@@ -146,46 +87,30 @@ const template = getTemplate("workers_comp");
 
 ```typescript
 interface ExtractorConfig {
-  /** Provider callback for text generation */
-  generateText: GenerateText;
   /** Provider callback for structured output with Zod schemas */
   generateObject: GenerateObject;
-  /** Optional PDF-to-images converter. When provided, pages are sent as images instead of native PDF */
-  convertPdfToImages?: ConvertPdfToImagesFn;
-  /** Maximum parallel extractor dispatch (default: 2) */
-  concurrency?: number;
-  /** Optional override for page-map model calls. Defaults to concurrency. */
-  pageMapConcurrency?: number;
-  /** Optional override for focused extractor model calls. Defaults to concurrency. */
-  extractorConcurrency?: number;
-  /** Optional override for markdown formatting model calls. Defaults to concurrency. */
-  formatConcurrency?: number;
-  /** Maximum review/re-extraction rounds (default: 2) */
-  maxReviewRounds?: number;
-  /** LLM review behavior. "auto" skips review when deterministic checks are clean and source spans are available. */
-  reviewMode?: "always" | "auto" | "skip";
-  /** Called after each model call with token counts */
+  /** Called after each model call with token counts, when the provider reports usage */
   onTokenUsage?: (usage: TokenUsage) => void;
   /** Called with human-readable progress messages during extraction */
   onProgress?: (message: string) => void;
   /** Optional async logger */
   log?: LogFn;
-  /** Pass-through provider options forwarded to every model call.
-   *  For extraction, this is also where the coordinator/worker pipeline passes PDF, image, or Docling text content to your callback.
-   */
+  /** Pass-through provider options forwarded to extraction model calls */
   providerOptions?: Record<string, unknown>;
   /** Optional source evidence persistence */
   sourceStore?: SourceStore;
   /** Optional quality gate behavior */
   qualityGate?: "off" | "warn" | "strict";
-  /** Optional model metadata for resolving per-task budgets */
+  /** Optional model metadata for resolving default task budgets */
   modelCapabilities?: ModelCapabilities;
+  /** Optional model metadata by task kind for routed hosts */
+  modelCapabilitiesByTaskKind?: Partial<Record<ModelTaskKind, ModelCapabilities>>;
   /** Optional per-task budget constraints */
   modelBudgetConstraints?: Partial<Record<ModelTaskKind, ModelBudgetConstraint>>;
-  /** Optional checkpoint persistence callback */
-  onCheckpointSave?: (checkpoint: PipelineCheckpoint<ExtractionState>) => Promise<void>;
 }
 ```
+
+`generateText`, `convertPdfToImages`, page-map concurrency, focused extractor concurrency, review mode, and checkpoint options are not part of the current extraction config. They may still exist in other SDK workflows or older release notes, but they are not used by `createExtractor()` in the published 3.2.13 API.
 
 ### `ExtractionInput`
 
@@ -199,36 +124,40 @@ type ExtractionInput =
     };
 ```
 
-`DoclingDocumentLike` intentionally models the serialized Docling fields CL SDK needs (`texts`, `tables`, `key_value_items`, `groups`, `body`, `pages`, and `prov`) without requiring a Docling runtime dependency.
+`PdfInput` still identifies the source document for compatibility, but policy extraction does not send raw PDF bytes or page images as the primary extraction context. Pass source spans produced by LiteParse, Docling, PDF.js, OCR, or another parser.
 
 ### `ExtractOptions`
 
 ```typescript
 interface ExtractOptions {
-  /** Resume extraction from a previously saved checkpoint. */
-  resumeFrom?: PipelineCheckpoint<ExtractionState>;
   /** Caller-provided raw source spans for this document. */
   sourceSpans?: SourceSpan[];
 }
 ```
 
-When `sourceSpans` are provided, the coordinator stores them in the result, chunks them into `sourceChunks`, persists both through `sourceStore` when configured, and forwards page-filtered source context into focused extractor calls.
+For PDF inputs, `sourceSpans` are required. For Docling inputs, they are optional and are merged with the spans derived from the Docling document.
 
 ### `ExtractionResult`
 
 ```typescript
 interface ExtractionResult {
-  /** The fully assembled insurance document */
+  /** Compatibility policy or quote projection */
   document: InsuranceDocument;
-  /** Pre-computed chunks ready for vector storage */
+  /** Empty on v3 source-tree extraction paths */
   chunks: DocumentChunk[];
-  /** Caller-provided source spans that were used for grounding */
+  /** Source spans used for grounding */
   sourceSpans: SourceSpan[];
   /** Source chunks derived from sourceSpans */
   sourceChunks: SourceChunk[];
-  /** Aggregate token usage across all model calls */
+  /** Canonical source hierarchy */
+  sourceTree?: DocumentSourceNode[];
+  /** Source-backed product fact projection */
+  operationalProfile?: PolicyOperationalProfile;
+  /** Non-blocking extraction warnings */
+  warnings?: string[];
+  /** Aggregate token usage across model calls that reported usage */
   tokenUsage: TokenUsage;
-  /** Whether provider callbacks actually returned usage for each model call */
+  /** Whether provider callbacks returned usage for each model call */
   usageReporting: {
     modelCalls: number;
     callsWithUsage: number;
@@ -236,75 +165,39 @@ interface ExtractionResult {
   };
   /** Timing and model-call performance summary */
   performanceReport: PerformanceReport;
-  /** Structured extraction review details, when review ran */
-  reviewReport?: ExtractionReviewReport;
-  /** Last saved checkpoint when checkpoint persistence is configured */
-  checkpoint?: PipelineCheckpoint;
+  /** Source-tree warning and artifact report */
+  reviewReport: ExtractionReviewReport;
 }
 ```
 
-`ExtractionResult.document` may include `definitions?: Definition[]`, `coveredReasons?: CoveredReason[]`, and `supplementaryFacts?: Array<{ key: string; value: string; subject?: string; context?: string }>` when the relevant extractors find those records.
+`ExtractionResult.document` is a compatibility projection. Product surfaces that need source truth should prefer `sourceTree` for wording/hierarchy and `operationalProfile` for product-critical facts.
 
-### Performance controls
+### `PolicyOperationalProfile`
 
-The extraction coordinator has separate concurrency knobs because each stage has a different cost profile:
-
-| Option | Applies to | Default |
-|--------|------------|---------|
-| `concurrency` | Shared fallback for page mapping, extractors, referential lookup, and formatting | `2` |
-| `pageMapConcurrency` | Page-map chunk model calls | `concurrency` |
-| `extractorConcurrency` | Focused extractor and review follow-up model calls | `concurrency` |
-| `formatConcurrency` | Markdown formatting batches | `concurrency` |
-| `reviewMode` | Expensive LLM review pass | `"auto"` |
-
-The coordinator also caches full-document provider options, page-scoped PDF ranges, rendered image ranges, and in-flight range requests. When multiple focused extractors inspect the same pages, the SDK reuses the same sliced PDF or rendered images instead of doing duplicate local work.
-
-Use `reviewMode: "always"` when you want every extraction to run the LLM review regardless of deterministic quality checks. Use `reviewMode: "skip"` only when your host system performs its own review or when low-latency extraction is more important than coordinator follow-up coverage.
-
-### `ExtractorDef`
+The operational profile is the bounded source-backed fact layer:
 
 ```typescript
-interface ExtractorDef {
-  /** Build the extraction prompt for this domain */
-  buildPrompt(): string;
-  /** Zod schema for validating the extractor's output */
-  schema: ZodSchema;
-  /** Optional max tokens override for this extractor */
-  maxTokens?: number;
-  /** Optional fallback behavior when a focused extractor fails or returns empty results */
-  fallback?: FocusedExtractorFallback;
+interface PolicyOperationalProfile {
+  documentType: "policy" | "quote";
+  policyTypes: string[];
+  policyNumber?: SourceBackedValue;
+  namedInsured?: SourceBackedValue;
+  insurer?: SourceBackedValue;
+  broker?: SourceBackedValue;
+  effectiveDate?: SourceBackedValue;
+  expirationDate?: SourceBackedValue;
+  retroactiveDate?: SourceBackedValue;
+  premium?: SourceBackedValue;
+  coverages: OperationalCoverageLine[];
+  parties: OperationalParty[];
+  endorsementSupport: OperationalEndorsementSupport[];
+  sourceNodeIds: string[];
+  sourceSpanIds: string[];
+  warnings: string[];
 }
 ```
 
-### `DocumentTemplate`
-
-```typescript
-interface DocumentTemplate {
-  /** Sections the pipeline expects to extract */
-  expectedSections: string[];
-  /** Hints about where sections typically appear in the PDF */
-  pageHints: Record<string, string>;
-  /** Sections that must be present for a complete extraction */
-  required: string[];
-  /** Sections that are extracted if found but not required */
-  optional: string[];
-}
-```
-
-### `TokenUsage`
-
-```typescript
-interface TokenUsage {
-  inputTokens: number;
-  outputTokens: number;
-}
-```
-
-### `LogFn`
-
-```typescript
-type LogFn = (message: string) => Promise<void>;
-```
+`policyTypes` is the single top-level policy classification field. Do not add a parallel `coverageTypes` alias or deterministic coverage-origin projection in consumers.
 
 ---
 
@@ -314,42 +207,22 @@ type LogFn = (message: string) => Promise<void>;
 
 Transform a Zod schema for strict structured output compatibility. Recursively converts `.optional()` properties to `.nullable()` so all properties appear in the JSON Schema `required` array.
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `schema` | `ZodTypeAny` | Any Zod schema |
-
-**Returns:** `ZodTypeAny` — the transformed schema
-
 ```typescript
 import { toStrictSchema } from "@claritylabs/cl-sdk";
 
 const strict = toStrictSchema(z.object({
   name: z.string(),
-  age: z.number().optional(), // becomes z.number().nullable()
+  age: z.number().optional(),
 }));
 ```
 
 <Callout type="info">
-  You don't need to call this yourself — the pipeline applies it automatically before every `generateObject` call. It's exported for consumers building custom pipelines.
+  You do not need to call this yourself for `createExtractor()`; the pipeline applies it automatically before every `generateObject` call.
 </Callout>
-
----
 
 ### `safeGenerateObject(generateObject, params, options?)`
 
 Wraps a `generateObject` call with schema strictification, retry on transient errors, and optional fallback values.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `generateObject` | `GenerateObject<T>` | Your provider callback |
-| `params` | `{ prompt, schema, maxTokens, ... }` | Same params as `generateObject` |
-| `options.fallback` | `T` | Return this value if all retries fail (optional) |
-| `options.maxRetries` | `number` | Schema validation retries, default 1 |
-| `options.log` | `LogFn` | Logger for retry status messages |
-
-**Returns:** `Promise<{ object: T; usage?: TokenUsage }>`
-
-If you use `safeGenerateObject()` in your own extraction flow, make sure you continue to pass through `providerOptions.pdfBase64` or `providerOptions.images` to your provider callback.
 
 ```typescript
 import { safeGenerateObject } from "@claritylabs/cl-sdk";
