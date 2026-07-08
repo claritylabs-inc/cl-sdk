@@ -1,3 +1,10 @@
+# [4.1.0](https://github.com/claritylabs-inc/cl-sdk/compare/v4.0.1...v4.1.0) (2026-07-08)
+
+
+### Features
+
+* **extraction:** emit declaration facts ([f81d0bc](https://github.com/claritylabs-inc/cl-sdk/commit/f81d0bc5116224bd41ea9ca805571db9408e93df))
+
 ## [4.0.2](https://github.com/claritylabs-inc/cl-sdk/compare/v4.0.1...v4.0.2) (2026-07-08)
 
 
