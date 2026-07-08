@@ -1,3 +1,10 @@
+# [4.2.0](https://github.com/claritylabs-inc/cl-sdk/compare/v4.1.0...v4.2.0) (2026-07-08)
+
+
+### Features
+
+* add coverage line of business metadata ([91f6aca](https://github.com/claritylabs-inc/cl-sdk/commit/91f6aca3a6dc48a22802a97e0b9ff1d90a62a57f))
+
 # [4.1.0](https://github.com/claritylabs-inc/cl-sdk/compare/v4.0.1...v4.1.0) (2026-07-08)
 
 
