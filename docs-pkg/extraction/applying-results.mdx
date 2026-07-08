@@ -336,11 +336,11 @@ For per-call tracking, use the `onTokenUsage` callback in `ExtractorConfig`. If 
 
 The source-tree pipeline projects source-backed facts into the legacy `InsuranceDocument` shape so existing hosts can keep rendering familiar fields:
 
-- **Identity fields** — `insuredName`, `carrier`, `policyNumber`, broker, and producer values come from `operationalProfile` when available.
+- **Identity fields** — `insuredName`, `carrier`, `policyNumber`, broker, and producer values come from `operationalProfile` when available. Persist source-backed named-insured facts from `operationalProfile.declarationFacts`, including mailing address, DBA, entity type, tax ID, and additional named insured rows, when hosts need durable org or client profiles.
 - **Coverage fields** — compatibility `document.coverages` is projected from `operationalProfile.coverages`, but product surfaces should prefer the operational profile because it preserves nested terms and source IDs.
 - **Document structure** — `documentMetadata` and `documentOutline` are materialized from `sourceTree`.
 
-Financial fields such as premium, total cost, taxes, fees, payment plan, limits, deductibles, and source-backed coverage terms should come from `operationalProfile` or another cited source-backed record. Source-backed coverage terms also keep item references textual: `shown in Item 7` is provenance text, not `amount: 7`.
+Financial fields such as premium, total cost, taxes, fees, payment plan, limits, deductibles, declaration facts, and source-backed coverage terms should come from `operationalProfile` or another cited source-backed record. Source-backed coverage terms also keep item references textual: `shown in Item 7` is provenance text, not `amount: 7`.
 
 The compatibility projection should not be treated as a new source of policy wording. It is a view over source-backed facts.
 

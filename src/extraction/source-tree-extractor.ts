@@ -7,6 +7,7 @@ import type { SourceProvenance } from "../schemas/shared";
 import type {
   DocumentSourceNode,
   DocumentSourceNodeKind,
+  OperationalDeclarationFact,
   PolicyOperationalProfile,
   SourceBackedValue,
   SourceChunk,
@@ -44,6 +45,42 @@ const SourceBackedValueForPromptSchema = z.object({
   sourceSpanIds: z.array(z.string()),
 });
 
+const OperationalAddressForPromptSchema = z.object({
+  street1: z.string().optional(),
+  street2: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  zip: z.string().optional(),
+  country: z.string().optional(),
+  formatted: z.string().optional(),
+});
+
+const OperationalDeclarationFactForPromptSchema = z.object({
+  field: z.enum([
+    "namedInsured",
+    "mailingAddress",
+    "dba",
+    "entityType",
+    "taxId",
+    "additionalNamedInsured",
+    "policyNumber",
+    "insurer",
+    "broker",
+    "effectiveDate",
+    "expirationDate",
+    "premium",
+    "other",
+  ]),
+  label: z.string().optional(),
+  value: z.string(),
+  normalizedValue: z.string().optional(),
+  valueKind: z.enum(["string", "number", "date", "money", "address", "list", "unknown"]).optional(),
+  address: OperationalAddressForPromptSchema.optional(),
+  confidence: z.enum(["low", "medium", "high"]).optional(),
+  sourceNodeIds: z.array(z.string()),
+  sourceSpanIds: z.array(z.string()),
+});
+
 const OperationalProfilePromptSchema = z.object({
   documentType: z.enum(["policy", "quote"]).optional(),
   linesOfBusiness: z.array(z.string()).optional(),
@@ -55,6 +92,7 @@ const OperationalProfilePromptSchema = z.object({
   expirationDate: SourceBackedValueForPromptSchema.optional(),
   retroactiveDate: SourceBackedValueForPromptSchema.optional(),
   premium: SourceBackedValueForPromptSchema.optional(),
+  declarationFacts: z.array(OperationalDeclarationFactForPromptSchema).optional(),
   coverages: z.array(z.object({
     name: z.string(),
     coverageCode: z.string().optional(),
@@ -1370,6 +1408,7 @@ function emptyOperationalProfile(): PolicyOperationalProfile {
   return {
     documentType: "policy",
     linesOfBusiness: ["UN"],
+    declarationFacts: [],
     coverages: [],
     parties: [],
     endorsementSupport: [],
@@ -1390,6 +1429,7 @@ function buildOperationalProfilePrompt(sourceTree: DocumentSourceNode[], sourceS
 
 Return only high-value operational facts needed for policy lists, Q&A, compliance, and certificate generation:
 - policy number, named insured, insurer/carrier/security, broker/producer, policy period, retroactive date, premium
+- source-backed declarationFacts for named-insured identity details: named insured, mailing address, DBA, entity type, tax ID/FEIN, additional named insureds, and other durable declaration-page identity facts
 - coverage units with their own nested limit terms, deductibles/retentions, retroactive dates, premiums, and form references
 - coverage type labels
 
@@ -1398,6 +1438,8 @@ Rules:
 - When citing an evidence entry, copy its sourceSpanId into the returned sourceSpanIds array.
 - If a value is not directly supported, omit it.
 - Prefer declarations, schedules, premium tables, and endorsement schedules over generic policy wording.
+- Put named-insured mailing address in declarationFacts[] with field "mailingAddress", valueKind "address", a user-facing value string, and structured address fields when present. Do not put producer, broker, insurer, mortgagee, loss-payee, or certificate-holder addresses in mailingAddress.
+- Put DBA or trade name in declarationFacts[] with field "dba"; entity/legal form in field "entityType"; FEIN/tax ID in field "taxId"; each additional named insured in field "additionalNamedInsured".
 - For effective, expiration, retroactive, and other date fields, return a normalized YYYY-MM-DD value when the source date is unambiguous, including month-name dates such as "20 Feb 2026". Do not emit fragmented date text such as "20 2 2026".
 - For broker/producer, extract the agency or company legal name, not the license role, credential, or type. In a block like "Bayshore Insurance Brokers, LLC" followed by "Surplus Lines Broker - CA License No. ...", broker.value must be "Bayshore Insurance Brokers, LLC"; the surplus-lines role and license number are not the broker name.
 - On declarations pages, treat "Item N" labels as section boundaries. Use Item 6 or equivalent coverage-schedule rows for coverage limits, deductibles, aggregate terms, and retroactive dates; do not merge Item 7 premium, Item 8 ERP, Item 9 producer, or Item 10 forms into Item 6 coverage facts.
@@ -1523,6 +1565,72 @@ function provenanceOf(value: SourceBackedValue | undefined): SourceProvenance | 
   };
 }
 
+function provenanceFromIds(sourceSpanIds: string[], sourceNodeIds: string[]): SourceProvenance | undefined {
+  if (sourceSpanIds.length === 0) return undefined;
+  return {
+    sourceSpanIds,
+    ...(sourceNodeIds[0] ? { documentNodeId: sourceNodeIds[0] } : {}),
+  };
+}
+
+function declarationFactsByField(
+  profile: PolicyOperationalProfile,
+  field: OperationalDeclarationFact["field"],
+): OperationalDeclarationFact[] {
+  return profile.declarationFacts.filter((fact) => fact.field === field && fact.value.trim());
+}
+
+function firstDeclarationFact(
+  profile: PolicyOperationalProfile,
+  field: OperationalDeclarationFact["field"],
+): OperationalDeclarationFact | undefined {
+  return declarationFactsByField(profile, field)[0];
+}
+
+function sourceBackedAddressFromFact(fact: OperationalDeclarationFact | undefined) {
+  if (!fact?.address || fact.sourceSpanIds.length === 0) return undefined;
+  const address = fact.address;
+  if (!address.street1 || !address.city || !address.state || !address.zip) return undefined;
+  return {
+    street1: address.street1,
+    street2: address.street2,
+    city: address.city,
+    state: address.state,
+    zip: address.zip,
+    country: address.country,
+    ...provenanceFromIds(fact.sourceSpanIds, fact.sourceNodeIds),
+  };
+}
+
+function normalizedEntityType(value: string | undefined) {
+  const normalized = cleanText(value, "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (normalized === "inc" || normalized === "incorporated" || normalized === "c_corporation" || normalized === "s_corporation") {
+    return "corporation";
+  }
+  if (normalized === "limited_liability_company") return "llc";
+  if (normalized === "non_profit") return "nonprofit";
+  return [
+    "corporation",
+    "llc",
+    "partnership",
+    "sole_proprietor",
+    "joint_venture",
+    "trust",
+    "nonprofit",
+    "municipality",
+    "individual",
+    "married_couple",
+    "other",
+  ].includes(normalized) ? normalized : undefined;
+}
+
+function declarationFieldName(fact: OperationalDeclarationFact): string {
+  if (fact.field === "mailingAddress") return "mailingAddress";
+  if (fact.field === "taxId") return "fein";
+  if (fact.field === "additionalNamedInsured") return "additionalNamedInsured";
+  return fact.field;
+}
+
 function materializeDocument(params: {
   id: string;
   sourceTree: DocumentSourceNode[];
@@ -1539,6 +1647,16 @@ function materializeDocument(params: {
   const insurerProvenance = provenanceOf(profile.insurer);
   const broker = valueOf(profile, "broker");
   const brokerProvenance = provenanceOf(profile.broker);
+  const mailingAddressFact = firstDeclarationFact(profile, "mailingAddress");
+  const insuredAddress = sourceBackedAddressFromFact(mailingAddressFact);
+  const insuredDba = firstDeclarationFact(profile, "dba")?.value;
+  const insuredEntityType = normalizedEntityType(firstDeclarationFact(profile, "entityType")?.value);
+  const insuredFein = firstDeclarationFact(profile, "taxId")?.value;
+  const additionalNamedInsureds = declarationFactsByField(profile, "additionalNamedInsured")
+    .flatMap((fact) => {
+      const provenance = provenanceFromIds(fact.sourceSpanIds, fact.sourceNodeIds);
+      return provenance ? [{ name: fact.value, ...provenance }] : [];
+    });
   const coverages = profile.coverages.map((coverage) => ({
     name: coverage.name,
     coverageCode: coverage.coverageCode,
@@ -1592,6 +1710,11 @@ function materializeDocument(params: {
     security: carrier,
     insuredName,
     premium,
+    insuredDba,
+    insuredAddress,
+    insuredEntityType,
+    insuredFein,
+    ...(additionalNamedInsureds.length > 0 ? { additionalNamedInsureds } : {}),
     ...(insurerProvenance
       ? { insurer: { legalName: carrier, ...insurerProvenance } }
       : {}),
@@ -1622,6 +1745,11 @@ function materializeDocument(params: {
         profile.insurer ? { field: "insurer", value: profile.insurer.value, sourceSpanIds: profile.insurer.sourceSpanIds } : undefined,
         profile.effectiveDate ? { field: "policyPeriodStart", value: profile.effectiveDate.value, sourceSpanIds: profile.effectiveDate.sourceSpanIds } : undefined,
         profile.expirationDate ? { field: "policyPeriodEnd", value: profile.expirationDate.value, sourceSpanIds: profile.expirationDate.sourceSpanIds } : undefined,
+        ...profile.declarationFacts.map((fact) => ({
+          field: declarationFieldName(fact),
+          value: fact.value,
+          sourceSpanIds: fact.sourceSpanIds,
+        })),
       ].filter(Boolean),
     },
     supplementaryFacts: profile.endorsementSupport.map((item) => ({

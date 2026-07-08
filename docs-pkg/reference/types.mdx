@@ -114,7 +114,7 @@ interface ExtractionResult {
 }
 ```
 
-When source spans are provided, v3 extraction returns `sourceTree` and `operationalProfile`, and `chunks` is empty because broad structured chunks are no longer the primary evidence corpus. `document` remains a compatibility projection for hosts that still render `InsuranceDocument`.
+When source spans are provided, v3 extraction returns `sourceTree` and `operationalProfile`, and `chunks` is empty because broad structured chunks are no longer the primary evidence corpus. `document` remains a compatibility projection for hosts that still render `InsuranceDocument`. `PolicyOperationalProfile.declarationFacts` carries source-backed declaration facts such as named-insured mailing address, DBA, entity type, tax ID, and additional named insured rows for host persistence.
 
 ## Source grounding types
 

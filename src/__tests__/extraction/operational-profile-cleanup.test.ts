@@ -7,6 +7,7 @@ describe("operational profile cleanup", () => {
     const profile: PolicyOperationalProfile = {
       documentType: "policy",
       linesOfBusiness: ["OLIB"],
+      declarationFacts: [],
       coverages: [{
         name: "Network Security and Privacy Liability",
         limit: "$1,000,000",

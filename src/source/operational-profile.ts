@@ -1,6 +1,7 @@
 import type {
   OperationalCoverageLine,
   OperationalCoverageTerm,
+  OperationalDeclarationFact,
   OperationalParty,
   PolicyOperationalProfile,
   SourceBackedValue,
@@ -15,6 +16,15 @@ function normalizeWhitespace(value: string): string {
 function cleanValue(value: string | undefined): string | undefined {
   if (!value) return undefined;
   return normalizeWhitespace(value.replace(/^[\s:;#-]+|[\s;,.]+$/g, ""));
+}
+
+function normalizedFactValue(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[.,#]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 const OPERATIONAL_COVERAGE_TERM_KINDS = new Set<OperationalCoverageTerm["kind"]>([
@@ -62,6 +72,77 @@ export function mergeOperationalProfile(
       sourceSpanIds,
     };
   };
+  const mergeDeclarationFact = (fact: unknown): OperationalDeclarationFact | undefined => {
+    if (!fact || typeof fact !== "object" || Array.isArray(fact)) return undefined;
+    const record = fact as Record<string, unknown>;
+    const field = typeof record.field === "string" ? cleanValue(record.field) : undefined;
+    const value = typeof record.value === "string" ? cleanValue(record.value) : undefined;
+    const sourceNodeIds = keepIds(record.sourceNodeIds, validNodeIds);
+    const sourceSpanIds = keepIds(record.sourceSpanIds, validSpanIds);
+    if (!field || !value || (sourceNodeIds.length === 0 && sourceSpanIds.length === 0)) return undefined;
+    const address = record.address && typeof record.address === "object" && !Array.isArray(record.address)
+      ? Object.fromEntries(
+          Object.entries(record.address as Record<string, unknown>)
+            .flatMap(([key, item]) => {
+              const text = typeof item === "string" ? cleanValue(item) : undefined;
+              return text ? [[key, text]] : [];
+            }),
+        )
+      : undefined;
+    return {
+      field: [
+        "namedInsured",
+        "mailingAddress",
+        "dba",
+        "entityType",
+        "taxId",
+        "additionalNamedInsured",
+        "policyNumber",
+        "insurer",
+        "broker",
+        "effectiveDate",
+        "expirationDate",
+        "premium",
+        "other",
+      ].includes(field) ? field as OperationalDeclarationFact["field"] : "other",
+      label: typeof record.label === "string" ? cleanValue(record.label) : undefined,
+      value,
+      normalizedValue: typeof record.normalizedValue === "string"
+        ? cleanValue(record.normalizedValue)
+        : normalizedFactValue(value),
+      valueKind: [
+        "string",
+        "number",
+        "date",
+        "money",
+        "address",
+        "list",
+        "unknown",
+      ].includes(String(record.valueKind)) ? record.valueKind as OperationalDeclarationFact["valueKind"] : "string",
+      address,
+      confidence: record.confidence === "high" || record.confidence === "low" || record.confidence === "medium"
+        ? record.confidence
+        : "medium",
+      sourceNodeIds,
+      sourceSpanIds,
+    };
+  };
+
+  const sourceBackedDeclarationFact = (
+    field: OperationalDeclarationFact["field"],
+    value: SourceBackedValue | undefined,
+    valueKind: OperationalDeclarationFact["valueKind"] = "string",
+  ): OperationalDeclarationFact | undefined => value
+    ? {
+        field,
+        value: value.value,
+        normalizedValue: value.normalizedValue ?? normalizedFactValue(value.value),
+        valueKind,
+        confidence: value.confidence,
+        sourceNodeIds: value.sourceNodeIds,
+        sourceSpanIds: value.sourceSpanIds,
+      }
+    : undefined;
 
   const policyNumber = mergeValue(base.policyNumber, candidate.policyNumber);
   const namedInsured = mergeValue(base.namedInsured, candidate.namedInsured);
@@ -71,6 +152,28 @@ export function mergeOperationalProfile(
   const expirationDate = mergeValue(base.expirationDate, candidate.expirationDate);
   const retroactiveDate = mergeValue(base.retroactiveDate, candidate.retroactiveDate);
   const premium = mergeValue(base.premium, candidate.premium);
+  const candidateDeclarationFacts = Array.isArray(candidate.declarationFacts)
+    ? candidate.declarationFacts.map(mergeDeclarationFact).filter((fact): fact is OperationalDeclarationFact => Boolean(fact))
+    : [];
+  const declarationFacts = [
+    ...base.declarationFacts,
+    sourceBackedDeclarationFact("policyNumber", policyNumber),
+    sourceBackedDeclarationFact("namedInsured", namedInsured),
+    sourceBackedDeclarationFact("insurer", insurer),
+    sourceBackedDeclarationFact("broker", broker),
+    sourceBackedDeclarationFact("effectiveDate", effectiveDate, "date"),
+    sourceBackedDeclarationFact("expirationDate", expirationDate, "date"),
+    sourceBackedDeclarationFact("premium", premium, "money"),
+    ...candidateDeclarationFacts,
+  ].filter((fact): fact is OperationalDeclarationFact => Boolean(fact))
+    .filter((fact, index, rows) =>
+      rows.findIndex((other) =>
+        other.field === fact.field &&
+        other.normalizedValue === fact.normalizedValue &&
+        other.sourceNodeIds.join(",") === fact.sourceNodeIds.join(",") &&
+        other.sourceSpanIds.join(",") === fact.sourceSpanIds.join(",")
+      ) === index
+    );
   const sourceValues = [
     policyNumber,
     namedInsured,
@@ -208,6 +311,7 @@ export function mergeOperationalProfile(
     ...base.sourceNodeIds,
     ...keepIds(candidate.sourceNodeIds, validNodeIds),
     ...sourceValues.flatMap((value) => value.sourceNodeIds),
+    ...declarationFacts.flatMap((fact) => fact.sourceNodeIds),
     ...coverages.flatMap((coverage) => coverage.sourceNodeIds),
     ...coverages.flatMap((coverage) => coverage.limits.flatMap((term) => term.sourceNodeIds)),
     ...parties.flatMap((party) => party.sourceNodeIds),
@@ -217,6 +321,7 @@ export function mergeOperationalProfile(
     ...base.sourceSpanIds,
     ...keepIds(candidate.sourceSpanIds, validSpanIds),
     ...sourceValues.flatMap((value) => value.sourceSpanIds),
+    ...declarationFacts.flatMap((fact) => fact.sourceSpanIds),
     ...coverages.flatMap((coverage) => coverage.sourceSpanIds),
     ...coverages.flatMap((coverage) => coverage.limits.flatMap((term) => term.sourceSpanIds)),
     ...parties.flatMap((party) => party.sourceSpanIds),
@@ -248,6 +353,7 @@ export function mergeOperationalProfile(
     expirationDate,
     retroactiveDate,
     premium,
+    declarationFacts,
     coverages,
     parties,
     endorsementSupport,

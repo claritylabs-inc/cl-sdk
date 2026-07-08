@@ -199,6 +199,95 @@ describe("source-tree extraction", () => {
     ]);
   });
 
+  it("returns source-backed declaration facts for named insured mailing address", async () => {
+    const declarationRow = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      text: "Item 1. Named Insured and Mailing Address Clarity Labs Inc. 1070 Bridgeview Way San Francisco, CA 94121 Form of Business Corporation",
+      pageStart: 1,
+      pageEnd: 1,
+      sourceUnit: "table_row",
+      table: { tableId: "declarations", rowIndex: 1 },
+    });
+    const generateObject = vi.fn(async (params) => {
+      if (params.taskKind === "extraction_operational_profile") {
+        return {
+          object: {
+            documentType: "policy",
+            linesOfBusiness: ["EO"],
+            namedInsured: {
+              value: "Clarity Labs Inc.",
+              sourceNodeIds: [],
+              sourceSpanIds: [declarationRow.id],
+            },
+            declarationFacts: [
+              {
+                field: "mailingAddress",
+                value: "1070 Bridgeview Way, San Francisco, CA 94121",
+                valueKind: "address",
+                address: {
+                  street1: "1070 Bridgeview Way",
+                  city: "San Francisco",
+                  state: "CA",
+                  zip: "94121",
+                },
+                sourceNodeIds: [],
+                sourceSpanIds: [declarationRow.id],
+              },
+              {
+                field: "entityType",
+                value: "Corporation",
+                sourceNodeIds: [],
+                sourceSpanIds: [declarationRow.id],
+              },
+            ],
+          },
+        };
+      }
+      return { object: { labels: [], groups: [] } };
+    }) as GenerateObject & ReturnType<typeof vi.fn>;
+
+    const result = await runSourceTreeExtraction({
+      id: "doc-1",
+      sourceSpans: [declarationRow],
+      generateObject,
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    expect(result.operationalProfile.declarationFacts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        field: "mailingAddress",
+        value: "1070 Bridgeview Way, San Francisco, CA 94121",
+        address: expect.objectContaining({ zip: "94121" }),
+        sourceSpanIds: [declarationRow.id],
+      }),
+      expect.objectContaining({
+        field: "entityType",
+        value: "Corporation",
+      }),
+    ]));
+    expect((result.document as any).insuredAddress).toEqual(expect.objectContaining({
+      street1: "1070 Bridgeview Way",
+      city: "San Francisco",
+      state: "CA",
+      zip: "94121",
+      sourceSpanIds: [declarationRow.id],
+    }));
+    expect((result.document as any).declarations.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        field: "mailingAddress",
+        value: "1070 Bridgeview Way, San Francisco, CA 94121",
+        sourceSpanIds: [declarationRow.id],
+      }),
+    ]));
+    const profileCall = generateObject.mock.calls.find(([params]) =>
+      params.taskKind === "extraction_operational_profile"
+    );
+    expect(profileCall?.[0].prompt).toContain("source-backed declarationFacts");
+    expect(profileCall?.[0].prompt).toContain("mailing address");
+  });
+
   it("collapses duplicate nested endorsement wrappers while preserving child rows", async () => {
     const page = buildPageSourceSpans([{
       documentId: "doc-1",
@@ -792,6 +881,7 @@ describe("source-tree extraction", () => {
     const profile: PolicyOperationalProfile = {
       documentType: "policy",
       linesOfBusiness: ["OLIB"],
+      declarationFacts: [],
       coverages: [{
         name: "Technology Professional Liability",
         coverageCode: "A",

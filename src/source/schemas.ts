@@ -150,6 +150,44 @@ export const SourceBackedValueSchema = z.object({
 });
 export type SourceBackedValue = z.infer<typeof SourceBackedValueSchema>;
 
+export const OperationalAddressSchema = z.object({
+  street1: z.string().optional(),
+  street2: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  zip: z.string().optional(),
+  country: z.string().optional(),
+  formatted: z.string().optional(),
+});
+export type OperationalAddress = z.infer<typeof OperationalAddressSchema>;
+
+export const OperationalDeclarationFactSchema = z.object({
+  field: z.enum([
+    "namedInsured",
+    "mailingAddress",
+    "dba",
+    "entityType",
+    "taxId",
+    "additionalNamedInsured",
+    "policyNumber",
+    "insurer",
+    "broker",
+    "effectiveDate",
+    "expirationDate",
+    "premium",
+    "other",
+  ]),
+  label: z.string().optional(),
+  value: z.string(),
+  normalizedValue: z.string().optional(),
+  valueKind: z.enum(["string", "number", "date", "money", "address", "list", "unknown"]).default("string"),
+  address: OperationalAddressSchema.optional(),
+  confidence: z.enum(["low", "medium", "high"]).default("medium"),
+  sourceNodeIds: z.array(z.string().min(1)).default([]),
+  sourceSpanIds: z.array(z.string().min(1)).default([]),
+});
+export type OperationalDeclarationFact = z.infer<typeof OperationalDeclarationFactSchema>;
+
 export const OperationalCoverageTermSchema = z.object({
   kind: z.enum([
     "each_claim_limit",
@@ -234,6 +272,7 @@ export const PolicyOperationalProfileSchema = z.preprocess(
     expirationDate: SourceBackedValueSchema.optional(),
     retroactiveDate: SourceBackedValueSchema.optional(),
     premium: SourceBackedValueSchema.optional(),
+    declarationFacts: z.array(OperationalDeclarationFactSchema).default([]),
     coverages: z.array(OperationalCoverageLineSchema).default([]),
     parties: z.array(OperationalPartySchema).default([]),
     endorsementSupport: z.array(OperationalEndorsementSupportSchema).default([]),

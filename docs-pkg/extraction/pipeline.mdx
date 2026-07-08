@@ -149,7 +149,7 @@ interface ExtractionResult {
 }
 ```
 
-`document`, `documentMetadata`, and `documentOutline` are materialized views over `sourceTree` and `operationalProfile`. Keep existing screens working with `document`, but use `sourceTree` and `sourceSpans` for source viewers, retrieval, and citations.
+`document`, `documentMetadata`, and `documentOutline` are materialized views over `sourceTree` and `operationalProfile`. Keep existing screens working with `document`, but use `sourceTree` and `sourceSpans` for source viewers, retrieval, and citations. Host systems that persist named-insured profile facts should read source-backed mailing address, DBA, entity type, tax ID, and additional named insured rows from `operationalProfile.declarationFacts`.
 
 `chunks` is empty on v3 source-tree extraction paths. Use `sourceTree` node descriptions and exact spans as the retrieval corpus.
 
