@@ -199,6 +199,78 @@ describe("source-tree extraction", () => {
     ]);
   });
 
+  it("keeps a CGL schedule row as one coverage unit with nested terms", async () => {
+    const sourceSpan = buildSourceSpan({
+      documentId: "doc-1",
+      sourceKind: "policy_pdf",
+      sourceUnit: "table_row",
+      text: "Commercial General Liability Coverage Part Each Occurrence $1,000,000 General Aggregate $2,000,000 Products-Completed Operations Aggregate $2,000,000",
+      pageStart: 2,
+      pageEnd: 2,
+    });
+    const generateObject = vi.fn(async (params) => {
+      if (params.taskKind === "extraction_operational_profile") {
+        return {
+          object: {
+            documentType: "policy",
+            linesOfBusiness: ["CGL"],
+            coverages: [{
+              name: "Commercial General Liability",
+              sourceNodeIds: [],
+              sourceSpanIds: [sourceSpan.id],
+              limits: [
+                {
+                  kind: "each_occurrence_limit",
+                  label: "Each Occurrence",
+                  value: "$1,000,000",
+                  sourceNodeIds: [],
+                  sourceSpanIds: [sourceSpan.id],
+                },
+                {
+                  kind: "aggregate_limit",
+                  label: "General Aggregate",
+                  value: "$2,000,000",
+                  sourceNodeIds: [],
+                  sourceSpanIds: [sourceSpan.id],
+                },
+                {
+                  kind: "aggregate_limit",
+                  label: "Products-Completed Operations Aggregate",
+                  value: "$2,000,000",
+                  sourceNodeIds: [],
+                  sourceSpanIds: [sourceSpan.id],
+                },
+              ],
+            }],
+          },
+        };
+      }
+      if (params.taskKind === "extraction_coverage_cleanup") {
+        return { object: { coverageDecisions: [], warnings: [] } };
+      }
+      return { object: { labels: [], groups: [] } };
+    }) as GenerateObject & ReturnType<typeof vi.fn>;
+
+    const result = await runSourceTreeExtraction({
+      id: "doc-1",
+      sourceSpans: [sourceSpan],
+      generateObject,
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    expect(result.operationalProfile.coverages).toHaveLength(1);
+    expect(result.operationalProfile.coverages[0]).toEqual(expect.objectContaining({
+      name: "Commercial General Liability",
+      lineOfBusiness: "CGL",
+    }));
+    expect(result.operationalProfile.coverages[0]?.limits.map((term) => term.label)).toEqual([
+      "Each Occurrence",
+      "General Aggregate",
+      "Products-Completed Operations Aggregate",
+    ]);
+  });
+
   it("returns source-backed declaration facts for named insured mailing address", async () => {
     const declarationRow = buildSourceSpan({
       documentId: "doc-1",

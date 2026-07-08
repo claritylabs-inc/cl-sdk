@@ -7,7 +7,14 @@ import type {
   SourceBackedValue,
 } from "./schemas";
 import { PolicyOperationalProfileSchema } from "./schemas";
-import { resolveOperationalProfileLinesOfBusiness } from "./policy-types";
+import {
+  type AcordLobCode,
+  normalizeOperationalLinesOfBusiness,
+} from "../schemas/lines-of-business";
+import {
+  annotateOperationalCoverageLinesOfBusiness,
+  resolveOperationalProfileLinesOfBusiness,
+} from "./policy-types";
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
@@ -16,6 +23,12 @@ function normalizeWhitespace(value: string): string {
 function cleanValue(value: string | undefined): string | undefined {
   if (!value) return undefined;
   return normalizeWhitespace(value.replace(/^[\s:;#-]+|[\s;,.]+$/g, ""));
+}
+
+function cleanCoverageLineOfBusiness(value: unknown): AcordLobCode | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const [code] = normalizeOperationalLinesOfBusiness([value]);
+  return code && code !== "UN" ? code : undefined;
 }
 
 function normalizedFactValue(value: string): string {
@@ -225,6 +238,7 @@ export function mergeOperationalProfile(
           if (!name || (sourceNodeIds.length === 0 && sourceSpanIds.length === 0)) return undefined;
           return {
             name,
+            lineOfBusiness: cleanCoverageLineOfBusiness(record.lineOfBusiness),
             coverageCode: typeof record.coverageCode === "string" ? cleanValue(record.coverageCode) : undefined,
             limit: typeof record.limit === "string" ? cleanValue(record.limit) : undefined,
             deductible: typeof record.deductible === "string" ? cleanValue(record.deductible) : undefined,
@@ -340,6 +354,10 @@ export function mergeOperationalProfile(
     existingLinesOfBusiness: baseLinesOfBusiness,
     coverages,
   });
+  const annotatedCoverages = annotateOperationalCoverageLinesOfBusiness(
+    coverages,
+    resolvedLinesOfBusiness.linesOfBusiness,
+  );
 
   return PolicyOperationalProfileSchema.parse({
     ...base,
@@ -354,7 +372,7 @@ export function mergeOperationalProfile(
     retroactiveDate,
     premium,
     declarationFacts,
-    coverages,
+    coverages: annotatedCoverages,
     parties,
     endorsementSupport,
     sourceNodeIds,

@@ -5,6 +5,7 @@ import {
   AcordLobCodeSchema,
   normalizeOperationalLinesOfBusiness,
 } from "../../schemas/lines-of-business";
+import { OperationalCoverageLineSchema } from "../../source";
 
 describe("enum schemas", () => {
   it("validates known ACORD line of business codes", () => {
@@ -32,6 +33,23 @@ describe("enum schemas", () => {
       "FIDUC",
       "OLIB",
     ]);
+  });
+
+  it("validates coverage-level ACORD line of business codes", () => {
+    expect(OperationalCoverageLineSchema.parse({
+      name: "Commercial General Liability",
+      lineOfBusiness: "CGL",
+      limits: [],
+      sourceNodeIds: [],
+      sourceSpanIds: [],
+    }).lineOfBusiness).toBe("CGL");
+    expect(() => OperationalCoverageLineSchema.parse({
+      name: "Commercial General Liability",
+      lineOfBusiness: "not_a_lob",
+      limits: [],
+      sourceNodeIds: [],
+      sourceSpanIds: [],
+    })).toThrow();
   });
 
   it("validates endorsement types", () => {

@@ -212,6 +212,7 @@ export type OperationalCoverageTerm = z.infer<typeof OperationalCoverageTermSche
 
 export const OperationalCoverageLineSchema = z.object({
   name: z.string(),
+  lineOfBusiness: AcordLobCodeSchema.optional(),
   coverageCode: z.string().optional(),
   limit: z.string().optional(),
   deductible: z.string().optional(),

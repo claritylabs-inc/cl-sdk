@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AcordLobCodeSchema } from "../schemas/lines-of-business";
 import type {
   DocumentSourceNode,
   OperationalCoverageLine,
@@ -28,6 +29,7 @@ export const OperationalProfileCleanupSchema = z.object({
     action: z.enum(["keep", "drop", "update"]),
     reason: z.string().optional(),
     name: z.string().optional(),
+    lineOfBusiness: z.string().nullable().optional(),
     limit: z.string().nullable().optional(),
     deductible: z.string().nullable().optional(),
     premium: z.string().nullable().optional(),
@@ -85,6 +87,7 @@ function compactCoverageForCleanup(coverage: OperationalCoverageLine, coverageIn
   return {
     coverageIndex,
     name: coverage.name,
+    lineOfBusiness: coverage.lineOfBusiness,
     limit: coverage.limit,
     deductible: coverage.deductible,
     premium: coverage.premium,
@@ -116,6 +119,7 @@ function nodeTextForSelection(node: DocumentSourceNode): string {
 function coverageTextForSelection(coverage: OperationalCoverageLine): string {
   return [
     coverage.name,
+    coverage.lineOfBusiness,
     coverage.coverageCode,
     coverage.limit,
     coverage.deductible,
@@ -505,6 +509,15 @@ function applyCoverageCleanupDecision(
 
   const name = cleanProfileValue(decision.name);
   if (name) next.name = name;
+  if (decision.lineOfBusiness != null) {
+    const value = cleanProfileValue(decision.lineOfBusiness);
+    if (value) {
+      const parsed = AcordLobCodeSchema.safeParse(value);
+      if (parsed.success && parsed.data !== "UN") next.lineOfBusiness = parsed.data;
+    } else {
+      delete next.lineOfBusiness;
+    }
+  }
 
   if (decision.limit != null) {
     const value = cleanProfileValue(decision.limit);

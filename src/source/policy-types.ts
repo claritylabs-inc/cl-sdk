@@ -61,6 +61,10 @@ function hasSpecificLineOfBusiness(codes: string[]): boolean {
   return codes.some((code) => code !== "UN");
 }
 
+function specificLineOfBusinessCodes(codes: AcordLobCode[]): AcordLobCode[] {
+  return Array.from(new Set(codes.filter((code) => code !== "UN")));
+}
+
 function linesOfBusinessFromText(value: string | undefined): AcordLobCode[] {
   const text = normalizeWhitespace(value ?? "");
   if (!text) return [];
@@ -70,20 +74,65 @@ function linesOfBusinessFromText(value: string | undefined): AcordLobCode[] {
   return Array.from(new Set(inferred));
 }
 
+function coverageLineOfBusinessCandidates(coverage: OperationalCoverageLine): AcordLobCode[] {
+  const limits = coverage.limits ?? [];
+  const text = [
+    coverage.coverageCode,
+    coverage.formNumber,
+    coverage.sectionRef,
+    coverage.name,
+    ...limits.map((term) => term.appliesTo),
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  const inferred: AcordLobCode[] = [];
+  for (const value of text) {
+    for (const code of linesOfBusinessFromText(value)) {
+      if (code !== "UN" && !inferred.includes(code)) inferred.push(code);
+    }
+  }
+  return inferred;
+}
+
+function explicitCoverageLineOfBusiness(coverage: OperationalCoverageLine): AcordLobCode | undefined {
+  if (!coverage.lineOfBusiness) return undefined;
+  const [code] = normalizeOperationalLinesOfBusiness([coverage.lineOfBusiness]);
+  return code && code !== "UN" ? code : undefined;
+}
+
+export function inferLineOfBusinessForOperationalCoverage(
+  coverage: OperationalCoverageLine,
+  profileLinesOfBusiness?: unknown,
+): AcordLobCode | undefined {
+  const explicit = explicitCoverageLineOfBusiness(coverage);
+  if (explicit) return explicit;
+
+  const inferred = coverageLineOfBusinessCandidates(coverage);
+  if (inferred.length === 1) return inferred[0];
+  if (inferred.length > 1) return undefined;
+
+  const fallback = specificLineOfBusinessCodes(normalizeOperationalLinesOfBusiness(profileLinesOfBusiness));
+  return fallback.length === 1 ? fallback[0] : undefined;
+}
+
+export function annotateOperationalCoverageLinesOfBusiness(
+  coverages: OperationalCoverageLine[],
+  profileLinesOfBusiness?: unknown,
+): OperationalCoverageLine[] {
+  return coverages.map((coverage) => {
+    const lineOfBusiness = inferLineOfBusinessForOperationalCoverage(coverage, profileLinesOfBusiness);
+    if (lineOfBusiness) return { ...coverage, lineOfBusiness };
+    const next = { ...coverage };
+    delete next.lineOfBusiness;
+    return next;
+  });
+}
+
 export function inferLinesOfBusinessFromOperationalCoverages(coverages: OperationalCoverageLine[]): AcordLobCode[] {
   const inferred: AcordLobCode[] = [];
   for (const coverage of coverages) {
-    const limits = coverage.limits ?? [];
-    const text = [
-      coverage.coverageCode,
-      coverage.formNumber,
-      coverage.name,
-      ...limits.flatMap((term) => [term.appliesTo, term.label]),
-    ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
-    for (const value of text) {
-      for (const code of linesOfBusinessFromText(value)) {
-        if (!inferred.includes(code)) inferred.push(code);
-      }
+    const explicit = explicitCoverageLineOfBusiness(coverage);
+    if (explicit && !inferred.includes(explicit)) inferred.push(explicit);
+    for (const code of coverageLineOfBusinessCandidates(coverage)) {
+      if (!inferred.includes(code)) inferred.push(code);
     }
   }
   return inferred.slice(0, 6);

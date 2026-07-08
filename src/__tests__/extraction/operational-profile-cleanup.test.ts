@@ -10,6 +10,7 @@ describe("operational profile cleanup", () => {
       declarationFacts: [],
       coverages: [{
         name: "Network Security and Privacy Liability",
+        lineOfBusiness: "OLIB",
         limit: "$1,000,000",
         deductible: "$5,000 Each Claim",
         retroactiveDate: "05/01/2025",
@@ -73,6 +74,7 @@ describe("operational profile cleanup", () => {
     );
 
     expect(result.coverages[0]?.limit).toBe("$1,000,000 Each Claim / $1,000,000 Aggregate Sub-Limit");
+    expect(result.coverages[0]?.lineOfBusiness).toBe("OLIB");
   });
 
 });

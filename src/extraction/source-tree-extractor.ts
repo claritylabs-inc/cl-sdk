@@ -95,6 +95,7 @@ const OperationalProfilePromptSchema = z.object({
   declarationFacts: z.array(OperationalDeclarationFactForPromptSchema).optional(),
   coverages: z.array(z.object({
     name: z.string(),
+    lineOfBusiness: z.string().optional(),
     coverageCode: z.string().optional(),
     limit: z.string().optional(),
     deductible: z.string().optional(),
@@ -1432,6 +1433,7 @@ Return only high-value operational facts needed for policy lists, Q&A, complianc
 - source-backed declarationFacts for named-insured identity details: named insured, mailing address, DBA, entity type, tax ID/FEIN, additional named insureds, and other durable declaration-page identity facts
 - coverage units with their own nested limit terms, deductibles/retentions, retroactive dates, premiums, and form references
 - coverage type labels
+- coverage lineOfBusiness ACORD codes when a coverage unit can be assigned to one specific line
 
 Rules:
 - Every returned value must include sourceNodeIds or sourceSpanIds from the provided evidence.
@@ -1445,6 +1447,8 @@ Rules:
 - On declarations pages, treat "Item N" labels as section boundaries. Use Item 6 or equivalent coverage-schedule rows for coverage limits, deductibles, aggregate terms, and retroactive dates; do not merge Item 7 premium, Item 8 ERP, Item 9 producer, or Item 10 forms into Item 6 coverage facts.
 - Premium, tax, fee, payment-plan, rating, exposure, and reporting-value schedules are billing evidence, not coverage schedules. Extract the total policy premium into premium when supported, but do not create coverages[] entries from premium-only or fee-only rows, and never use Total Premium, MGA Fee, tax, stamping fee, reporting values, or exposure annual rate as a coverage limit.
 - A coverage schedule row's coverage name should come from the "Coverage Part" or equivalent row label. Limit, deductible, aggregate, sublimit, retention, and retroactive-date values belong as nested terms under that coverage, not in the coverage title.
+- Put the ACORD line of business code for each coverage unit in coverages[].lineOfBusiness only when the row belongs to one specific line, such as CGL, AUTOB, WORK, UMBRC, EXLIA, EO, OLIB, EPLI, DO, FIDUC, CRIME, INMRC, COMAR, PROPC, PROP, BOP, HOME, DFIRE, FLOOD, or GARAG. Do not use limit labels such as Each Occurrence, Aggregate, Products-Completed Operations Aggregate, deductible, retention, retroactive date, or sublimit as lines of business.
+- If a package or multi-line row cannot be assigned to exactly one ACORD line, omit coverages[].lineOfBusiness for that coverage.
 - If a coverage schedule continues onto the next page before the next item marker, include the continuation rows in the same coverage or declaration item.
 - If one schedule row or continuation row states the same amount with multiple bases, such as "$1,000,000 Each Claim / Aggregate", return separate limit terms for each basis using the same value instead of one combined "Each Claim / Aggregate" term.
 - LiteParse text can fragment visual table cells into adjacent lines. Before extracting coverage terms, mentally join adjacent lines in the same declaration item or schedule row. For example, "$2,000,000 Policy Each Claim" followed immediately by "Aggregate" means "$2,000,000 Policy Aggregate"; a line ending with "/" followed by "Aggregate ..." means the limit cell continues, not a new coverage.
@@ -1659,6 +1663,7 @@ function materializeDocument(params: {
     });
   const coverages = profile.coverages.map((coverage) => ({
     name: coverage.name,
+    lineOfBusiness: coverage.lineOfBusiness,
     coverageCode: coverage.coverageCode,
     limit: coverage.limit,
     deductible: coverage.deductible,
