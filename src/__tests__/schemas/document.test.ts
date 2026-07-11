@@ -82,6 +82,12 @@ describe("document schemas", () => {
       insurer: {
         legalName: "Acme Insurance Co.",
         naicNumber: "12345",
+        address: {
+          street1: "200 Market Street",
+          city: "Chicago",
+          state: "IL",
+          zip: "60601",
+        },
         sourceSpanIds: ["span-insurer"],
       },
       producer: {
@@ -98,6 +104,7 @@ describe("document schemas", () => {
     });
 
     expect(result.insurer?.sourceSpanIds).toEqual(["span-insurer"]);
+    expect(result.insurer?.address?.city).toBe("Chicago");
     expect(result.producer?.sourceSpanIds).toEqual(["span-producer"]);
     expect(result.additionalNamedInsureds?.[0]?.sourceSpanIds).toEqual(["span-named-insured"]);
     expect(result.lossPayees?.[0]?.sourceSpanIds).toEqual(["span-loss-payee"]);

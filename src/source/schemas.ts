@@ -230,6 +230,7 @@ export type OperationalCoverageLine = z.infer<typeof OperationalCoverageLineSche
 export const OperationalPartySchema = z.object({
   role: z.string(),
   name: z.string(),
+  address: OperationalAddressSchema.optional(),
   sourceNodeIds: z.array(z.string().min(1)).default([]),
   sourceSpanIds: z.array(z.string().min(1)).default([]),
 });
@@ -273,6 +274,7 @@ export const PolicyOperationalProfileSchema = z.preprocess(
     expirationDate: SourceBackedValueSchema.optional(),
     retroactiveDate: SourceBackedValueSchema.optional(),
     premium: SourceBackedValueSchema.optional(),
+    operationsDescription: SourceBackedValueSchema.optional(),
     declarationFacts: z.array(OperationalDeclarationFactSchema).default([]),
     coverages: z.array(OperationalCoverageLineSchema).default([]),
     parties: z.array(OperationalPartySchema).default([]),

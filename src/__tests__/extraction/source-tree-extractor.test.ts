@@ -360,6 +360,209 @@ describe("source-tree extraction", () => {
     expect(profileCall?.[0].prompt).toContain("mailing address");
   });
 
+  it("preserves source-backed policy parties and materializes complete party addresses", async () => {
+    const [insuredRow, producerRow, insurerRow, mgaRow, operationsRow] = [
+      "Named Insured and Mailing Address Ozumo Concepts International LLC 161 Steuart St San Francisco, CA 94105 USA",
+      "Producer Bayshore Insurance Brokers, LLC 1130 Embarcadero Street Suite 400 Oakland, CA 94607",
+      "Insurer Northwoods Continental Insurance Company 200 Market Street Chicago, IL 60601",
+      "Managing General Agent Summit Programs, Inc. Denver, CO",
+      "Description of Operations Restaurant and hospitality management services",
+    ].map((text, index) => buildSourceSpan({
+      documentId: "doc-parties",
+      sourceKind: "policy_pdf",
+      text,
+      pageStart: index + 1,
+      pageEnd: index + 1,
+      sourceUnit: "table_row",
+    }, index + 500));
+    let operationalPrompt = "";
+    const generateObject = vi.fn(async (params) => {
+      if (params.taskKind === "extraction_operational_profile") {
+        operationalPrompt = params.prompt;
+        return {
+          object: {
+            documentType: "policy",
+            namedInsured: {
+              value: "Ozumo Concepts International LLC",
+              sourceNodeIds: [],
+              sourceSpanIds: [insuredRow.id],
+            },
+            insurer: {
+              value: "Northwoods Continental Insurance Company",
+              sourceNodeIds: [],
+              sourceSpanIds: [insurerRow.id],
+            },
+            broker: {
+              value: "Bayshore Insurance Brokers, LLC",
+              sourceNodeIds: [],
+              sourceSpanIds: [producerRow.id],
+            },
+            operationsDescription: {
+              value: "Restaurant and hospitality management services",
+              sourceNodeIds: [],
+              sourceSpanIds: [operationsRow.id],
+            },
+            parties: [
+              {
+                role: "named_insured",
+                name: "Ozumo Concepts International LLC",
+                address: {
+                  street1: "161 Steuart St",
+                  city: "San Francisco",
+                  state: "CA",
+                  zip: "94105",
+                  country: "USA",
+                },
+                sourceNodeIds: [],
+                sourceSpanIds: [insuredRow.id],
+              },
+              {
+                role: "producer",
+                name: "Bayshore Insurance Brokers, LLC",
+                address: {
+                  street1: "1130 Embarcadero Street",
+                  street2: "Suite 400",
+                  city: "Oakland",
+                  state: "CA",
+                  zip: "94607",
+                },
+                sourceNodeIds: [],
+                sourceSpanIds: [producerRow.id],
+              },
+              {
+                role: "carrier",
+                name: "Northwoods Continental Insurance Company",
+                address: {
+                  street1: "200 Market Street",
+                  city: "Chicago",
+                  state: "IL",
+                  zip: "60601",
+                },
+                sourceNodeIds: [],
+                sourceSpanIds: [insurerRow.id],
+              },
+              {
+                role: "mga",
+                name: "Summit Programs, Inc.",
+                address: { city: "Denver", state: "CO" },
+                sourceNodeIds: [],
+                sourceSpanIds: [mgaRow.id],
+              },
+              {
+                role: "carrier",
+                name: "Unsupported Carrier",
+                address: { street1: "1 Invented Way" },
+                sourceNodeIds: ["missing-node"],
+                sourceSpanIds: ["missing-span"],
+              },
+            ],
+          },
+        };
+      }
+      return { object: { labels: [], groups: [] } };
+    }) as GenerateObject & ReturnType<typeof vi.fn>;
+
+    const result = await runSourceTreeExtraction({
+      id: "doc-parties",
+      sourceSpans: [insuredRow, producerRow, insurerRow, mgaRow, operationsRow],
+      generateObject,
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    expect(operationalPrompt).toContain("Managing General Agent Summit Programs");
+    expect(operationalPrompt).toContain("Description of Operations Restaurant and hospitality management services");
+    expect(operationalPrompt).toContain("using only these canonical roles");
+    expect(result.operationalProfile.operationsDescription).toEqual(expect.objectContaining({
+      value: "Restaurant and hospitality management services",
+      sourceSpanIds: [operationsRow.id],
+    }));
+    expect(result.operationalProfile.parties).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "mga",
+        name: "Summit Programs, Inc",
+        address: { city: "Denver", state: "CO" },
+        sourceSpanIds: [mgaRow.id],
+      }),
+    ]));
+    expect(result.operationalProfile.parties).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "Unsupported Carrier" }),
+    ]));
+    expect(result.document.insuredAddress).toEqual(expect.objectContaining({
+      street1: "161 Steuart St",
+      city: "San Francisco",
+      state: "CA",
+      zip: "94105",
+      country: "USA",
+      sourceSpanIds: [insuredRow.id],
+    }));
+    expect(ProducerInfoSchema.parse(result.document.producer)).toEqual(expect.objectContaining({
+      agencyName: "Bayshore Insurance Brokers, LLC",
+      address: {
+        street1: "1130 Embarcadero Street",
+        street2: "Suite 400",
+        city: "Oakland",
+        state: "CA",
+        zip: "94607",
+      },
+      sourceSpanIds: [producerRow.id],
+    }));
+    expect(InsurerInfoSchema.parse(result.document.insurer)).toEqual(expect.objectContaining({
+      legalName: "Northwoods Continental Insurance Company",
+      address: {
+        street1: "200 Market Street",
+        city: "Chicago",
+        state: "IL",
+        zip: "60601",
+      },
+      sourceSpanIds: [insurerRow.id],
+    }));
+  });
+
+  it("rejects uncited operations descriptions and policy parties", async () => {
+    const evidence = buildSourceSpan({
+      documentId: "doc-invalid-parties",
+      sourceKind: "policy_pdf",
+      text: "Named Insured Example Corp.",
+      pageStart: 1,
+      pageEnd: 1,
+      sourceUnit: "text",
+    });
+    const generateObject = vi.fn(async (params) => {
+      if (params.taskKind === "extraction_operational_profile") {
+        return {
+          object: {
+            documentType: "policy",
+            operationsDescription: {
+              value: "Invented operations",
+              sourceNodeIds: ["missing-node"],
+              sourceSpanIds: ["missing-span"],
+            },
+            parties: [{
+              role: "mga",
+              name: "Invented MGA",
+              address: { street1: "1 Invented Way" },
+              sourceNodeIds: ["missing-node"],
+              sourceSpanIds: ["missing-span"],
+            }],
+          },
+        };
+      }
+      return { object: { labels: [], groups: [] } };
+    }) as GenerateObject;
+
+    const result = await runSourceTreeExtraction({
+      id: "doc-invalid-parties",
+      sourceSpans: [evidence],
+      generateObject,
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    expect(result.operationalProfile.operationsDescription).toBeUndefined();
+    expect(result.operationalProfile.parties).toEqual([]);
+  });
+
   it("collapses duplicate nested endorsement wrappers while preserving child rows", async () => {
     const page = buildPageSourceSpans([{
       documentId: "doc-1",

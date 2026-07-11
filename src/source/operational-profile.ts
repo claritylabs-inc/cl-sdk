@@ -1,6 +1,7 @@
 import type {
   OperationalCoverageLine,
   OperationalCoverageTerm,
+  OperationalAddress,
   OperationalDeclarationFact,
   OperationalParty,
   PolicyOperationalProfile,
@@ -38,6 +39,37 @@ function normalizedFactValue(value: string): string {
     .replace(/[.,#]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+const OPERATIONAL_ADDRESS_FIELDS = [
+  "street1",
+  "street2",
+  "city",
+  "state",
+  "zip",
+  "country",
+  "formatted",
+] as const satisfies readonly (keyof OperationalAddress)[];
+
+function normalizeOperationalAddress(value: unknown): OperationalAddress | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const address = Object.fromEntries(
+    OPERATIONAL_ADDRESS_FIELDS.flatMap((field) => {
+      const cleaned = typeof record[field] === "string" ? cleanValue(record[field]) : undefined;
+      return cleaned ? [[field, cleaned]] : [];
+    }),
+  ) as OperationalAddress;
+  return Object.keys(address).length > 0 ? address : undefined;
+}
+
+function normalizeOperationalPartyRole(value: string): string {
+  const normalized = value.toLowerCase().replace(/[\s-]+/g, "_");
+  if (normalized === "namedinsured" || normalized === "insured") return "named_insured";
+  if (normalized === "managing_general_agent") return "mga";
+  if (normalized === "managing_general_underwriter") return "mga";
+  if (normalized === "third_party_administrator") return "administrator";
+  return normalized;
 }
 
 const OPERATIONAL_COVERAGE_TERM_KINDS = new Set<OperationalCoverageTerm["kind"]>([
@@ -165,6 +197,7 @@ export function mergeOperationalProfile(
   const expirationDate = mergeValue(base.expirationDate, candidate.expirationDate);
   const retroactiveDate = mergeValue(base.retroactiveDate, candidate.retroactiveDate);
   const premium = mergeValue(base.premium, candidate.premium);
+  const operationsDescription = mergeValue(base.operationsDescription, candidate.operationsDescription);
   const candidateDeclarationFacts = Array.isArray(candidate.declarationFacts)
     ? candidate.declarationFacts.map(mergeDeclarationFact).filter((fact): fact is OperationalDeclarationFact => Boolean(fact))
     : [];
@@ -196,6 +229,7 @@ export function mergeOperationalProfile(
     expirationDate,
     retroactiveDate,
     premium,
+    operationsDescription,
   ].filter((value): value is SourceBackedValue => Boolean(value));
 
   const coverages: OperationalCoverageLine[] = base.coverages.length > 0
@@ -272,15 +306,22 @@ export function mergeOperationalProfile(
       const record = party as Record<string, unknown>;
       const role = typeof record.role === "string" ? cleanValue(record.role) : undefined;
       const name = typeof record.name === "string" ? cleanValue(record.name) : undefined;
+      const address = normalizeOperationalAddress(record.address);
       const sourceNodeIds = keepIds(record.sourceNodeIds, validNodeIds);
       const sourceSpanIds = keepIds(record.sourceSpanIds, validSpanIds);
       if (!role || !name || (sourceNodeIds.length === 0 && sourceSpanIds.length === 0)) return [];
-      return [{ role, name, sourceNodeIds, sourceSpanIds }];
+      return [{
+        role: normalizeOperationalPartyRole(role),
+        name,
+        address,
+        sourceNodeIds,
+        sourceSpanIds,
+      }];
     })
     : [];
   const parties = [
-    ...base.parties,
     ...candidateParties,
+    ...base.parties,
     sourceBackedParty("named_insured", namedInsured),
     sourceBackedParty("insurer", insurer),
     sourceBackedParty("broker", broker),
@@ -371,6 +412,7 @@ export function mergeOperationalProfile(
     expirationDate,
     retroactiveDate,
     premium,
+    operationsDescription,
     declarationFacts,
     coverages: annotatedCoverages,
     parties,

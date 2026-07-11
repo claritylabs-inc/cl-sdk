@@ -7,7 +7,9 @@ import type { SourceProvenance } from "../schemas/shared";
 import type {
   DocumentSourceNode,
   DocumentSourceNodeKind,
+  OperationalAddress,
   OperationalDeclarationFact,
+  OperationalParty,
   PolicyOperationalProfile,
   SourceBackedValue,
   SourceChunk,
@@ -81,6 +83,22 @@ const OperationalDeclarationFactForPromptSchema = z.object({
   sourceSpanIds: z.array(z.string()),
 });
 
+const OperationalPartyForPromptSchema = z.object({
+  role: z.enum([
+    "named_insured",
+    "producer",
+    "broker",
+    "insurer",
+    "carrier",
+    "mga",
+    "administrator",
+  ]),
+  name: z.string(),
+  address: OperationalAddressForPromptSchema.optional(),
+  sourceNodeIds: z.array(z.string()),
+  sourceSpanIds: z.array(z.string()),
+});
+
 const OperationalProfilePromptSchema = z.object({
   documentType: z.enum(["policy", "quote"]).optional(),
   linesOfBusiness: z.array(z.string()).optional(),
@@ -92,7 +110,9 @@ const OperationalProfilePromptSchema = z.object({
   expirationDate: SourceBackedValueForPromptSchema.optional(),
   retroactiveDate: SourceBackedValueForPromptSchema.optional(),
   premium: SourceBackedValueForPromptSchema.optional(),
+  operationsDescription: SourceBackedValueForPromptSchema.optional(),
   declarationFacts: z.array(OperationalDeclarationFactForPromptSchema).optional(),
+  parties: z.array(OperationalPartyForPromptSchema).optional(),
   coverages: z.array(z.object({
     name: z.string(),
     lineOfBusiness: z.string().optional(),
@@ -1256,6 +1276,9 @@ function operationalEvidenceScore(span: SourceSpan): number {
   if (span.sourceUnit === "page") score -= 3;
 
   if (/\b(policy\s*(number|period|term)|effective date|expiration date|expiry date|named insured|insurer|carrier|security|broker|producer|premium|total due)\b/i.test(text)) score += 12;
+  if (/\b(mailing address|business address|address|managing general (?:agent|underwriter)|mga|administrator|description of operations|operations description|nature of business|business description)\b/i.test(text)) score += 12;
+  if (/\b\d{1,6}\s+[A-Z0-9][^\n,]{1,80}\b(?:street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln|way|court|ct|highway|hwy)\b/i.test(text)) score += 10;
+  if (/\b[A-Za-z][A-Za-z .'-]+,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/.test(text)) score += 10;
   if (/\b(coverage part|limit(?:s)? of liability|deductible|retention|retroactive date|aggregate|sublimit|sub-limit|each claim|each loss|each occurrence|coinsurance)\b/i.test(text)) score += 14;
   if (/\bendorsement\s+(?:no\.?|number|#)?\s*[A-Z0-9]|forms? and endorsements?|attached at inception|schedule\b/i.test(text)) score += 8;
   if (/\bitem\s+\d+\.?\s*(?:named insured|policy number|policy period|renewal|form of business|coverage parts?|premium|extended reporting|producer|forms? and endorsements?)\b/i.test(text)) score += 10;
@@ -1281,10 +1304,13 @@ function isOperationalEvidenceAnchor(span: SourceSpan): boolean {
   if (!text) return false;
   if (sourceUnit === "page") {
     return hasSubstantiveDeclarationsScheduleText(text) ||
-      /\b(declarations?|named insured|policy number|policy period|effective date|expiration date|premium|total due|producer)\b/i.test(text);
+      /\b(declarations?|named insured|policy number|policy period|effective date|expiration date|premium|total due|producer|mailing address|mga|administrator|description of operations|nature of business|business description)\b/i.test(text);
   }
   if (/\bitem\s+\d+\.?\s*(?:named insured|policy number|policy period|renewal|form of business|coverage parts?|premium|extended reporting|producer|forms? and endorsements?)\b/i.test(text)) return true;
   if (/\b(policy\s*(number|period)|effective date|expiration date|expiry date|named insured|insurer|carrier|broker|producer|premium|total due)\b/i.test(text)) return true;
+  if (/\b(mailing address|business address|address|managing general (?:agent|underwriter)|mga|administrator|description of operations|operations description|nature of business|business description)\b/i.test(text)) return true;
+  if (/\b\d{1,6}\s+[A-Z0-9][^\n,]{1,80}\b(?:street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln|way|court|ct|highway|hwy)\b/i.test(text)) return true;
+  if (/\b[A-Za-z][A-Za-z .'-]+,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/.test(text)) return true;
   if (/\b(coverage part|forms? and endorsements?|attached at inception|endorsement\s+(?:no\.?|number|#)?\s*[A-Z0-9])\b/i.test(text)) return true;
   if (/\$[\d,.]+|[0-9]{1,2}\/[0-9]{1,2}\/[0-9]{2,4}|[0-9]{1,2}\s+[A-Za-z]{3,9}\s+[0-9]{4}/.test(text)) return true;
   return false;
@@ -1305,6 +1331,7 @@ function operationalEvidencePages(sourceSpans: SourceSpan[]): Set<number> {
     if (/\bcoverage parts?,?\s+limits? of liability,?\s+deductibles?,?\s+and retroactive dates\b/i.test(text)) score += 24;
     if (/\b(policy\s*(number|period|term)|effective date|expiration date|expiry date|named insured|insurer|carrier|security)\b/i.test(text)) score += 12;
     if (/\b(premium|total due|tax|fee|producer|broker)\b/i.test(text)) score += 10;
+    if (/\b(mailing address|business address|managing general (?:agent|underwriter)|mga|administrator|description of operations|operations description|nature of business|business description)\b/i.test(text)) score += 16;
     if (/\b(endorsement\s+(?:no\.?|number|#)?\s*[A-Z0-9]|attached at inception|forms? and endorsements?)\b/i.test(text)) score += 8;
     if (/\b(definitions?|exclusions?|conditions?|duties in the event|action against|cancellation by)\b/i.test(text)) score -= 12;
 
@@ -1400,7 +1427,7 @@ function operationalProfilePromptNodes(sourceTree: DocumentSourceNode[]): Docume
       const text = [node.title, node.path, node.description, node.textExcerpt]
         .filter(Boolean)
         .join(" ");
-      return /\b(policy\s*(number|period)|named insured|insurer|carrier|broker|producer|premium|coverage|limit|liability|deductible|retention|retroactive|aggregate|sublimit|sub-limit|endorsement)\b/i.test(text);
+      return /\b(policy\s*(number|period)|named insured|insurer|carrier|broker|producer|managing general (?:agent|underwriter)|mga|administrator|mailing address|description of operations|operations description|nature of business|business description|premium|coverage|limit|liability|deductible|retention|retroactive|aggregate|sublimit|sub-limit|endorsement)\b/i.test(text);
     })
     .slice(0, 420);
 }
@@ -1429,7 +1456,8 @@ function buildOperationalProfilePrompt(sourceTree: DocumentSourceNode[], sourceS
   return `Extract a source-backed operational profile for an insurance policy.
 
 Return only high-value operational facts needed for policy lists, Q&A, compliance, and certificate generation:
-- policy number, named insured, insurer/carrier/security, broker/producer, policy period, retroactive date, premium
+- policy number, named insured, insurer/carrier/security, broker/producer, policy period, retroactive date, premium, and the insured's description of operations
+- parties[] rows for named insured, producer/broker, insurer/carrier, and MGA/administrator identities and their mailing addresses
 - source-backed declarationFacts for named-insured identity details: named insured, mailing address, DBA, entity type, tax ID/FEIN, additional named insureds, and other durable declaration-page identity facts
 - coverage units with their own nested limit terms, deductibles/retentions, retroactive dates, premiums, and form references
 - coverage type labels
@@ -1441,6 +1469,9 @@ Rules:
 - If a value is not directly supported, omit it.
 - Prefer declarations, schedules, premium tables, and endorsement schedules over generic policy wording.
 - Put named-insured mailing address in declarationFacts[] with field "mailingAddress", valueKind "address", a user-facing value string, and structured address fields when present. Do not put producer, broker, insurer, mortgagee, loss-payee, or certificate-holder addresses in mailingAddress.
+- Put every source-backed policy party in parties[] using only these canonical roles: "named_insured", "producer", "broker", "insurer", "carrier", "mga", or "administrator". Keep producer/broker, insurer/carrier, and MGA/administrator addresses policy-scoped in parties[]; never represent them as the named-insured mailingAddress declaration fact.
+- When a party's address is present, return its available street1, street2, city, state, zip, country, and formatted parts under parties[].address. Partial addresses are allowed in parties[], but never guess a missing component. The party row must cite the source node or source span that supports both the identity and address.
+- Put the insured's directly stated business or operations description in operationsDescription. Do not synthesize it from coverages, industry inference, website research, or generic policy wording.
 - Put DBA or trade name in declarationFacts[] with field "dba"; entity/legal form in field "entityType"; FEIN/tax ID in field "taxId"; each additional named insured in field "additionalNamedInsured".
 - For effective, expiration, retroactive, and other date fields, return a normalized YYYY-MM-DD value when the source date is unambiguous, including month-name dates such as "20 Feb 2026". Do not emit fragmented date text such as "20 2 2026".
 - For broker/producer, extract the agency or company legal name, not the license role, credential, or type. In a block like "Bayshore Insurance Brokers, LLC" followed by "Surplus Lines Broker - CA License No. ...", broker.value must be "Bayshore Insurance Brokers, LLC"; the surplus-lines role and license number are not the broker name.
@@ -1561,20 +1592,48 @@ function valueOf(profile: PolicyOperationalProfile, key: keyof PolicyOperational
   return String(value.value);
 }
 
-function provenanceOf(value: SourceBackedValue | undefined): SourceProvenance | undefined {
-  if (!value?.sourceSpanIds.length) return undefined;
-  return {
-    sourceSpanIds: value.sourceSpanIds,
-    ...(value.sourceNodeIds[0] ? { documentNodeId: value.sourceNodeIds[0] } : {}),
-  };
-}
-
 function provenanceFromIds(sourceSpanIds: string[], sourceNodeIds: string[]): SourceProvenance | undefined {
   if (sourceSpanIds.length === 0) return undefined;
   return {
     sourceSpanIds,
     ...(sourceNodeIds[0] ? { documentNodeId: sourceNodeIds[0] } : {}),
   };
+}
+
+function combinedProvenance(
+  ...values: Array<{ sourceSpanIds: string[]; sourceNodeIds: string[] } | undefined>
+): SourceProvenance | undefined {
+  const sourceSpanIds = [...new Set(values.flatMap((value) => value?.sourceSpanIds ?? []))];
+  const sourceNodeIds = [...new Set(values.flatMap((value) => value?.sourceNodeIds ?? []))];
+  return provenanceFromIds(sourceSpanIds, sourceNodeIds);
+}
+
+function firstOperationalParty(
+  profile: PolicyOperationalProfile,
+  roles: readonly string[],
+): OperationalParty | undefined {
+  const candidates = roles.flatMap((role) =>
+    profile.parties.filter((candidate) => candidate.role === role && candidate.name.trim()),
+  );
+  return candidates.find((candidate) => candidate.address) ?? candidates[0];
+}
+
+function completeOperationalAddress(address: OperationalAddress | undefined) {
+  if (!address?.street1 || !address.city || !address.state || !address.zip) return undefined;
+  return {
+    street1: address.street1,
+    street2: address.street2,
+    city: address.city,
+    state: address.state,
+    zip: address.zip,
+    country: address.country,
+  };
+}
+
+function sourceBackedAddressFromParty(party: OperationalParty | undefined) {
+  const address = completeOperationalAddress(party?.address);
+  const provenance = party ? provenanceFromIds(party.sourceSpanIds, party.sourceNodeIds) : undefined;
+  return address && provenance ? { ...address, ...provenance } : undefined;
 }
 
 function declarationFactsByField(
@@ -1643,16 +1702,21 @@ function materializeDocument(params: {
 }): InsuranceDocument {
   const profile = params.operationalProfile;
   const policyNumber = valueOf(profile, "policyNumber") ?? "Unknown";
-  const insuredName = valueOf(profile, "namedInsured") ?? "Unknown";
-  const carrier = valueOf(profile, "insurer") ?? "Unknown";
+  const namedInsuredParty = firstOperationalParty(profile, ["named_insured"]);
+  const insurerParty = firstOperationalParty(profile, ["insurer", "carrier"]);
+  const producerParty = firstOperationalParty(profile, ["producer", "broker"]);
+  const insuredName = valueOf(profile, "namedInsured") ?? namedInsuredParty?.name ?? "Unknown";
+  const carrier = valueOf(profile, "insurer") ?? insurerParty?.name ?? "Unknown";
   const effectiveDate = valueOf(profile, "effectiveDate") ?? "Unknown";
   const expirationDate = valueOf(profile, "expirationDate") ?? "Unknown";
   const premium = valueOf(profile, "premium");
-  const insurerProvenance = provenanceOf(profile.insurer);
-  const broker = valueOf(profile, "broker");
-  const brokerProvenance = provenanceOf(profile.broker);
+  const insurerProvenance = combinedProvenance(profile.insurer, insurerParty);
+  const insurerAddress = completeOperationalAddress(insurerParty?.address);
+  const broker = valueOf(profile, "broker") ?? producerParty?.name;
+  const brokerProvenance = combinedProvenance(profile.broker, producerParty);
+  const producerAddress = completeOperationalAddress(producerParty?.address);
   const mailingAddressFact = firstDeclarationFact(profile, "mailingAddress");
-  const insuredAddress = sourceBackedAddressFromFact(mailingAddressFact);
+  const insuredAddress = sourceBackedAddressFromParty(namedInsuredParty) ?? sourceBackedAddressFromFact(mailingAddressFact);
   const insuredDba = firstDeclarationFact(profile, "dba")?.value;
   const insuredEntityType = normalizedEntityType(firstDeclarationFact(profile, "entityType")?.value);
   const insuredFein = firstDeclarationFact(profile, "taxId")?.value;
@@ -1721,12 +1785,22 @@ function materializeDocument(params: {
     insuredFein,
     ...(additionalNamedInsureds.length > 0 ? { additionalNamedInsureds } : {}),
     ...(insurerProvenance
-      ? { insurer: { legalName: carrier, ...insurerProvenance } }
+      ? {
+          insurer: {
+            legalName: carrier,
+            ...(insurerAddress ? { address: insurerAddress } : {}),
+            ...insurerProvenance,
+          },
+        }
       : {}),
     ...(broker && brokerProvenance
       ? {
           brokerAgency: broker,
-          producer: { agencyName: broker, ...brokerProvenance },
+          producer: {
+            agencyName: broker,
+            ...(producerAddress ? { address: producerAddress } : {}),
+            ...brokerProvenance,
+          },
         }
       : {}),
     linesOfBusiness: profile.linesOfBusiness,

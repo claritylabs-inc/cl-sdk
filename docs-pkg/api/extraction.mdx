@@ -188,6 +188,7 @@ interface PolicyOperationalProfile {
   expirationDate?: SourceBackedValue;
   retroactiveDate?: SourceBackedValue;
   premium?: SourceBackedValue;
+  operationsDescription?: SourceBackedValue;
   declarationFacts: OperationalDeclarationFact[];
   coverages: OperationalCoverageLine[];
   parties: OperationalParty[];
@@ -201,6 +202,8 @@ interface PolicyOperationalProfile {
 `linesOfBusiness` is the single top-level policy classification field. Values are ACORD line of business codes. Serialized legacy `policyTypes` blobs are accepted at parse time and normalized to `linesOfBusiness`.
 
 `declarationFacts` is the source-backed declaration fact stream for host persistence. It carries named-insured identity details such as mailing address, DBA, entity type, tax ID, additional named insured rows, and other key declarations with normalized values plus source IDs.
+
+`parties` keeps policy-scoped named-insured, producer/broker, insurer/carrier, and MGA/administrator identities. Each party may carry a partial or complete `OperationalAddress`; the compatibility document projection materializes only complete named-insured, producer, and insurer addresses. `operationsDescription` is the insured's directly source-backed business or operations description rather than an inference from coverages or external research.
 
 ---
 

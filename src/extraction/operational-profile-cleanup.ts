@@ -592,6 +592,7 @@ function sourceIdsFromOperationalProfile(profile: PolicyOperationalProfile) {
     profile.expirationDate,
     profile.retroactiveDate,
     profile.premium,
+    profile.operationsDescription,
   ].filter(Boolean);
   return {
     sourceNodeIds: uniqueStrings([

@@ -9,7 +9,7 @@ Source grounding is the evidence layer. In v3, source spans remain the smallest 
 
 - `SourceSpan` is the smallest addressable source unit. It stores source kind, text, page range, optional section/form metadata, a stable hash, and optional bounding boxes.
 - `DocumentSourceNode` is the canonical retrieval and hierarchy unit. It groups spans into document, page group, form, endorsement, section, schedule, clause, table, row, cell, and text nodes.
-- `PolicyOperationalProfile` is a source-backed projection for product-critical facts such as policy number, named insured, insurer, broker, policy period, coverage rows, limits, deductibles, premiums, and endorsement support.
+- `PolicyOperationalProfile` is a source-backed projection for product-critical facts such as policy number, named insured, insured operations description, policy-scoped producer/insurer/MGA parties and addresses, policy period, coverage rows, limits, deductibles, premiums, and endorsement support.
 - `SourceChunk` remains a compatibility retrieval window while hosts migrate to source-node indexes.
 - `SourceSpanRef` is a lightweight reference used by extracted records and downstream workflows.
 - `SourceStore` persists spans/chunks and implements `SourceRetriever`; production hosts should add `searchSourceNodes` for v3 source-tree retrieval.
@@ -30,7 +30,7 @@ flowchart LR
   C --> V[Validation + Review]
 ```
 
-Extraction builds a deterministic source tree from parser spans, promotes parser title elements into section/schedule nodes, and groups declarations, policy forms, and endorsements from source text rather than a separate form-inventory or source-tree-organizer model call. The hierarchy is content-first: declarations, policy forms, endorsements, sections, schedules, and tables are structure; pages are provenance. The operational-profile model receives a bounded packet of high-value declaration, schedule, premium, producer, endorsement, and coverage evidence and then extracts only source-cited operational facts. Query and PCE use retrievers to find source nodes, expand ancestors/siblings/children, and attach exact spans for citations. Application processing forwards spans into classification, field extraction, lookup, and explanation agents. Case workflows validate quoted evidence before proposals are scored or packets are generated.
+Extraction builds a deterministic source tree from parser spans, promotes parser title elements into section/schedule nodes, and groups declarations, policy forms, and endorsements from source text rather than a separate form-inventory or source-tree-organizer model call. The hierarchy is content-first: declarations, policy forms, endorsements, sections, schedules, and tables are structure; pages are provenance. The operational-profile model receives a bounded packet of high-value declaration, schedule, premium, policy-party, operations-description, endorsement, and coverage evidence and then extracts only source-cited operational facts. Query and PCE use retrievers to find source nodes, expand ancestors/siblings/children, and attach exact spans for citations. Application processing forwards spans into classification, field extraction, lookup, and explanation agents. Case workflows validate quoted evidence before proposals are scored or packets are generated.
 
 ## Minimal setup
 

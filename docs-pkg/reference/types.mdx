@@ -189,6 +189,24 @@ interface SourceBackedValue {
   sourceSpanIds: string[];
 }
 
+interface OperationalAddress {
+  street1?: string;
+  street2?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
+  formatted?: string;
+}
+
+interface OperationalParty {
+  role: string;
+  name: string;
+  address?: OperationalAddress;
+  sourceNodeIds: string[];
+  sourceSpanIds: string[];
+}
+
 interface PolicyOperationalProfile {
   documentType: "policy" | "quote";
   linesOfBusiness: AcordLobCode[];
@@ -200,6 +218,7 @@ interface PolicyOperationalProfile {
   expirationDate?: SourceBackedValue;
   retroactiveDate?: SourceBackedValue;
   premium?: SourceBackedValue;
+  operationsDescription?: SourceBackedValue;
   coverages: Array<{
     name: string;
     coverageCode?: string;
@@ -223,6 +242,8 @@ interface PolicyOperationalProfile {
 ```
 
 `SourceBackedValue.value` preserves the extracted source-backed display value. For party and identity fields such as `namedInsured`, `insurer`, `broker`, and `policyNumber`, `normalizedValue` may contain the display-safe canonical identity after removing label fragments or address/contact tails. The compatibility `InsuranceDocument` projection prefers `normalizedValue` for those identity fields when present, while retaining raw `value` for dates, premium, and other fields where the extracted display format is meaningful.
+
+`PolicyOperationalProfile.parties` is the policy-scoped owner for producer/broker, insurer/carrier, and MGA/administrator information. Party addresses may be partial in the profile; complete named-insured, producer, and insurer addresses are also projected into the compatibility document. `operationsDescription` must be directly supported by policy source IDs.
 
 ## Document types
 
@@ -759,6 +780,7 @@ interface InsurerInfo {
   amBestNumber?: string;
   admittedStatus?: AdmittedStatus;
   stateOfDomicile?: string;
+  address?: Address;
   sourceSpanIds: string[];
   documentNodeId?: string;
   sourceTextHash?: string;

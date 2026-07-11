@@ -9,6 +9,7 @@ export const InsurerInfoSchema = z.object({
   amBestNumber: z.string().optional(),
   admittedStatus: AdmittedStatusSchema.optional(),
   stateOfDomicile: z.string().optional(),
+  address: AddressSchema.optional(),
 }).merge(SourceProvenanceSchema);
 export type InsurerInfo = z.infer<typeof InsurerInfoSchema>;
 
