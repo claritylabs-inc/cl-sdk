@@ -1,3 +1,10 @@
+# [4.4.0](https://github.com/claritylabs-inc/cl-sdk/compare/v4.3.0...v4.4.0) (2026-07-13)
+
+
+### Features
+
+* **extraction:** add source-grounded coverage recovery ([3764b3d](https://github.com/claritylabs-inc/cl-sdk/commit/3764b3d52f928088f9014bf71b9dce08130f549c))
+
 # [4.3.0](https://github.com/claritylabs-inc/cl-sdk/compare/v4.2.0...v4.3.0) (2026-07-11)
 
 
