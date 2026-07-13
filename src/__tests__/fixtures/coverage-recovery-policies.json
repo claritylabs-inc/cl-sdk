@@ -1,0 +1,159 @@
+[
+  {
+    "id": "auto-nonstandard",
+    "pages": [
+      { "page": 1, "text": "MOTOR RISK SUMMARY Liability CSL $1,000,000 Any One Accident" },
+      { "page": 2, "text": "UNIT 1 2024 Ford Transit VIN 1FTBW3XG1RKA12345" }
+    ],
+    "regions": [{ "pageStart": 1, "pageEnd": 2, "reason": "Dense limit row followed by an aligned unit listing" }],
+    "recovery": {
+      "coverages": [{ "sourcePage": 1, "name": "Liability CSL", "lineOfBusiness": "AUTOB", "terms": [{ "kind": "each_occurrence_limit", "label": "Any One Accident", "value": "$1,000,000" }] }],
+      "schedules": [{ "sourcePage": 2, "name": "UNIT LIST", "kind": "vehicle", "items": [{ "label": "Unit 1", "values": [{ "label": "Year", "value": "2024" }, { "label": "Make", "value": "Ford" }, { "label": "Model", "value": "Transit" }, { "label": "VIN", "value": "1FTBW3XG1RKA12345" }] }] }]
+    },
+    "expected": { "coverages": ["Liability CSL"], "terms": ["Any One Accident"], "schedules": ["UNIT LIST"], "financial": [] }
+  },
+  {
+    "id": "property-late-schedule",
+    "fillerPagesThrough": 93,
+    "pages": [
+      { "page": 94, "text": "SITE 2 88 Harbor Way Oakland CA 94607 Building $2,400,000 Contents $600,000 Deductible $25,000" }
+    ],
+    "regions": [{ "pageStart": 94, "pageEnd": 94, "reason": "Late-document aligned site and insured-value row" }],
+    "recovery": {
+      "coverages": [{ "sourcePage": 94, "name": "Building and Contents", "lineOfBusiness": "PROPC", "terms": [{ "kind": "deductible", "label": "Deductible", "value": "$25,000" }] }],
+      "schedules": [{ "sourcePage": 94, "name": "SITE LIST", "kind": "property", "items": [{ "label": "Site 2", "values": [{ "label": "Street address", "value": "88 Harbor Way" }, { "label": "City", "value": "Oakland" }, { "label": "State", "value": "CA" }, { "label": "ZIP", "value": "94607" }, { "label": "Building value", "value": "$2,400,000" }, { "label": "Contents value", "value": "$600,000" }] }] }]
+    },
+    "expected": { "coverages": ["Building and Contents"], "terms": ["Deductible"], "schedules": ["SITE LIST"], "financial": [] }
+  },
+  {
+    "id": "liability-continuation",
+    "pages": [
+      { "page": 11, "text": "OPERATIONS TABLE Premises / Operations Each Occurrence $2,000,000" },
+      { "page": 12, "text": "2 Products-Completed Operations Aggregate $4,000,000 3 Medical Expense $10,000 Any One Person" }
+    ],
+    "regions": [{ "pageStart": 11, "pageEnd": 12, "reason": "Compatible numbered rows continue without a repeated title" }],
+    "recovery": {
+      "coverages": [{ "sourcePage": 11, "name": "Premises / Operations", "lineOfBusiness": "CGL", "terms": [{ "kind": "each_occurrence_limit", "label": "Each Occurrence", "value": "$2,000,000" }] }, { "sourcePage": 12, "name": "Products-Completed Operations", "lineOfBusiness": "CGL", "terms": [{ "kind": "aggregate_limit", "label": "Aggregate", "value": "$4,000,000" }, { "kind": "sublimit", "label": "Medical Expense Any One Person", "value": "$10,000" }] }]
+    },
+    "expected": { "coverages": ["Premises / Operations", "Products-Completed Operations"], "terms": ["Each Occurrence", "Aggregate", "Medical Expense Any One Person"], "schedules": [], "financial": [] }
+  },
+  {
+    "id": "cyber-scoped-endorsement",
+    "pages": [
+      { "page": 3, "text": "DECLARATION Network Security Each Claim $1,000,000" },
+      { "page": 29, "text": "ENDORSEMENT CYB-204 Network Security Aggregate $500,000" }
+    ],
+    "regions": [{ "pageStart": 3, "pageEnd": 3, "reason": "Declaration limit row" }, { "pageStart": 29, "pageEnd": 29, "reason": "Separate endorsement schedule" }],
+    "recovery": {
+      "coverages": [{ "sourcePage": 3, "name": "Network Security", "lineOfBusiness": "OLIB", "terms": [{ "kind": "each_claim_limit", "label": "Each Claim", "value": "$1,000,000" }] }, { "sourcePage": 29, "name": "Network Security", "lineOfBusiness": "OLIB", "endorsementNumber": "CYB-204", "terms": [{ "kind": "aggregate_limit", "label": "Aggregate", "value": "$500,000" }] }]
+    },
+    "expected": { "coverages": ["Network Security", "Network Security"], "terms": ["Each Claim", "Aggregate"], "schedules": [], "financial": [] }
+  },
+  {
+    "id": "inland-marine-equipment",
+    "pages": [
+      { "page": 7, "text": "EQUIP ROSTER EX-17 Caterpillar 320 Excavator Stated Value $180,000" },
+      { "page": 8, "text": "Any One Scheduled Item $250,000 Deductible $5,000 Gross receipts exposure $900,000" }
+    ],
+    "regions": [{ "pageStart": 7, "pageEnd": 8, "reason": "Equipment listing and compatible continuation terms" }],
+    "recovery": {
+      "coverages": [{ "sourcePage": 8, "name": "Scheduled Equipment", "lineOfBusiness": "INMRC", "terms": [{ "kind": "sublimit", "label": "Any One Scheduled Item", "value": "$250,000" }, { "kind": "deductible", "label": "Deductible", "value": "$5,000" }] }],
+      "schedules": [{ "sourcePage": 7, "name": "EQUIP ROSTER", "kind": "other", "items": [{ "label": "EX-17", "values": [{ "label": "Description", "value": "Caterpillar 320 Excavator" }, { "label": "Stated Value", "value": "$180,000" }] }] }]
+    },
+    "expected": { "coverages": ["Scheduled Equipment"], "terms": ["Any One Scheduled Item", "Deductible"], "schedules": ["EQUIP ROSTER"], "financial": [] }
+  },
+  {
+    "id": "package-financial-separation",
+    "pages": [
+      { "page": 4, "text": "PACKAGE PARTS General Liability Each Occurrence $1,000,000 Business Auto CSL $1,000,000" },
+      { "page": 5, "text": "Commercial Package Premium $12,000 Terrorism Premium $250 Policy Fee $100 Total Payable $12,350 Optional Flood DECLINED" }
+    ],
+    "regions": [{ "pageStart": 4, "pageEnd": 5, "reason": "Multi-line package rows followed by a financial table and declined option" }],
+    "recovery": {
+      "coverages": [{ "sourcePage": 4, "name": "General Liability", "lineOfBusiness": "CGL", "terms": [{ "kind": "each_occurrence_limit", "label": "Each Occurrence", "value": "$1,000,000" }] }, { "sourcePage": 4, "name": "Business Auto CSL", "lineOfBusiness": "AUTOB", "terms": [{ "kind": "each_occurrence_limit", "label": "CSL", "value": "$1,000,000" }] }],
+      "premiumBreakdown": [{ "sourcePage": 5, "line": "Commercial Package Premium", "amount": "$12,000" }, { "sourcePage": 5, "line": "Terrorism Premium", "amount": "$250" }],
+      "taxesAndFees": [{ "sourcePage": 5, "name": "Policy Fee", "amount": "$100", "type": "fee" }],
+      "totalCost": { "sourcePage": 5, "value": "$12,350" }
+    },
+    "expected": { "coverages": ["General Liability", "Business Auto CSL"], "terms": ["Each Occurrence", "CSL"], "schedules": [], "financial": ["Commercial Package Premium", "Terrorism Premium", "Policy Fee", "Total Cost"] }
+  },
+  {
+    "id": "supplied-policy-regression-sanitized",
+    "pages": [
+      { "page": 1, "text": "MOTOR TRUCK CARGO - MTC Premium $3,272.40 PHYSICAL DAMAGE - PD Premium $1,300.00 MGA Fee $400.00 Taxes $193.92 Total Payable $5,166.32" },
+      { "page": 11, "text": "MOTOR TRUCK CARGO - MTC Per Occurrence Limit $250,000 Per Covered Auto / Trailer Limit $250,000 Maximum Limit at Any One Location Terminal/Warehouse $250,000 Deductible per Occurrence $2,500" },
+      { "page": 12, "text": "Trailer Interchange Coverage Per Occurrence Limit $50,000 Per Interchanged Trailer Limit $50,000 Deductible per Occurrence $2,500 Debris Removal and Pollution Cleanup Expense Coverage Limit $5,000 Earned Freight Charges Coverage Limit $5,000 Terminal/Warehouse Coverage Temporary Storage Limit $25,000 Contract Penalty Coverage Limit $5,000 Expediting Expenses Coverage Limit $5,000 Moving Equipment Coverage Limit $5,000 Fictitious Pickup / Voluntary Parting Coverage Limit $10,000" },
+      { "page": 20, "text": "Covered Auto Schedule - Motor Truck Cargo Unscheduled Auto Vehicles or Trailers excluded Scheduled vehicle 1 PD Limit $15,000 LP N/A Status Active Scheduled vehicle 2 PD Limit $10,000 LP N/A Status Active" },
+      { "page": 21, "text": "COMMERCIAL AUTO PHYSICAL DAMAGE Maximum Limit at Any One Vehicle Actual Cash Value of Scheduled Autos Maximum Limit at Any One Location Terminal/Warehouse $250,000 Maximum per Occurrence $250,000 Hired Auto Physical Damage Limit $25,000 Deductible per Auto $2,500 Combined Deductible $2,500 applies to one Occurrence resulting in covered loss to Vehicle and Trailer" },
+      { "page": 22, "text": "Towing and Labor Coverage Per Occurrence Limit $20,000 Rental Reimbursement Coverage Per Occurrence Limit $5,000 Customized Equipment Coverage Per Occurrence Limit $2,500 Trucking Income Coverage Per Occurrence Limit $2,500 Loan and Lease Gap Coverage Per Occurrence Limit $5,000 Expedited Repairs Coverage Per Occurrence Limit $2,500" },
+      { "page": 30, "text": "Covered Auto Schedule - Commercial Auto Physical Damage Unscheduled Auto Vehicles or Trailers excluded Scheduled vehicle 1 PD Limit $15,000 LP N/A Status Active Scheduled vehicle 2 PD Limit $10,000 LP N/A Status Active" }
+    ],
+    "regions": [
+      { "pageStart": 1, "pageEnd": 1, "reason": "Policy financial summary" },
+      { "pageStart": 11, "pageEnd": 12, "reason": "Cargo coverage terms and continuation rows" },
+      { "pageStart": 20, "pageEnd": 22, "reason": "First vehicle schedule and physical-damage terms" },
+      { "pageStart": 30, "pageEnd": 30, "reason": "Second vehicle schedule" }
+    ],
+    "recovery": {
+      "coverages": [
+        { "sourcePage": 11, "name": "MOTOR TRUCK CARGO - MTC", "lineOfBusiness": "INMRC", "terms": [
+          { "kind": "each_occurrence_limit", "label": "Per Occurrence Limit", "value": "$250,000" },
+          { "kind": "other", "label": "Per Covered Auto / Trailer Limit", "value": "$250,000" },
+          { "kind": "other", "label": "Maximum Limit at Any One Location Terminal/Warehouse", "value": "$250,000" },
+          { "kind": "deductible", "label": "Deductible per Occurrence", "value": "$2,500" }
+        ] },
+        { "sourcePage": 12, "name": "Trailer Interchange Coverage", "lineOfBusiness": "INMRC", "terms": [
+          { "kind": "other", "label": "Per Occurrence Limit", "value": "$50,000" },
+          { "kind": "other", "label": "Per Interchanged Trailer Limit", "value": "$50,000" },
+          { "kind": "deductible", "label": "Deductible per Occurrence", "value": "$2,500" }
+        ] },
+        { "sourcePage": 12, "name": "Debris Removal and Pollution Cleanup Expense Coverage", "lineOfBusiness": "INMRC", "terms": [{ "kind": "other", "label": "Limit", "value": "$5,000" }] },
+        { "sourcePage": 12, "name": "Earned Freight Charges Coverage", "lineOfBusiness": "INMRC", "terms": [{ "kind": "other", "label": "Limit", "value": "$5,000" }] },
+        { "sourcePage": 12, "name": "Terminal/Warehouse Coverage Temporary Storage", "lineOfBusiness": "INMRC", "terms": [{ "kind": "other", "label": "Limit", "value": "$25,000" }] },
+        { "sourcePage": 12, "name": "Contract Penalty Coverage", "lineOfBusiness": "INMRC", "terms": [{ "kind": "other", "label": "Limit", "value": "$5,000" }] },
+        { "sourcePage": 12, "name": "Expediting Expenses Coverage", "lineOfBusiness": "INMRC", "terms": [{ "kind": "other", "label": "Limit", "value": "$5,000" }] },
+        { "sourcePage": 12, "name": "Moving Equipment Coverage", "lineOfBusiness": "INMRC", "terms": [{ "kind": "other", "label": "Limit", "value": "$5,000" }] },
+        { "sourcePage": 12, "name": "Fictitious Pickup / Voluntary Parting Coverage", "lineOfBusiness": "INMRC", "terms": [{ "kind": "other", "label": "Limit", "value": "$10,000" }] },
+        { "sourcePage": 21, "name": "COMMERCIAL AUTO PHYSICAL DAMAGE", "lineOfBusiness": "AUTOB", "terms": [
+          { "kind": "other", "label": "Maximum Limit at Any One Vehicle", "value": "Actual Cash Value of Scheduled Autos" },
+          { "kind": "other", "label": "Maximum Limit at Any One Location Terminal/Warehouse", "value": "$250,000" },
+          { "kind": "other", "label": "Maximum per Occurrence", "value": "$250,000" },
+          { "kind": "other", "label": "Hired Auto Physical Damage Limit", "value": "$25,000" },
+          { "kind": "deductible", "label": "Deductible per Auto", "value": "$2,500" },
+          { "kind": "deductible", "label": "Combined Deductible", "value": "$2,500", "appliesTo": "one Occurrence resulting in covered loss to Vehicle and Trailer" }
+        ] },
+        { "sourcePage": 22, "name": "Towing and Labor Coverage", "lineOfBusiness": "AUTOB", "terms": [{ "kind": "each_occurrence_limit", "label": "Per Occurrence Limit", "value": "$20,000" }] },
+        { "sourcePage": 22, "name": "Rental Reimbursement Coverage", "lineOfBusiness": "AUTOB", "terms": [{ "kind": "each_occurrence_limit", "label": "Per Occurrence Limit", "value": "$5,000" }] },
+        { "sourcePage": 22, "name": "Customized Equipment Coverage", "lineOfBusiness": "AUTOB", "terms": [{ "kind": "each_occurrence_limit", "label": "Per Occurrence Limit", "value": "$2,500" }] },
+        { "sourcePage": 22, "name": "Trucking Income Coverage", "lineOfBusiness": "AUTOB", "terms": [{ "kind": "each_occurrence_limit", "label": "Per Occurrence Limit", "value": "$2,500" }] },
+        { "sourcePage": 22, "name": "Loan and Lease Gap Coverage", "lineOfBusiness": "AUTOB", "terms": [{ "kind": "each_occurrence_limit", "label": "Per Occurrence Limit", "value": "$5,000" }] },
+        { "sourcePage": 22, "name": "Expedited Repairs Coverage", "lineOfBusiness": "AUTOB", "terms": [{ "kind": "each_occurrence_limit", "label": "Per Occurrence Limit", "value": "$2,500" }] }
+      ],
+      "schedules": [
+        { "sourcePage": 20, "name": "Covered Auto Schedule - Motor Truck Cargo", "kind": "vehicle", "items": [
+          { "label": "Scheduled vehicle 1", "values": [{ "label": "PD Limit", "value": "$15,000" }, { "label": "LP", "value": "N/A" }, { "label": "Status", "value": "Active" }] },
+          { "label": "Scheduled vehicle 2", "values": [{ "label": "PD Limit", "value": "$10,000" }, { "label": "LP", "value": "N/A" }, { "label": "Status", "value": "Active" }] }
+        ] },
+        { "sourcePage": 30, "name": "Covered Auto Schedule - Commercial Auto Physical Damage", "kind": "vehicle", "items": [
+          { "label": "Scheduled vehicle 1", "values": [{ "label": "PD Limit", "value": "$15,000" }, { "label": "LP", "value": "N/A" }, { "label": "Status", "value": "Active" }] },
+          { "label": "Scheduled vehicle 2", "values": [{ "label": "PD Limit", "value": "$10,000" }, { "label": "LP", "value": "N/A" }, { "label": "Status", "value": "Active" }] }
+        ] }
+      ],
+      "premiumBreakdown": [
+        { "sourcePage": 1, "line": "MOTOR TRUCK CARGO - MTC Premium", "amount": "$3,272.40" },
+        { "sourcePage": 1, "line": "PHYSICAL DAMAGE - PD Premium", "amount": "$1,300.00" }
+      ],
+      "taxesAndFees": [
+        { "sourcePage": 1, "name": "MGA Fee", "amount": "$400.00", "type": "fee" },
+        { "sourcePage": 1, "name": "Taxes", "amount": "$193.92", "type": "tax" }
+      ],
+      "totalCost": { "sourcePage": 1, "value": "$5,166.32" }
+    },
+    "expected": {
+      "coverages": ["MOTOR TRUCK CARGO - MTC", "Trailer Interchange Coverage", "Debris Removal and Pollution Cleanup Expense Coverage", "Earned Freight Charges Coverage", "Terminal/Warehouse Coverage Temporary Storage", "Contract Penalty Coverage", "Expediting Expenses Coverage", "Moving Equipment Coverage", "Fictitious Pickup / Voluntary Parting Coverage", "COMMERCIAL AUTO PHYSICAL DAMAGE", "Towing and Labor Coverage", "Rental Reimbursement Coverage", "Customized Equipment Coverage", "Trucking Income Coverage", "Loan and Lease Gap Coverage", "Expedited Repairs Coverage"],
+      "terms": ["Per Occurrence Limit", "Per Covered Auto / Trailer Limit", "Maximum Limit at Any One Location Terminal/Warehouse", "Deductible per Occurrence", "Per Occurrence Limit", "Per Interchanged Trailer Limit", "Deductible per Occurrence", "Limit", "Limit", "Limit", "Limit", "Limit", "Limit", "Limit", "Maximum Limit at Any One Vehicle", "Maximum Limit at Any One Location Terminal/Warehouse", "Maximum per Occurrence", "Hired Auto Physical Damage Limit", "Deductible per Auto", "Combined Deductible", "Per Occurrence Limit", "Per Occurrence Limit", "Per Occurrence Limit", "Per Occurrence Limit", "Per Occurrence Limit", "Per Occurrence Limit"],
+      "schedules": ["Covered Auto Schedule - Motor Truck Cargo", "Covered Auto Schedule - Commercial Auto Physical Damage"],
+      "financial": ["MOTOR TRUCK CARGO - MTC Premium", "PHYSICAL DAMAGE - PD Premium", "MGA Fee", "Taxes", "Total Cost"]
+    }
+  }
+]

@@ -35,6 +35,7 @@ import {
   EnrichedUnderwritingConditionSchema,
   BindingAuthoritySchema,
 } from "./underwriting";
+import { OperationalCoverageScheduleSchema } from "../source/schemas";
 
 // ── Legacy inline schemas ──
 
@@ -224,6 +225,7 @@ const BaseDocumentFields = {
   insuredName: z.string(),
   premium: z.string().optional(),
   premiumAmount: z.number().optional(),
+  premiumBreakdown: z.array(PremiumLineSchema).optional(),
   summary: z.string().optional(),
   linesOfBusiness: z.array(z.string()).optional(),
   coverages: z.array(CoverageSchema),
@@ -265,6 +267,7 @@ const BaseDocumentFields = {
   locations: z.array(InsuredLocationSchema).optional(),
   vehicles: z.array(InsuredVehicleSchema).optional(),
   classifications: z.array(ClassificationCodeSchema).optional(),
+  coverageSchedules: z.array(OperationalCoverageScheduleSchema).optional(),
   formInventory: z.array(FormReferenceSchema).optional(),
 
   declarations: DeclarationsSchema.optional(),
@@ -328,8 +331,6 @@ export const QuoteDocumentSchema = z.object({
   quoteExpirationDate: z.string().optional(),
   subjectivities: z.array(SubjectivitySchema).optional(),
   underwritingConditions: z.array(UnderwritingConditionSchema).optional(),
-  premiumBreakdown: z.array(PremiumLineSchema).optional(),
-
   // Enriched quote fields (v1.2+)
   enrichedSubjectivities: z.array(EnrichedSubjectivitySchema).optional(),
   enrichedUnderwritingConditions: z.array(EnrichedUnderwritingConditionSchema).optional(),

@@ -227,6 +227,51 @@ export const OperationalCoverageLineSchema = z.object({
 });
 export type OperationalCoverageLine = z.infer<typeof OperationalCoverageLineSchema>;
 
+export const OperationalCoverageScheduleValueSchema = z.object({
+  label: z.string(),
+  value: z.string(),
+});
+export type OperationalCoverageScheduleValue = z.infer<typeof OperationalCoverageScheduleValueSchema>;
+
+export const OperationalCoverageScheduleItemSchema = z.object({
+  label: z.string(),
+  description: z.string().optional(),
+  values: z.array(OperationalCoverageScheduleValueSchema).default([]),
+  sourceSpanIds: z.array(z.string().min(1)).default([]),
+});
+export type OperationalCoverageScheduleItem = z.infer<typeof OperationalCoverageScheduleItemSchema>;
+
+export const OperationalCoverageScheduleSchema = z.object({
+  name: z.string(),
+  kind: z.enum(["vehicle", "property", "location", "other"]),
+  description: z.string().optional(),
+  items: z.array(OperationalCoverageScheduleItemSchema).default([]),
+  sourceSpanIds: z.array(z.string().min(1)).default([]),
+  pageStart: z.number().int().positive().optional(),
+  pageEnd: z.number().int().positive().optional(),
+});
+export type OperationalCoverageSchedule = z.infer<typeof OperationalCoverageScheduleSchema>;
+
+export const OperationalPremiumLineSchema = z.object({
+  line: z.string(),
+  amount: z.string(),
+  amountValue: z.number().optional(),
+  sourceNodeIds: z.array(z.string().min(1)).default([]),
+  sourceSpanIds: z.array(z.string().min(1)).default([]),
+});
+export type OperationalPremiumLine = z.infer<typeof OperationalPremiumLineSchema>;
+
+export const OperationalTaxFeeItemSchema = z.object({
+  name: z.string(),
+  amount: z.string(),
+  amountValue: z.number().optional(),
+  type: z.string().optional(),
+  description: z.string().optional(),
+  sourceNodeIds: z.array(z.string().min(1)).default([]),
+  sourceSpanIds: z.array(z.string().min(1)).default([]),
+});
+export type OperationalTaxFeeItem = z.infer<typeof OperationalTaxFeeItemSchema>;
+
 export const OperationalPartySchema = z.object({
   role: z.string(),
   name: z.string(),
@@ -277,6 +322,10 @@ export const PolicyOperationalProfileSchema = z.preprocess(
     operationsDescription: SourceBackedValueSchema.optional(),
     declarationFacts: z.array(OperationalDeclarationFactSchema).default([]),
     coverages: z.array(OperationalCoverageLineSchema).default([]),
+    coverageSchedules: z.array(OperationalCoverageScheduleSchema).optional(),
+    premiumBreakdown: z.array(OperationalPremiumLineSchema).optional(),
+    taxesAndFees: z.array(OperationalTaxFeeItemSchema).optional(),
+    totalCost: SourceBackedValueSchema.optional(),
     parties: z.array(OperationalPartySchema).default([]),
     endorsementSupport: z.array(OperationalEndorsementSupportSchema).default([]),
     sourceNodeIds: z.array(z.string().min(1)).default([]),

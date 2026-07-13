@@ -233,6 +233,10 @@ interface PolicyOperationalProfile {
     sourceNodeIds: string[];
     sourceSpanIds: string[];
   }>;
+  coverageSchedules?: OperationalCoverageSchedule[];
+  premiumBreakdown?: OperationalPremiumLine[];
+  taxesAndFees?: OperationalTaxFeeItem[];
+  totalCost?: SourceBackedValue;
   parties: OperationalParty[];
   endorsementSupport: OperationalEndorsementSupport[];
   sourceNodeIds: string[];
@@ -240,6 +244,8 @@ interface PolicyOperationalProfile {
   warnings: string[];
 }
 ```
+
+`OperationalCoverageSchedule` keeps a source-backed schedule name, `vehicle | property | location | other` kind, flexible items and label/value pairs, page range, and source span IDs. This allows partial or redacted schedules to remain useful without inventing fields required by stricter vehicle or location records.
 
 `SourceBackedValue.value` preserves the extracted source-backed display value. For party and identity fields such as `namedInsured`, `insurer`, `broker`, and `policyNumber`, `normalizedValue` may contain the display-safe canonical identity after removing label fragments or address/contact tails. The compatibility `InsuranceDocument` projection prefers `normalizedValue` for those identity fields when present, while retaining raw `value` for dates, premium, and other fields where the extracted display format is meaningful.
 

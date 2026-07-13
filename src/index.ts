@@ -41,7 +41,13 @@ export * from "./case";
 // ── Extraction pipeline ──
 export { createExtractor } from "./extraction/coordinator";
 export type { ExtractorConfig, ExtractionInput, ExtractionResult, ExtractOptions } from "./extraction/coordinator";
+export { runSourceTreeExtraction } from "./extraction/source-tree-extractor";
 export type { ExtractionV3Result } from "./extraction/source-tree-extractor";
+export { runCoverageRecovery } from "./extraction/coverage-recovery";
+export type {
+  CoverageRecoveryDiagnostics,
+  CoverageRecoveryResult,
+} from "./extraction/coverage-recovery";
 export type {
   DoclingDocumentLike,
   DoclingExtractionInput,

@@ -30,7 +30,7 @@ flowchart LR
   C --> V[Validation + Review]
 ```
 
-Extraction builds a deterministic source tree from parser spans, promotes parser title elements into section/schedule nodes, and groups declarations, policy forms, and endorsements from source text rather than a separate form-inventory or source-tree-organizer model call. The hierarchy is content-first: declarations, policy forms, endorsements, sections, schedules, and tables are structure; pages are provenance. The operational-profile model receives a bounded packet of high-value declaration, schedule, premium, policy-party, operations-description, endorsement, and coverage evidence and then extracts only source-cited operational facts. Query and PCE use retrievers to find source nodes, expand ancestors/siblings/children, and attach exact spans for citations. Application processing forwards spans into classification, field extraction, lookup, and explanation agents. Case workflows validate quoted evidence before proposals are scored or packets are generated.
+Extraction builds a deterministic source tree from parser spans, promotes parser title elements into section/schedule nodes, and groups declarations, policy forms, and endorsements from source text rather than a separate form-inventory or source-tree-organizer model call. The hierarchy is content-first: declarations, policy forms, endorsements, sections, schedules, and tables are structure; pages are provenance. The primary operational-profile model extracts source-cited operational facts. When coverage recovery is enabled, a second semantic pass sketches every page, discovers relevant regions without depending on coverage-heading vocabulary, and processes those regions in bounded batches. It can add cited coverage terms, flexible asset schedules, and financial facts while rejecting unknown source IDs and unsupported numeric or identifier values. Query and PCE use retrievers to find source nodes, expand ancestors/siblings/children, and attach exact spans for citations. Application processing forwards spans into classification, field extraction, lookup, and explanation agents. Case workflows validate quoted evidence before proposals are scored or packets are generated.
 
 ## Minimal setup
 
@@ -53,7 +53,10 @@ const sourceSpans = buildPageSourceSpans([
 const sourceStore = new MemorySourceStore();
 const extractor = createExtractor({ generateObject, sourceStore });
 
-const result = await extractor.extract("base64-pdf", "policy-123", { sourceSpans });
+const result = await extractor.extract("base64-pdf", "policy-123", {
+  sourceSpans,
+  coverageRecovery: { enabled: true },
+});
 ```
 
 `MemorySourceStore` is a reference implementation for tests and small hosts. Production systems usually store spans in the same database as documents, store source nodes in a hierarchy table, and index node descriptions in vector or hybrid search.

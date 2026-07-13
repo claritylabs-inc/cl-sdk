@@ -143,7 +143,7 @@ Every SDK model callback may receive `taskKind`, `budgetDiagnostics`, and `trace
 CL-SDK uses deterministic scaffolding with agentic decision points rather than fixed all-tools-all-the-time chains:
 
 - Policy extraction requires caller-provided source spans and does not run the older form-inventory, page-map, focused-extractor, or source-tree-organizer model calls.
-- Source-tree construction stays deterministic from parser spans; the model is used for the operational profile and optional coverage cleanup because those are end-user facts.
+- Source-tree construction stays deterministic from parser spans; models are used for the operational profile, opt-in document-wide coverage recovery, and coverage cleanup because those are end-user facts. Recovery uses compact sketches for every page and bounded source-cited region batches.
 - Referential coverage resolution and application/query workflows still use bounded target-specific actions when those workflows need lookup or explanation steps.
 - Formatting skips the LLM cleanup pass for plain prose and formats long or noisy markdown/table/list content in parallel batches outside the v3 source-span extraction path.
 - Application processing plans optional backfill, context auto-fill, document search, batching, reply parsing, lookup, explanations, and next-batch email generation based on current active question state. Conditional fields that are not active are skipped until their parent answers trigger them.

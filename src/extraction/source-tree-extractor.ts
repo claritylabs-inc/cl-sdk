@@ -29,6 +29,11 @@ import {
   OperationalProfileCleanupSchema,
   type OperationalProfileCleanup,
 } from "./operational-profile-cleanup";
+import {
+  disabledCoverageRecoveryDiagnostics,
+  recoverOperationalProfileCoverage,
+  type CoverageRecoveryDiagnostics,
+} from "./coverage-recovery";
 
 export type SourceTreeFormHint = {
   formNumber?: string;
@@ -146,6 +151,7 @@ export type ExtractionV3Result = {
   sourceChunks: SourceChunk[];
   formInventory: SourceTreeFormHint[];
   operationalProfile: PolicyOperationalProfile;
+  coverageRecovery: CoverageRecoveryDiagnostics;
   document: InsuranceDocument;
   chunks: [];
   warnings: string[];
@@ -1410,7 +1416,7 @@ function operationalProfileEvidence(sourceTree: DocumentSourceNode[], sourceSpan
 
   const detailEntries = entries.filter((entry) => entry.sourceUnit !== "page");
   const pageEntries = entries.filter((entry) => entry.sourceUnit === "page");
-  return [...detailEntries.slice(0, 80), ...pageEntries.slice(0, 8)];
+  return [...detailEntries, ...pageEntries];
 }
 
 function sourceTreeRootId(sourceTree: DocumentSourceNode[]): string | undefined {
@@ -1438,6 +1444,9 @@ function emptyOperationalProfile(): PolicyOperationalProfile {
     linesOfBusiness: ["UN"],
     declarationFacts: [],
     coverages: [],
+    coverageSchedules: [],
+    premiumBreakdown: [],
+    taxesAndFees: [],
     parties: [],
     endorsementSupport: [],
     sourceNodeIds: [],
@@ -1694,6 +1703,78 @@ function declarationFieldName(fact: OperationalDeclarationFact): string {
   return fact.field;
 }
 
+function scheduleValueMap(
+  item: NonNullable<PolicyOperationalProfile["coverageSchedules"]>[number]["items"][number],
+) {
+  return new Map(item.values.map((value) => [
+    value.label.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
+    value.value,
+  ]));
+}
+
+function firstScheduleValue(values: Map<string, string>, labels: string[]) {
+  for (const label of labels) {
+    const direct = values.get(label);
+    if (direct) return direct;
+    const match = [...values.entries()].find(([key]) => key.includes(label));
+    if (match?.[1]) return match[1];
+  }
+  return undefined;
+}
+
+function positiveInteger(value: string | undefined): number | undefined {
+  const parsed = Number.parseInt(value?.match(/\d+/)?.[0] ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function structuredVehicles(profile: PolicyOperationalProfile) {
+  return (profile.coverageSchedules ?? [])
+    .filter((schedule) => schedule.kind === "vehicle")
+    .flatMap((schedule) => schedule.items)
+    .flatMap((item, index) => {
+      const values = scheduleValueMap(item);
+      const year = positiveInteger(firstScheduleValue(values, ["year", "model year"]));
+      const make = firstScheduleValue(values, ["make"]);
+      const model = firstScheduleValue(values, ["model"]);
+      const vin = firstScheduleValue(values, ["vin", "vehicle identification number"]);
+      if (!year || !make || !model || !vin) return [];
+      return [{
+        number: positiveInteger(item.label) ?? index + 1,
+        year,
+        make,
+        model,
+        vin,
+      }];
+    });
+}
+
+function structuredLocations(profile: PolicyOperationalProfile) {
+  return (profile.coverageSchedules ?? [])
+    .filter((schedule) => schedule.kind === "location" || schedule.kind === "property")
+    .flatMap((schedule) => schedule.items)
+    .flatMap((item, index) => {
+      const values = scheduleValueMap(item);
+      const street1 = firstScheduleValue(values, ["street 1", "street address", "address"]);
+      const city = firstScheduleValue(values, ["city"]);
+      const state = firstScheduleValue(values, ["state", "province"]);
+      const zip = firstScheduleValue(values, ["zip", "postal code"]);
+      if (!street1 || !city || !state || !zip) return [];
+      return [{
+        number: positiveInteger(item.label) ?? index + 1,
+        address: {
+          street1,
+          city,
+          state,
+          zip,
+          country: firstScheduleValue(values, ["country"]),
+        },
+        description: item.description,
+        buildingValue: firstScheduleValue(values, ["building value", "building"]),
+        contentsValue: firstScheduleValue(values, ["contents value", "contents"]),
+      }];
+    });
+}
+
 function materializeDocument(params: {
   id: string;
   sourceTree: DocumentSourceNode[];
@@ -1746,6 +1827,32 @@ function materializeDocument(params: {
         : [coverage.limit, coverage.deductible, coverage.premium]),
     ].filter(Boolean).join(" | "),
   }));
+  const coverageSchedules = (profile.coverageSchedules ?? []).map((schedule) => ({
+    ...schedule,
+    items: schedule.items.map((item) => ({ ...item })),
+  }));
+  const premiumBreakdown = (profile.premiumBreakdown ?? []).map((row) => ({
+    line: row.line,
+    amount: row.amount,
+    amountValue: row.amountValue,
+    documentNodeId: row.sourceNodeIds[0],
+    sourceSpanIds: row.sourceSpanIds,
+  }));
+  const taxesAndFees = (profile.taxesAndFees ?? []).map((row) => ({
+    name: row.name,
+    amount: row.amount,
+    amountValue: row.amountValue,
+    type: row.type,
+    description: row.description,
+    documentNodeId: row.sourceNodeIds[0],
+    sourceSpanIds: row.sourceSpanIds,
+  }));
+  const totalCost = valueOf(profile, "totalCost");
+  const totalCostAmount = totalCost
+    ? Number(totalCost.replace(/[^0-9.-]/g, ""))
+    : undefined;
+  const vehicles = structuredVehicles(profile);
+  const locations = structuredLocations(profile);
   const documentOutline = sourceTreeToOutline(params.sourceTree);
   const documentMetadata = {
     sourceTreeVersion: "v3",
@@ -1779,6 +1886,12 @@ function materializeDocument(params: {
     security: carrier,
     insuredName,
     premium,
+    ...(premiumBreakdown.length > 0 ? { premiumBreakdown } : {}),
+    ...(taxesAndFees.length > 0 ? { taxesAndFees } : {}),
+    ...(totalCost ? { totalCost } : {}),
+    ...(typeof totalCostAmount === "number" && Number.isFinite(totalCostAmount)
+      ? { totalCostAmount }
+      : {}),
     insuredDba,
     insuredAddress,
     insuredEntityType,
@@ -1815,6 +1928,9 @@ function materializeDocument(params: {
         pageEnd: form.pageEnd,
       })),
     coverages,
+    ...(coverageSchedules.length > 0 ? { coverageSchedules } : {}),
+    ...(vehicles.length > 0 ? { vehicles } : {}),
+    ...(locations.length > 0 ? { locations } : {}),
     documentMetadata,
     documentOutline,
     declarations: {
@@ -1949,6 +2065,7 @@ export async function runSourceTreeExtraction(params: {
   resolveBudget: (taskKind: ModelTaskKind, hintTokens: number) => ModelBudgetResolution;
   trackUsage: TrackUsage;
   log?: (message: string) => Promise<void>;
+  coverageRecovery?: { enabled: boolean };
 }): Promise<ExtractionV3Result> {
   const sourceSpans = normalizeSourceSpans(params.sourceSpans);
   const formHints: SourceTreeFormHint[] = [];
@@ -1978,6 +2095,7 @@ export async function runSourceTreeExtraction(params: {
 
   const emptyProfile = emptyOperationalProfile();
   let operationalProfile = emptyProfile;
+  let coverageRecovery = disabledCoverageRecoveryDiagnostics();
   try {
     const validNodeIds = new Set(sourceTree.map((node) => node.id));
     const validSpanIds = new Set(sourceSpans.map((span) => span.id));
@@ -2016,6 +2134,22 @@ export async function runSourceTreeExtraction(params: {
     warnings.push(`Operational profile model pass failed; coverage rows omitted (${error instanceof Error ? error.message : String(error)})`);
   }
 
+  if (params.coverageRecovery?.enabled) {
+    const recovery = await recoverOperationalProfileCoverage({
+      sourceTree,
+      sourceSpans,
+      operationalProfile,
+      generateObject: params.generateObject,
+      providerOptions: params.providerOptions,
+      resolveBudget: params.resolveBudget,
+      trackUsage: localTrack,
+      log: params.log,
+    });
+    operationalProfile = recovery.operationalProfile;
+    coverageRecovery = recovery.diagnostics;
+    warnings.push(...coverageRecovery.warnings);
+  }
+
   if (operationalProfile.coverages.length > 0) {
     try {
       const cleanup = await cleanupOperationalCoverageSchedules({
@@ -2050,6 +2184,7 @@ export async function runSourceTreeExtraction(params: {
     sourceChunks: chunkSourceSpans(sourceSpans),
     formInventory: formHints,
     operationalProfile,
+    coverageRecovery,
     document,
     chunks: [],
     warnings: [...warnings, ...operationalProfile.warnings],

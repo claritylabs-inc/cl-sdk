@@ -2,6 +2,7 @@ export type ModelTaskKind =
   | "extraction_classify"
   | "extraction_source_tree"
   | "extraction_operational_profile"
+  | "extraction_coverage_recovery"
   | "extraction_page_map"
   | "extraction_focused"
   | "extraction_long_list"

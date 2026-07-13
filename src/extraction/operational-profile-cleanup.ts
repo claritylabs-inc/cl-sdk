@@ -592,6 +592,7 @@ function sourceIdsFromOperationalProfile(profile: PolicyOperationalProfile) {
     profile.expirationDate,
     profile.retroactiveDate,
     profile.premium,
+    profile.totalCost,
     profile.operationsDescription,
   ].filter(Boolean);
   return {
@@ -599,6 +600,8 @@ function sourceIdsFromOperationalProfile(profile: PolicyOperationalProfile) {
       ...backedValues.flatMap((value) => value?.sourceNodeIds ?? []),
       ...profile.coverages.flatMap((coverage) => coverage.sourceNodeIds),
       ...profile.coverages.flatMap((coverage) => coverage.limits.flatMap((term) => term.sourceNodeIds)),
+      ...(profile.premiumBreakdown ?? []).flatMap((row) => row.sourceNodeIds),
+      ...(profile.taxesAndFees ?? []).flatMap((row) => row.sourceNodeIds),
       ...profile.parties.flatMap((party) => party.sourceNodeIds),
       ...profile.endorsementSupport.flatMap((support) => support.sourceNodeIds),
     ]),
@@ -606,6 +609,12 @@ function sourceIdsFromOperationalProfile(profile: PolicyOperationalProfile) {
       ...backedValues.flatMap((value) => value?.sourceSpanIds ?? []),
       ...profile.coverages.flatMap((coverage) => coverage.sourceSpanIds),
       ...profile.coverages.flatMap((coverage) => coverage.limits.flatMap((term) => term.sourceSpanIds)),
+      ...(profile.coverageSchedules ?? []).flatMap((schedule) => [
+        ...schedule.sourceSpanIds,
+        ...schedule.items.flatMap((item) => item.sourceSpanIds),
+      ]),
+      ...(profile.premiumBreakdown ?? []).flatMap((row) => row.sourceSpanIds),
+      ...(profile.taxesAndFees ?? []).flatMap((row) => row.sourceSpanIds),
       ...profile.parties.flatMap((party) => party.sourceSpanIds),
       ...profile.endorsementSupport.flatMap((support) => support.sourceSpanIds),
     ]),

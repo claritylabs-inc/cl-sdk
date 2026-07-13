@@ -55,10 +55,11 @@ The current extraction path is:
 2. **Persist source evidence** -- when `sourceStore` is configured, save source spans and chunks before extraction.
 3. **Build the source tree** -- deterministically construct document, page group, page, form, endorsement, section, schedule, clause, table, row, cell, and text nodes from existing spans.
 4. **Apply semantic grouping** -- group declarations, policy forms, endorsements, sections, and schedules from parser titles and source text. The grouping code may relabel or regroup existing source nodes; it does not invent source text, source span IDs, pages, or bounding boxes.
-5. **Extract the operational profile** -- call `generateObject` with a bounded source-evidence packet for product-critical facts such as policy number, named insured, insurer, broker, policy period, coverage units, limits, deductibles, premiums, and endorsement support.
-6. **Validate and merge citations** -- reject uncited facts and source IDs that are not present in the current source tree/spans.
-7. **Clean up coverages** -- when coverage units exist, run one bounded source-backed cleanup pass that keeps, drops, or updates existing coverage rows by `coverageIndex`.
-8. **Project compatibility output** -- materialize `document`, `documentMetadata`, and `documentOutline` as views over `sourceTree` and `operationalProfile`; return `chunks: []` on this v3 path.
+5. **Extract the operational profile** -- call `generateObject` with source evidence for product-critical facts such as policy number, named insured, insurer, broker, policy period, coverage units, limits, deductibles, premiums, and endorsement support.
+6. **Recover document-wide coverage facts when enabled** -- inspect compact sketches for every page, discover semantic coverage/schedule/financial regions, and merge cited facts in bounded region batches through the independent `extraction_coverage_recovery` task.
+7. **Validate and merge citations** -- reject uncited facts, unknown source IDs, and mechanically unsupported numeric or identifier values.
+8. **Clean up coverages** -- when coverage units exist, run one bounded source-backed cleanup pass over the combined primary and recovery profile.
+9. **Project compatibility output** -- materialize `document`, `documentMetadata`, and `documentOutline` as views over `sourceTree` and `operationalProfile`; return `chunks: []` on this v3 path.
 
 <Callout type="info">
   The `extract` method accepts an optional `documentId`. If omitted, a timestamped ID is generated automatically.
@@ -132,6 +133,8 @@ type ExtractionInput =
 interface ExtractOptions {
   /** Caller-provided raw source spans for this document. */
   sourceSpans?: SourceSpan[];
+  /** Opt in to document-wide semantic coverage, schedule, and financial recovery. */
+  coverageRecovery?: { enabled: boolean };
 }
 ```
 
@@ -153,6 +156,8 @@ interface ExtractionResult {
   sourceTree?: DocumentSourceNode[];
   /** Source-backed product fact projection */
   operationalProfile?: PolicyOperationalProfile;
+  /** Versioned recovery outcome and persisted-fact diagnostics */
+  coverageRecovery?: CoverageRecoveryDiagnostics;
   /** Non-blocking extraction warnings */
   warnings?: string[];
   /** Aggregate token usage across model calls that reported usage */
@@ -191,6 +196,10 @@ interface PolicyOperationalProfile {
   operationsDescription?: SourceBackedValue;
   declarationFacts: OperationalDeclarationFact[];
   coverages: OperationalCoverageLine[];
+  coverageSchedules?: OperationalCoverageSchedule[];
+  premiumBreakdown?: OperationalPremiumLine[];
+  taxesAndFees?: OperationalTaxFeeItem[];
+  totalCost?: SourceBackedValue;
   parties: OperationalParty[];
   endorsementSupport: OperationalEndorsementSupport[];
   sourceNodeIds: string[];
@@ -204,6 +213,14 @@ interface PolicyOperationalProfile {
 `declarationFacts` is the source-backed declaration fact stream for host persistence. It carries named-insured identity details such as mailing address, DBA, entity type, tax ID, additional named insured rows, and other key declarations with normalized values plus source IDs.
 
 `parties` keeps policy-scoped named-insured, producer/broker, insurer/carrier, and MGA/administrator identities. Each party may carry a partial or complete `OperationalAddress`; the compatibility document projection materializes only complete named-insured, producer, and insurer addresses. `operationsDescription` is the insured's directly source-backed business or operations description rather than an inference from coverages or external research.
+
+`coverageSchedules` preserves flexible covered-auto, property, location, building, and equipment listings without requiring complete structured asset records. `premiumBreakdown`, `taxesAndFees`, and `totalCost` remain financial facts and are never promoted into coverage rows.
+
+### Coverage recovery diagnostics
+
+When `coverageRecovery.enabled` is true, `ExtractionResult.coverageRecovery` reports `version`, `status`, region and model-call counts, recovered coverage/term/schedule/financial counts, citation rejections, and warnings. A `failed` status returns the unchanged primary operational profile so the host can choose its own deterministic fallback.
+
+Hosts that already persist source evidence can call `runCoverageRecovery({ sourceTree, sourceSpans, operationalProfile, generateObject, modelCapabilities })` directly. This invokes the same recovery engine without parsing the original document again.
 
 ---
 
