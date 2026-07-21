@@ -151,14 +151,14 @@ jobs:
 
           # Verify npm package exists (with retry)
           NPM_VERIFIED=false
-          for i in 1 2 3; do
+          for i in 1 2 3 4 5 6; do
             if npm view "@claritylabs/cl-sdk@$VERSION" version 2>/dev/null; then
               echo "✓ npm package verified"
               NPM_VERIFIED=true
               break
             fi
-            echo "Waiting for npm to propagate... (attempt $i/3)"
-            sleep 5
+            echo "Waiting for npm to propagate... (attempt $i/6)"
+            sleep 10
           done
 
           if [ "$NPM_VERIFIED" != "true" ]; then
@@ -232,14 +232,20 @@ jobs:
         if: steps.check.outputs.published == 'true' || steps.npm_publish.outputs.success == 'true'
         run: |
           VERSION="${{ steps.check.outputs.version }}"
-          for i in 1 2 3; do
+          NPM_VERIFIED=false
+          for i in 1 2 3 4 5 6; do
             if npm view "@claritylabs/cl-sdk-docs@$VERSION" version 2>/dev/null; then
               echo "✓ npm package verified"
+              NPM_VERIFIED=true
               break
             fi
-            echo "Waiting for npm to propagate... (attempt $i/3)"
-            sleep 5
+            echo "Waiting for npm to propagate... (attempt $i/6)"
+            sleep 10
           done
+          if [ "$NPM_VERIFIED" != "true" ]; then
+            echo "::error::npm package @claritylabs/cl-sdk-docs@$VERSION was not visible after publish"
+            exit 1
+          fi
 
       - name: Notify on failure
         if: failure() && steps.check.outputs.published == 'false'
@@ -325,14 +331,20 @@ jobs:
         if: steps.check.outputs.published == 'true' || steps.npm_publish.outputs.success == 'true'
         run: |
           VERSION="${{ steps.check.outputs.version }}"
-          for i in 1 2 3; do
+          NPM_VERIFIED=false
+          for i in 1 2 3 4 5 6; do
             if npm view "@claritylabs/cl-sdk-mcp@$VERSION" version 2>/dev/null; then
               echo "✓ npm package verified"
+              NPM_VERIFIED=true
               break
             fi
-            echo "Waiting for npm to propagate... (attempt $i/3)"
-            sleep 5
+            echo "Waiting for npm to propagate... (attempt $i/6)"
+            sleep 10
           done
+          if [ "$NPM_VERIFIED" != "true" ]; then
+            echo "::error::npm package @claritylabs/cl-sdk-mcp@$VERSION was not visible after publish"
+            exit 1
+          fi
 
       - name: Notify on failure
         if: failure() && steps.check.outputs.published == 'false'
