@@ -358,6 +358,9 @@ describe("source-tree extraction", () => {
     );
     expect(profileCall?.[0].prompt).toContain("source-backed declarationFacts");
     expect(profileCall?.[0].prompt).toContain("mailing address");
+    expect(profileCall?.[0].prompt).toContain('Populate top-level effectiveDate from declaration labels');
+    expect(profileCall?.[0].prompt).toContain('Populate top-level expirationDate from');
+    expect(profileCall?.[0].prompt).toContain('POLICY PERIOD, POLICY TERM, or PERIOD OF INSURANCE');
   });
 
   it("preserves source-backed policy parties and materializes complete party addresses", async () => {
