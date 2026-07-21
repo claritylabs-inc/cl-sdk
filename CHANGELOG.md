@@ -1,3 +1,10 @@
+## [4.4.1](https://github.com/claritylabs-inc/cl-sdk/compare/v4.4.0...v4.4.1) (2026-07-21)
+
+
+### Bug Fixes
+
+* **extraction:** map policy-period declaration dates ([8211b83](https://github.com/claritylabs-inc/cl-sdk/commit/8211b83739d9e2e6e31aac48741c2e95272dc17c))
+
 # [4.4.0](https://github.com/claritylabs-inc/cl-sdk/compare/v4.3.0...v4.4.0) (2026-07-13)
 
 
