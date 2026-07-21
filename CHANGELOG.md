@@ -1,3 +1,10 @@
+## [4.4.2](https://github.com/claritylabs-inc/cl-sdk/compare/v4.4.1...v4.4.2) (2026-07-21)
+
+
+### Bug Fixes
+
+* **release:** allow npm registry propagation ([402cf5f](https://github.com/claritylabs-inc/cl-sdk/commit/402cf5fa6ab3a53253b03d256cff93e9d7b5a5f3))
+
 ## [4.4.1](https://github.com/claritylabs-inc/cl-sdk/compare/v4.4.0...v4.4.1) (2026-07-21)
 
 
