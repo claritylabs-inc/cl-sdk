@@ -1,223 +1,70 @@
 import { z } from "zod";
+import {
+  ACORD_LOB_CODES,
+  ACORD_LOB_ENTRIES,
+  ACORD_LOB_LABELS,
+  ACORD_LOB_SOURCE_HEADERS,
+  ACORD_LOB_SOURCE_ROWS,
+} from "./acord-taxonomy.generated";
 
-export const ACORD_LOB_CODES = [
-  "AAPPL",
-  "AGLIA",
-  "AGPP",
-  "AGPR",
-  "AIRC",
-  "AIRPFB",
-  "APKG",
-  "APKGE",
-  "APROD",
-  "ARVP",
-  "AUTO",
-  "AUTOB",
-  "AUTOP",
-  "AVPKG",
-  "BANDM",
-  "BLANK",
-  "BMISC",
-  "BOAT",
-  "BOP",
-  "BOPGL",
-  "BOPPR",
-  "CAVN",
-  "CEQFL",
-  "CFIRE",
-  "CFRM",
-  "CGL",
-  "COMAR",
-  "COMR",
-  "CONTR",
-  "CPKGE",
-  "CPMP",
-  "CRIME",
-  "DFIRE",
-  "DISAB",
-  "DO",
-  "EDP",
-  "EL",
-  "EO",
-  "EPLI",
-  "EQ",
-  "EQPFL",
-  "EXLIA",
-  "FIDTY",
-  "FIDUC",
-  "FINEA",
-  "FLOOD",
-  "GARAG",
-  "GL",
-  "GLASS",
-  "HANG",
-  "HBB",
-  "HOME",
-  "INBR",
-  "INMAR",
-  "INMRC",
-  "INMRP",
-  "JUDCL",
-  "KIDRA",
-  "LL",
-  "MHOME",
-  "MMAL",
-  "Motorcycle",
-  "MTRTK",
-  "OLIB",
-  "PHYS",
-  "PKG",
-  "PL",
-  "PLMSC",
-  "PPKGE",
-  "PROP",
-  "PROPC",
-  "PUBOF",
-  "RECV",
-  "SCHPR",
-  "SIGNS",
-  "SMP",
-  "SURE",
-  "TRANS",
-  "TRUCK",
-  "UMBRC",
-  "UMBRL",
-  "UMBRP",
-  "UN",
-  "WCMA",
-  "WIND",
-  "WORK",
-  "WORKP",
-  "WORKV",
-] as const;
-
-export const AcordLobCodeSchema = z.enum(ACORD_LOB_CODES);
-export type AcordLobCode = z.infer<typeof AcordLobCodeSchema>;
-
-export const ACORD_LOB_LABELS: Record<AcordLobCode, string> = {
-  AAPPL: "Aircraft / Aerial Applicator",
-  AGLIA: "Agricultural Liability",
-  AGPP: "Agricultural Personal Property",
-  AGPR: "Agricultural Property",
-  AIRC: "Aircraft",
-  AIRPFB: "Airport / Fixed Base Operator",
-  APKG: "Agricultural Package",
-  APKGE: "Agricultural Package (Extended)",
-  APROD: "Agricultural Products",
-  ARVP: "Recreational Vehicle Package",
-  AUTO: "Automobile",
-  AUTOB: "Business Auto",
-  AUTOP: "Personal Auto",
-  AVPKG: "Aviation Package",
-  BANDM: "Boiler & Machinery",
-  BLANK: "Blanket",
-  BMISC: "Business Miscellaneous",
-  BOAT: "Boat",
-  BOP: "Businessowners Policy",
-  BOPGL: "BOP - General Liability",
-  BOPPR: "BOP - Property",
-  CAVN: "Commercial Aviation",
-  CEQFL: "Contractors Equipment Floater",
-  CFIRE: "Commercial Fire",
-  CFRM: "Commercial Farm",
-  CGL: "Commercial General Liability",
-  COMAR: "Commercial Marine / Ocean Marine",
-  COMR: "Commercial (misc.)",
-  CONTR: "Contractors",
-  CPKGE: "Commercial Package",
-  CPMP: "Commercial Package (multi-peril)",
-  CRIME: "Crime",
-  DFIRE: "Dwelling Fire",
-  DISAB: "Disability",
-  DO: "Directors & Officers Liability",
-  EDP: "Electronic Data Processing",
-  EL: "Employers Liability",
-  EO: "Errors & Omissions",
-  EPLI: "Employment Practices Liability",
-  EQ: "Earthquake",
-  EQPFL: "Equipment Floater",
-  EXLIA: "Excess Liability",
-  FIDTY: "Fidelity",
-  FIDUC: "Fiduciary Liability",
-  FINEA: "Fine Arts",
-  FLOOD: "Flood",
-  GARAG: "Garage",
-  GL: "General Liability",
-  GLASS: "Glass",
-  HANG: "Hangar (Aviation)",
-  HBB: "Home-Based Business",
-  HOME: "Homeowners",
-  INBR: "Inland Marine - Brokers",
-  INMAR: "Inland Marine",
-  INMRC: "Inland Marine - Commercial",
-  INMRP: "Inland Marine - Personal",
-  JUDCL: "Judicial Bonds",
-  KIDRA: "Kidnap & Ransom",
-  LL: "Liquor Liability",
-  MHOME: "Mobile Home",
-  MMAL: "Medical Malpractice",
-  Motorcycle: "Motorcycle",
-  MTRTK: "Motor Truck Cargo",
-  OLIB: "Other Liability",
-  PHYS: "Physical Damage",
-  PKG: "Package",
-  PL: "Professional Liability",
-  PLMSC: "Personal Lines Miscellaneous",
-  PPKGE: "Personal Package",
-  PROP: "Property",
-  PROPC: "Property - Commercial",
-  PUBOF: "Public Officials Liability",
-  RECV: "Recreational Vehicle",
-  SCHPR: "Scheduled Property",
-  SIGNS: "Signs",
-  SMP: "Special Multi-Peril",
-  SURE: "Surety",
-  TRANS: "Transportation",
-  TRUCK: "Trucking",
-  UMBRC: "Umbrella - Commercial",
-  UMBRL: "Umbrella",
-  UMBRP: "Umbrella - Personal",
-  UN: "Unspecified / Unknown",
-  WCMA: "Workers Comp - Monopolistic/State",
-  WIND: "Wind",
-  WORK: "Workers Compensation",
-  WORKP: "Workers Compensation (Personal/Package)",
-  WORKV: "Workers Compensation (Voluntary)",
+export {
+  ACORD_LOB_CODES,
+  ACORD_LOB_ENTRIES,
+  ACORD_LOB_LABELS,
+  ACORD_LOB_SOURCE_HEADERS,
+  ACORD_LOB_SOURCE_ROWS,
 };
 
+export const AcordLobCodeSchema = z.enum(ACORD_LOB_CODES);
+export type AcordLobCode = (typeof ACORD_LOB_CODES)[number];
+
 export const EXCLUDED_ACORD_LOB_CODES = new Set([
-  "ACHE",
   "INTER",
-  "LICPT",
-  "LSTIN",
-  "NWFGR",
   "PAPER",
-  "SCAP",
-  "SFRNC",
 ]);
+
+export const LEGACY_ACORD_LOB_CODE_TO_CURRENT: Readonly<Record<string, AcordLobCode>> = {
+  AAPPL: "AIRC",
+  APKG: "APKGE",
+  ARVP: "RECV",
+  CEQFL: "INMRC",
+  COMAR: "COMR",
+  EDP: "TECH",
+  EQPFL: "INMRC",
+  FINEA: "INMAR",
+  GL: "CGL",
+  GLASS: "PROP",
+  INBR: "INMAR",
+  MTRTK: "CARGO",
+  PROPC: "PROP",
+  SCHPR: "INMAR",
+  SIGNS: "INMAR",
+  TRANS: "MTRCR",
+};
 
 export const LEGACY_POLICY_TYPE_TO_LOB: Record<string, AcordLobCode[]> = {
   general_liability: ["CGL"],
-  commercial_property: ["PROPC"],
+  commercial_general_liability: ["CGL"],
+  commercial_property: ["PROP"],
   commercial_auto: ["AUTOB"],
   non_owned_auto: ["AUTOB"],
   workers_comp: ["WORK"],
   umbrella: ["UMBRC"],
   excess_liability: ["EXLIA"],
-  professional_liability: ["EO"],
-  cyber: ["OLIB"],
+  professional_liability: ["PL"],
+  cyber: ["CYBER"],
   epli: ["EPLI"],
   directors_officers: ["DO"],
   fiduciary_liability: ["FIDUC"],
-  crime_fidelity: ["CRIME"],
+  crime_fidelity: ["CRIM"],
   inland_marine: ["INMRC"],
   builders_risk: ["INMRC"],
   environmental: ["OLIB"],
-  ocean_marine: ["COMAR"],
+  ocean_marine: ["COMR"],
   surety: ["SURE"],
   product_liability: ["OLIB"],
   bop: ["BOP"],
-  management_liability_package: ["DO", "EPLI", "FIDUC"],
+  management_liability_package: ["MGMLI"],
   property: ["PROP"],
   homeowners_ho3: ["HOME"],
   homeowners_ho5: ["HOME"],
@@ -239,14 +86,14 @@ export const LEGACY_POLICY_TYPE_TO_LOB: Record<string, AcordLobCode[]> = {
   disability: ["DISAB"],
   long_term_care: ["UN"],
   pet: ["UN"],
-  travel: ["UN"],
+  travel: ["TRVL"],
   identity_theft: ["UN"],
   title: ["UN"],
   other: ["UN"],
   unknown: ["UN"],
   auto: ["AUTOB"],
-  crime: ["CRIME"],
-  crim: ["CRIME"],
+  crime: ["CRIM"],
+  crim: ["CRIM"],
   fiduciary: ["FIDUC"],
   d_and_o: ["DO"],
   d_o: ["DO"],
@@ -271,7 +118,6 @@ export const PERSONAL_LOB_CODES = new Set<AcordLobCode>([
   "Motorcycle",
   "PPKGE",
   "DISAB",
-  "PLMSC",
   "HBB",
 ]);
 
@@ -296,6 +142,10 @@ function humanize(value: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+const LOB_CODE_BY_LABEL = new Map(
+  ACORD_LOB_CODES.map((code) => [canonicalLegacyKey(ACORD_LOB_LABELS[code]), code]),
+);
+
 export function isLobCode(value: unknown): value is AcordLobCode {
   return typeof value === "string" && hasOwn(ACORD_LOB_LABELS, value);
 }
@@ -305,12 +155,13 @@ function resolveLobCode(value: string): AcordLobCode | undefined {
   if (!trimmed) return undefined;
   if (isLobCode(trimmed)) return trimmed;
   if (trimmed.toLowerCase() === "motorcycle") return "Motorcycle";
+  const byLabel = LOB_CODE_BY_LABEL.get(canonicalLegacyKey(trimmed));
+  if (byLabel) return byLabel;
   const legacy = LEGACY_POLICY_TYPE_TO_LOB[canonicalLegacyKey(trimmed)];
   if (legacy?.[0]) return legacy[0];
   const upper = trimmed.toUpperCase();
-  if (upper === "CRIM") return "CRIME";
   if (isLobCode(upper)) return upper;
-  return undefined;
+  return LEGACY_ACORD_LOB_CODE_TO_CURRENT[upper];
 }
 
 export function normalizeOperationalLinesOfBusiness(values: unknown): AcordLobCode[] {
@@ -330,8 +181,9 @@ export function toLobCodes(values?: readonly string[]): AcordLobCode[] {
       codes.push(trimmed);
       continue;
     }
-    if (trimmed.toUpperCase() === "CRIM") {
-      codes.push("CRIME");
+    const byLabel = LOB_CODE_BY_LABEL.get(canonicalLegacyKey(trimmed));
+    if (byLabel) {
+      codes.push(byLabel);
       continue;
     }
     const mapped = LEGACY_POLICY_TYPE_TO_LOB[canonicalLegacyKey(trimmed)];
@@ -344,9 +196,17 @@ export function toLobCodes(values?: readonly string[]): AcordLobCode[] {
       codes.push(upper);
       continue;
     }
+    const legacyCode = LEGACY_ACORD_LOB_CODE_TO_CURRENT[upper];
+    if (legacyCode) {
+      codes.push(legacyCode);
+      continue;
+    }
     codes.push("UN");
   }
-  return Array.from(new Set(codes));
+  const normalized = Array.from(new Set(codes));
+  return normalized.some((code) => code !== "UN")
+    ? normalized.filter((code) => code !== "UN")
+    : ["UN"];
 }
 
 export function lobLabel(value: string): string {

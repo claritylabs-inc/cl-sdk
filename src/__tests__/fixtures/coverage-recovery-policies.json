@@ -20,7 +20,7 @@
     ],
     "regions": [{ "pageStart": 94, "pageEnd": 94, "reason": "Late-document aligned site and insured-value row" }],
     "recovery": {
-      "coverages": [{ "sourcePage": 94, "name": "Building and Contents", "lineOfBusiness": "PROPC", "terms": [{ "kind": "deductible", "label": "Deductible", "value": "$25,000" }] }],
+      "coverages": [{ "sourcePage": 94, "name": "Building and Contents", "lineOfBusiness": "PROP", "terms": [{ "kind": "deductible", "label": "Deductible", "value": "$25,000" }] }],
       "schedules": [{ "sourcePage": 94, "name": "SITE LIST", "kind": "property", "items": [{ "label": "Site 2", "values": [{ "label": "Street address", "value": "88 Harbor Way" }, { "label": "City", "value": "Oakland" }, { "label": "State", "value": "CA" }, { "label": "ZIP", "value": "94607" }, { "label": "Building value", "value": "$2,400,000" }, { "label": "Contents value", "value": "$600,000" }] }] }]
     },
     "expected": { "coverages": ["Building and Contents"], "terms": ["Deductible"], "schedules": ["SITE LIST"], "financial": [] }
@@ -45,7 +45,7 @@
     ],
     "regions": [{ "pageStart": 3, "pageEnd": 3, "reason": "Declaration limit row" }, { "pageStart": 29, "pageEnd": 29, "reason": "Separate endorsement schedule" }],
     "recovery": {
-      "coverages": [{ "sourcePage": 3, "name": "Network Security", "lineOfBusiness": "OLIB", "terms": [{ "kind": "each_claim_limit", "label": "Each Claim", "value": "$1,000,000" }] }, { "sourcePage": 29, "name": "Network Security", "lineOfBusiness": "OLIB", "endorsementNumber": "CYB-204", "terms": [{ "kind": "aggregate_limit", "label": "Aggregate", "value": "$500,000" }] }]
+      "coverages": [{ "sourcePage": 3, "name": "Network Security", "lineOfBusiness": "CYBER", "terms": [{ "kind": "each_claim_limit", "label": "Each Claim", "value": "$1,000,000" }] }, { "sourcePage": 29, "name": "Network Security", "lineOfBusiness": "CYBER", "endorsementNumber": "CYB-204", "terms": [{ "kind": "aggregate_limit", "label": "Aggregate", "value": "$500,000" }] }]
     },
     "expected": { "coverages": ["Network Security", "Network Security"], "terms": ["Each Claim", "Aggregate"], "schedules": [], "financial": [] }
   },

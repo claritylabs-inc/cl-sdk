@@ -116,6 +116,11 @@ const OperationalProfilePromptSchema = z.object({
   retroactiveDate: SourceBackedValueForPromptSchema.optional(),
   premium: SourceBackedValueForPromptSchema.optional(),
   operationsDescription: SourceBackedValueForPromptSchema.optional(),
+  productIdentity: z.object({
+    name: SourceBackedValueForPromptSchema.optional(),
+    companyProductCode: SourceBackedValueForPromptSchema.optional(),
+    companyProductSubCode: SourceBackedValueForPromptSchema.optional(),
+  }).optional(),
   declarationFacts: z.array(OperationalDeclarationFactForPromptSchema).optional(),
   parties: z.array(OperationalPartyForPromptSchema).optional(),
   coverages: z.array(z.object({
@@ -1433,7 +1438,7 @@ function operationalProfilePromptNodes(sourceTree: DocumentSourceNode[]): Docume
       const text = [node.title, node.path, node.description, node.textExcerpt]
         .filter(Boolean)
         .join(" ");
-      return /\b(policy\s*(number|period)|named insured|insurer|carrier|broker|producer|managing general (?:agent|underwriter)|mga|administrator|mailing address|description of operations|operations description|nature of business|business description|premium|coverage|limit|liability|deductible|retention|retroactive|aggregate|sublimit|sub-limit|endorsement)\b/i.test(text);
+      return /\b(policy\s*(number|period|program)|product\s*(code|name)|plan\s*name|named insured|insurer|carrier|broker|producer|managing general (?:agent|underwriter)|mga|administrator|mailing address|description of operations|operations description|nature of business|business description|premium|coverage|limit|liability|deductible|retention|retroactive|aggregate|sublimit|sub-limit|endorsement)\b/i.test(text);
     })
     .slice(0, 420);
 }
@@ -1466,6 +1471,7 @@ function buildOperationalProfilePrompt(sourceTree: DocumentSourceNode[], sourceS
 
 Return only high-value operational facts needed for policy lists, Q&A, compliance, and certificate generation:
 - policy number, named insured, insurer/carrier/security, broker/producer, policy period, retroactive date, premium, and the insured's description of operations
+- source-stated carrier product or plan identity, including an explicitly labeled company product code or subcode
 - parties[] rows for named insured, producer/broker, insurer/carrier, and MGA/administrator identities and their mailing addresses
 - source-backed declarationFacts for named-insured identity details: named insured, mailing address, DBA, entity type, tax ID/FEIN, additional named insureds, and other durable declaration-page identity facts
 - coverage units with their own nested limit terms, deductibles/retentions, retroactive dates, premiums, and form references
@@ -1481,6 +1487,8 @@ Rules:
 - Put every source-backed policy party in parties[] using only these canonical roles: "named_insured", "producer", "broker", "insurer", "carrier", "mga", or "administrator". Keep producer/broker, insurer/carrier, and MGA/administrator addresses policy-scoped in parties[]; never represent them as the named-insured mailingAddress declaration fact.
 - When a party's address is present, return its available street1, street2, city, state, zip, country, and formatted parts under parties[].address. Partial addresses are allowed in parties[], but never guess a missing component. The party row must cite the source node or source span that supports both the identity and address.
 - Put the insured's directly stated business or operations description in operationsDescription. Do not synthesize it from coverages, industry inference, website research, or generic policy wording.
+- Put a source-stated policy program, carrier product, or plan name in productIdentity.name. Preserve the source wording, such as "Trip Cancellation & Interruption Plan"; do not substitute the ACORD line label, carrier name, policy number, form number, or a generic phrase such as "Insurance Policy".
+- Put an explicitly labeled carrier CompanyProductCd or Company Product Code and CompanyProductSubCd or Company Product Subcode in productIdentity.companyProductCode and productIdentity.companyProductSubCode. Never infer either code from ACORD LOBCd, CoverageCd, a policy number, or a form number.
 - Put DBA or trade name in declarationFacts[] with field "dba"; entity/legal form in field "entityType"; FEIN/tax ID in field "taxId"; each additional named insured in field "additionalNamedInsured".
 - For effective, expiration, retroactive, and other date fields, return a normalized YYYY-MM-DD value when the source date is unambiguous, including month-name dates such as "20 Feb 2026". Do not emit fragmented date text such as "20 2 2026".
 - Populate top-level effectiveDate from declaration labels such as "Effective Date", "Effective Date / Time", "Policy Effective Date", "From", "Start Date", and close variants. Populate top-level expirationDate from "Expiration Date", "Expiry Date", "Expiration Date / Time", "Policy Expiration Date", "To", "End Date", and close variants.
@@ -1489,7 +1497,8 @@ Rules:
 - On declarations pages, treat "Item N" labels as section boundaries. Use Item 6 or equivalent coverage-schedule rows for coverage limits, deductibles, aggregate terms, and retroactive dates; do not merge Item 7 premium, Item 8 ERP, Item 9 producer, or Item 10 forms into Item 6 coverage facts.
 - Premium, tax, fee, payment-plan, rating, exposure, and reporting-value schedules are billing evidence, not coverage schedules. Extract the total policy premium into premium when supported, but do not create coverages[] entries from premium-only or fee-only rows, and never use Total Premium, MGA Fee, tax, stamping fee, reporting values, or exposure annual rate as a coverage limit.
 - A coverage schedule row's coverage name should come from the "Coverage Part" or equivalent row label. Limit, deductible, aggregate, sublimit, retention, and retroactive-date values belong as nested terms under that coverage, not in the coverage title.
-- Put the ACORD line of business code for each coverage unit in coverages[].lineOfBusiness only when the row belongs to one specific line, such as CGL, AUTOB, WORK, UMBRC, EXLIA, EO, OLIB, EPLI, DO, FIDUC, CRIME, INMRC, COMAR, PROPC, PROP, BOP, HOME, DFIRE, FLOOD, or GARAG. Do not use limit labels such as Each Occurrence, Aggregate, Products-Completed Operations Aggregate, deductible, retention, retroactive date, or sublimit as lines of business.
+- Put the ACORD line of business code for each coverage unit in coverages[].lineOfBusiness only when the row belongs to one specific line, such as CGL, AUTOB, WORK, UMBRC, EXLIA, EO, CYBER, EPLI, DO, FIDUC, CRIM, INMRC, COMR, PROP, BOP, HOME, DFIRE, FLOOD, TRVL, or GARAG. Do not use limit labels such as Each Occurrence, Aggregate, Products-Completed Operations Aggregate, deductible, retention, retroactive date, or sublimit as lines of business.
+- Put an ACORD CoverageCd in coverages[].coverageCode only when the source explicitly prints it or the coverage name unambiguously matches the published CoverageCd description. Omit it when that exact description maps to multiple published codes or the mapping is otherwise ambiguous.
 - If a package or multi-line row cannot be assigned to exactly one ACORD line, omit coverages[].lineOfBusiness for that coverage.
 - If a coverage schedule continues onto the next page before the next item marker, include the continuation rows in the same coverage or declaration item.
 - If one schedule row or continuation row states the same amount with multiple bases, such as "$1,000,000 Each Claim / Aggregate", return separate limit terms for each basis using the same value instead of one combined "Each Claim / Aggregate" term.
@@ -1919,6 +1928,9 @@ function materializeDocument(params: {
         }
       : {}),
     linesOfBusiness: profile.linesOfBusiness,
+    ...(profile.productIdentity?.name
+      ? { programName: profile.productIdentity.name.value }
+      : {}),
     formInventory: params.formInventory
       .filter((form): form is SourceTreeFormHint & { formNumber: string } => typeof form.formNumber === "string" && form.formNumber.trim().length > 0)
       .map((form) => ({

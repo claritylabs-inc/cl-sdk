@@ -5,6 +5,7 @@ export default defineConfig([
     entry: {
       index: "src/index.ts",
       application: "src/application/index.ts",
+      "policy-taxonomy": "src/policy-taxonomy.ts",
     },
     format: ["cjs", "esm"],
     dts: true,

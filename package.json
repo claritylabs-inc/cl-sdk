@@ -16,6 +16,11 @@
       "import": "./dist/application.mjs",
       "require": "./dist/application.js"
     },
+    "./policy-taxonomy": {
+      "types": "./dist/policy-taxonomy.d.ts",
+      "import": "./dist/policy-taxonomy.mjs",
+      "require": "./dist/policy-taxonomy.js"
+    },
     "./storage/sqlite": {
       "types": "./dist/storage-sqlite.d.ts",
       "import": "./dist/storage-sqlite.mjs",
@@ -28,6 +33,8 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
+    "generate:acord-taxonomy": "node scripts/generate-acord-taxonomy.mjs",
+    "check:acord-taxonomy": "node scripts/generate-acord-taxonomy.mjs --check",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

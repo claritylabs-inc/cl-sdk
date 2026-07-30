@@ -150,6 +150,13 @@ export const SourceBackedValueSchema = z.object({
 });
 export type SourceBackedValue = z.infer<typeof SourceBackedValueSchema>;
 
+export const OperationalProductIdentitySchema = z.object({
+  name: SourceBackedValueSchema.optional(),
+  companyProductCode: SourceBackedValueSchema.optional(),
+  companyProductSubCode: SourceBackedValueSchema.optional(),
+});
+export type OperationalProductIdentity = z.infer<typeof OperationalProductIdentitySchema>;
+
 export const OperationalAddressSchema = z.object({
   street1: z.string().optional(),
   street2: z.string().optional(),
@@ -320,6 +327,7 @@ export const PolicyOperationalProfileSchema = z.preprocess(
     retroactiveDate: SourceBackedValueSchema.optional(),
     premium: SourceBackedValueSchema.optional(),
     operationsDescription: SourceBackedValueSchema.optional(),
+    productIdentity: OperationalProductIdentitySchema.optional(),
     declarationFacts: z.array(OperationalDeclarationFactSchema).default([]),
     coverages: z.array(OperationalCoverageLineSchema).default([]),
     coverageSchedules: z.array(OperationalCoverageScheduleSchema).optional(),

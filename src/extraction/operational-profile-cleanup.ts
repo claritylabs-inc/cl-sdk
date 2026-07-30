@@ -594,6 +594,9 @@ function sourceIdsFromOperationalProfile(profile: PolicyOperationalProfile) {
     profile.premium,
     profile.totalCost,
     profile.operationsDescription,
+    profile.productIdentity?.name,
+    profile.productIdentity?.companyProductCode,
+    profile.productIdentity?.companyProductSubCode,
   ].filter(Boolean);
   return {
     sourceNodeIds: uniqueStrings([
