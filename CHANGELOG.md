@@ -1,3 +1,10 @@
+# [4.5.0](https://github.com/claritylabs-inc/cl-sdk/compare/v4.4.2...v4.5.0) (2026-07-30)
+
+
+### Features
+
+* **taxonomy:** add canonical ACORD policy classification ([#6](https://github.com/claritylabs-inc/cl-sdk/issues/6)) ([e3e5ce0](https://github.com/claritylabs-inc/cl-sdk/commit/e3e5ce0060a81d79aa6e7fb9eaa68bf534fbfd25))
+
 ## [4.4.2](https://github.com/claritylabs-inc/cl-sdk/compare/v4.4.1...v4.4.2) (2026-07-21)
 
 
