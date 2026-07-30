@@ -61,7 +61,7 @@ describe("operational profile line of business resolution", () => {
         },
       ],
     })).toEqual({
-      linesOfBusiness: ["EO"],
+      linesOfBusiness: ["PL"],
       source: "profile_hint",
     });
   });

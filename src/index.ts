@@ -19,6 +19,7 @@ export type { ModelBudgetConstraint, ModelBudgetResolution, ModelCapabilities, M
 // ── Schemas (Zod) + derived types ──
 export * from "./schemas/enums";
 export * from "./schemas/lines-of-business";
+export * from "./schemas/coverage-codes";
 export * from "./schemas/shared";
 export * from "./schemas/coverage";
 export * from "./schemas/endorsement";

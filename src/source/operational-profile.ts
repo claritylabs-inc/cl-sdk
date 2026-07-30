@@ -12,6 +12,7 @@ import {
   type AcordLobCode,
   normalizeOperationalLinesOfBusiness,
 } from "../schemas/lines-of-business";
+import { resolveAcordCoverageCode } from "../schemas/coverage-codes";
 import {
   annotateOperationalCoverageLinesOfBusiness,
   resolveOperationalProfileLinesOfBusiness,
@@ -198,6 +199,22 @@ export function mergeOperationalProfile(
   const retroactiveDate = mergeValue(base.retroactiveDate, candidate.retroactiveDate);
   const premium = mergeValue(base.premium, candidate.premium);
   const operationsDescription = mergeValue(base.operationsDescription, candidate.operationsDescription);
+  const productName = mergeValue(base.productIdentity?.name, candidate.productIdentity?.name);
+  const companyProductCode = mergeValue(
+    base.productIdentity?.companyProductCode,
+    candidate.productIdentity?.companyProductCode,
+  );
+  const companyProductSubCode = mergeValue(
+    base.productIdentity?.companyProductSubCode,
+    candidate.productIdentity?.companyProductSubCode,
+  );
+  const productIdentity = productName || companyProductCode || companyProductSubCode
+    ? {
+        name: productName,
+        companyProductCode,
+        companyProductSubCode,
+      }
+    : undefined;
   const candidateDeclarationFacts = Array.isArray(candidate.declarationFacts)
     ? candidate.declarationFacts.map(mergeDeclarationFact).filter((fact): fact is OperationalDeclarationFact => Boolean(fact))
     : [];
@@ -230,6 +247,13 @@ export function mergeOperationalProfile(
     retroactiveDate,
     premium,
     operationsDescription,
+    ...(productIdentity
+      ? [
+          productIdentity.name,
+          productIdentity.companyProductCode,
+          productIdentity.companyProductSubCode,
+        ]
+      : []),
   ].filter((value): value is SourceBackedValue => Boolean(value));
 
   const coverages: OperationalCoverageLine[] = base.coverages.length > 0
@@ -273,7 +297,7 @@ export function mergeOperationalProfile(
           return {
             name,
             lineOfBusiness: cleanCoverageLineOfBusiness(record.lineOfBusiness),
-            coverageCode: typeof record.coverageCode === "string" ? cleanValue(record.coverageCode) : undefined,
+            coverageCode: resolveAcordCoverageCode(record.coverageCode, name),
             limit: typeof record.limit === "string" ? cleanValue(record.limit) : undefined,
             deductible: typeof record.deductible === "string" ? cleanValue(record.deductible) : undefined,
             premium: typeof record.premium === "string" ? cleanValue(record.premium) : undefined,
@@ -413,6 +437,7 @@ export function mergeOperationalProfile(
     retroactiveDate,
     premium,
     operationsDescription,
+    productIdentity,
     declarationFacts,
     coverages: annotatedCoverages,
     parties,

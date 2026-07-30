@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { AcordLobCodeSchema } from "../../schemas/lines-of-business";
+import {
+  ACORD_LOB_CODES,
+  ACORD_LOB_LABELS,
+  AcordLobCodeSchema,
+} from "../../schemas/lines-of-business";
 
 export const ClassifyResultSchema = z.object({
   documentType: z.enum(["policy", "quote"]).describe("Whether this is a bound policy or a proposed quote"),
@@ -12,6 +16,9 @@ export const ClassifyResultSchema = z.object({
 export type ClassifyResult = z.infer<typeof ClassifyResultSchema>;
 
 export function buildClassifyPrompt(): string {
+  const codeReference = ACORD_LOB_CODES
+    .map((code) => `- "${code}" — ${ACORD_LOB_LABELS[code]}`)
+    .join("\n");
   return `You are classifying an insurance document. Examine the document and determine:
 
 1. Whether this is a POLICY (bound coverage) or QUOTE (proposed coverage)
@@ -22,22 +29,27 @@ QUOTE indicators: quote numbers, proposed dates, subjectivities, "indication" or
 
 COMMERCIAL LINES — return ACORD codes:
 - "CGL" — commercial general liability, GL
-- "PROPC" — commercial property, building/contents coverage
+- "PROP" — commercial property, building/contents coverage
 - "AUTOB" — commercial auto, business auto, CA, hired/non-owned auto
 - "WORK" — workers compensation, WC
 - "UMBRC" — commercial umbrella
 - "EXLIA" — excess liability, follow-form excess
-- "EO" — E&O, errors & omissions, professional liability, malpractice
-- "OLIB" — cyber liability, data breach, network security, environmental/pollution, product liability
+- "PL" — professional liability or malpractice
+- "EO" — errors and omissions or E&O
+- "CYBER" — cyber liability, data breach, network security, privacy liability
+- "OLIB" — other liability, including environmental/pollution or product liability when no more specific current code fits
 - "EPLI" — employment practices liability
 - "DO" — D&O, directors and officers
 - "FIDUC" — fiduciary liability
-- "CRIME" — crime, fidelity, employee dishonesty
+- "CRIM" — crime or employee dishonesty
+- "CRIME" — crime including burglary
+- "FIDTY" — fidelity
 - "INMRC" — inland marine, equipment floater, contractors equipment, builders risk
-- "COMAR" — ocean marine, cargo, hull
+- "COMR" — ocean marine
+- "CARGO" — cargo
 - "SURE" — surety bond
 - "BOP" — business owners policy, BOP
-- ["DO", "EPLI", "FIDUC"] — management liability package
+- "MGMLI" — management liability
 - "PROP" — generic standalone property when commercial/personal form is not clear
 
 PERSONAL LINES — match these values:
@@ -74,12 +86,16 @@ DISAMBIGUATION RULES for homeowner forms:
 - "BOAT" — watercraft, boat
 - "RECV" — RV, recreational vehicle, ATV
 - "CFRM" — farm, ranch
+- "TRVL" — travel insurance, including trip cancellation, interruption, or delay
 - "UN" — standalone pet insurance policy. Key indicators: named pet, species/breed, accident/illness coverage,
   wellness plans, per-incident or annual limits for veterinary costs. Do NOT confuse with pet liability endorsements
   on a homeowners policy — those are still HOME policies, not UN.
   Only classify as UN when the ENTIRE policy is dedicated to pet health/accident coverage.
-- "UN" — life, long-term care, travel, identity theft, title, or other unsupported lines
+- "UN" — life, long-term care, pet, identity theft, title, or another line with no current ACORD match
 - "DISAB" — disability or critical illness
+
+CURRENT ACORD LOBCd REFERENCE — return only codes from this list:
+${codeReference}
 
 IMPORTANT: You must identify at least one ACORD line of business code. Only use "UN" when the document truly does not match any supported extractable code.
 
