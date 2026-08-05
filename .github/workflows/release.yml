@@ -1,21 +1,3 @@
-# Unified release workflow for @claritylabs/cl-sdk, @claritylabs/cl-sdk-docs, and @claritylabs/cl-sdk-mcp
-#
-# Publish steps use OIDC provenance (id-token: write). The MCP cleanup step
-# also needs NPM_TOKEN because npm unpublish does not use trusted publishing.
-#
-# IMPORTANT — before this workflow's OIDC path will succeed for the docs and MCP packages,
-# you must register trusted publishers on npmjs.com for each:
-#   - @claritylabs/cl-sdk-docs  → https://www.npmjs.com/package/@claritylabs/cl-sdk-docs/access
-#   - @claritylabs/cl-sdk-mcp   → https://www.npmjs.com/package/@claritylabs/cl-sdk-mcp/access
-#
-# For each package, add a "GitHub Actions" trusted publisher with:
-#   Repository owner : claritylabs-inc
-#   Repository name  : cl-sdk
-#   Workflow filename: release.yml
-#   Environment      : (leave blank, or match whatever environment you set here)
-#
-# The main package (@claritylabs/cl-sdk) already uses OIDC and requires no changes on npmjs.com.
-
 name: Release
 
 on:
@@ -23,7 +5,6 @@ on:
     branches: [master]
   workflow_dispatch:
 
-# Prevent concurrent releases
 concurrency:
   group: release
   cancel-in-progress: false
@@ -35,14 +16,13 @@ permissions:
   id-token: write
 
 jobs:
-  # ── Core package ────────────────────────────────────────────────────────────
-  release-core:
-    name: Release core (@claritylabs/cl-sdk)
+  release:
+    name: Release @claritylabs/cl-sdk
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Need full history for semantic-release
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: actions/setup-node@v4
@@ -62,7 +42,6 @@ jobs:
       - name: Run semantic-release (GitHub release + version bump)
         id: semantic
         run: |
-          # Run semantic-release and capture output
           set +e
           OUTPUT=$(npx semantic-release 2>&1)
           STATUS=$?
@@ -74,7 +53,6 @@ jobs:
             exit "$STATUS"
           fi
 
-          # Check if a new version was released
           if echo "$OUTPUT" | grep -q "Published GitHub release"; then
             NEW_VERSION=$(node -p 'require("./package.json").version')
             echo "released=true" >> $GITHUB_OUTPUT
@@ -146,10 +124,8 @@ jobs:
           VERSION="${{ steps.semantic.outputs.version || steps.npm_publish_repair.outputs.version }}"
           echo "Verifying release consistency for version $VERSION..."
 
-          # Verify GitHub release exists
           gh release view "v$VERSION" --json tagName || exit 1
 
-          # Verify npm package exists (with retry)
           NPM_VERIFIED=false
           for i in 1 2 3 4 5 6; do
             if npm view "@claritylabs/cl-sdk@$VERSION" version 2>/dev/null; then
@@ -169,185 +145,3 @@ jobs:
           echo "✓ Release consistency verified - GitHub and npm are in sync"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ── Docs package ─────────────────────────────────────────────────────────────
-  publish-docs:
-    name: Publish docs (@claritylabs/cl-sdk-docs)
-    needs: release-core
-    # Run if core succeeded or was a no-op (skipped); do NOT run if core failed
-    if: always() && (needs.release-core.result == 'success' || needs.release-core.result == 'skipped')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Check if version already published
-        id: check
-        run: |
-          cd docs-pkg
-          PACKAGE_VERSION=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")
-          echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
-
-          if npm view "@claritylabs/cl-sdk-docs@$PACKAGE_VERSION" version 2>/dev/null; then
-            echo "published=true" >> $GITHUB_OUTPUT
-            echo "Version $PACKAGE_VERSION already published"
-          else
-            echo "published=false" >> $GITHUB_OUTPUT
-            echo "Version $PACKAGE_VERSION needs to be published"
-          fi
-
-      - name: Publish to npm
-        if: steps.check.outputs.published == 'false'
-        id: npm_publish
-        run: |
-          cd docs-pkg
-          echo "Publishing version ${{ steps.check.outputs.version }} to npm..."
-          npm publish --provenance --access public
-          echo "success=true" >> $GITHUB_OUTPUT
-
-      - name: Ensure GitHub tag for release
-        if: steps.check.outputs.published == 'true' || steps.npm_publish.outputs.success == 'true'
-        run: |
-          VERSION="${{ steps.check.outputs.version }}"
-          TAG="v$VERSION-docs"
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists"
-          else
-            gh api "repos/${{ github.repository }}/git/refs" \
-              -f ref="refs/tags/$TAG" \
-              -f sha="${{ github.sha }}"
-            echo "Created tag $TAG"
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Verify npm publication
-        if: steps.check.outputs.published == 'true' || steps.npm_publish.outputs.success == 'true'
-        run: |
-          VERSION="${{ steps.check.outputs.version }}"
-          NPM_VERIFIED=false
-          for i in 1 2 3 4 5 6; do
-            if npm view "@claritylabs/cl-sdk-docs@$VERSION" version 2>/dev/null; then
-              echo "✓ npm package verified"
-              NPM_VERIFIED=true
-              break
-            fi
-            echo "Waiting for npm to propagate... (attempt $i/6)"
-            sleep 10
-          done
-          if [ "$NPM_VERIFIED" != "true" ]; then
-            echo "::error::npm package @claritylabs/cl-sdk-docs@$VERSION was not visible after publish"
-            exit 1
-          fi
-
-      - name: Notify on failure
-        if: failure() && steps.check.outputs.published == 'false'
-        run: |
-          echo "::error::Docs package publish failed!"
-          echo "Version: ${{ steps.check.outputs.version }}"
-
-  # ── MCP package ──────────────────────────────────────────────────────────────
-  publish-mcp:
-    name: Publish MCP server (@claritylabs/cl-sdk-mcp)
-    needs: release-core
-    # Run if core succeeded or was a no-op (skipped); do NOT run if core failed
-    if: always() && (needs.release-core.result == 'success' || needs.release-core.result == 'skipped')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Check if version already published
-        id: check
-        run: |
-          cd mcp
-          PACKAGE_VERSION=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")
-          echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
-
-          if npm view "@claritylabs/cl-sdk-mcp@$PACKAGE_VERSION" version 2>/dev/null; then
-            echo "published=true" >> $GITHUB_OUTPUT
-            echo "Version $PACKAGE_VERSION already published"
-          else
-            echo "published=false" >> $GITHUB_OUTPUT
-            echo "Version $PACKAGE_VERSION needs to be published"
-          fi
-
-      - name: Install dependencies
-        if: steps.check.outputs.published == 'false'
-        working-directory: mcp
-        run: npm install --no-audit --no-fund
-
-      - name: Build docs bundle
-        if: steps.check.outputs.published == 'false'
-        working-directory: mcp
-        run: npx tsx build-docs.ts
-
-      - name: Delete higher historical MCP versions from npm
-        if: steps.check.outputs.published == 'false'
-        run: node scripts/prune-mcp-npm-history.mjs
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish to npm
-        if: steps.check.outputs.published == 'false'
-        id: npm_publish
-        run: |
-          cd mcp
-          echo "Publishing version ${{ steps.check.outputs.version }} to npm..."
-          npm publish --provenance --access public --tag latest
-          echo "success=true" >> $GITHUB_OUTPUT
-
-      - name: Ensure GitHub tag for release
-        if: steps.check.outputs.published == 'true' || steps.npm_publish.outputs.success == 'true'
-        run: |
-          VERSION="${{ steps.check.outputs.version }}"
-          TAG="v$VERSION-mcp"
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists"
-          else
-            gh api "repos/${{ github.repository }}/git/refs" \
-              -f ref="refs/tags/$TAG" \
-              -f sha="${{ github.sha }}"
-            echo "Created tag $TAG"
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Verify npm publication
-        if: steps.check.outputs.published == 'true' || steps.npm_publish.outputs.success == 'true'
-        run: |
-          VERSION="${{ steps.check.outputs.version }}"
-          NPM_VERIFIED=false
-          for i in 1 2 3 4 5 6; do
-            if npm view "@claritylabs/cl-sdk-mcp@$VERSION" version 2>/dev/null; then
-              echo "✓ npm package verified"
-              NPM_VERIFIED=true
-              break
-            fi
-            echo "Waiting for npm to propagate... (attempt $i/6)"
-            sleep 10
-          done
-          if [ "$NPM_VERIFIED" != "true" ]; then
-            echo "::error::npm package @claritylabs/cl-sdk-mcp@$VERSION was not visible after publish"
-            exit 1
-          fi
-
-      - name: Notify on failure
-        if: failure() && steps.check.outputs.published == 'false'
-        run: |
-          echo "::error::MCP package publish failed!"
-          echo "Version: ${{ steps.check.outputs.version }}"
