@@ -25,7 +25,7 @@ npm test           # Run vitest
 src/
   core/           # Provider-agnostic types, retry, concurrency, utilities
   schemas/        # Zod schemas (source of truth for all types)
-  extraction/     # Source-tree extraction coordinator, operational profile projection, legacy fallback, pdf helpers
+  extraction/     # Source-tree extraction coordinator, operational profile projection, pdf helpers
   query/          # Agentic query: coordinator, workflow planner, retriever, reasoner, verifier
   application/    # Agentic application processing: coordinator, workflow planner, focused agents, store
   prompts/        # Prompt modules: coordinator/, extractors/, templates/, agent/, application/, query/
@@ -84,8 +84,6 @@ Important extraction contract:
 
 - `src/query/workflow.ts` plans query actions. Retrieval is skipped when classification says document lookup is unnecessary, including attachment-only or general questions. When retrieval is needed, `SourceRetriever.searchSourceNodes` is preferred; it returns hierarchy-expanded source-node packets with exact source spans for citations.
 - `src/application/workflow.ts` plans optional application actions. Backfill, context auto-fill, document search, batching, lookup, answer parsing, explanations, and next-batch email generation are gated by current state and available stores/context.
-- `src/core/workflow.ts` contains generic action/budget helpers for future bounded workflows.
-
 ## Releases
 
 Versioning and publishing are automated via `semantic-release` and the GitHub Actions release workflow. Do not run `npm publish` locally and do not manually bump `package.json` for a normal SDK release. Commit the SDK change and push the configured release branch; today that branch is `master` because `.releaserc.json` and `.github/workflows/release.yml` both target `master`. If the release branch is renamed later, follow the configured release branch rather than assuming `main`.
