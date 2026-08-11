@@ -5,3 +5,4 @@ export * from "./retrieval";
 export * from "./extraction";
 export * from "./store";
 export * from "./tree";
+export * from "./evidence-ledger";

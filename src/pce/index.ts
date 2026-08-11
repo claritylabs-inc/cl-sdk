@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { GenerateObject, TokenUsage, LogFn } from "../core/types";
-import { safeGenerateObject } from "../core/safe-generate";
+import { ModelGenerationFailure, safeGenerateObject } from "../core/safe-generate";
 import type { ModelBudgetConstraint, ModelCapabilities, ModelTaskKind } from "../core/model-budget";
 import { resolveModelBudget } from "../core/model-budget";
 import type { SourceRetriever } from "../source";
@@ -106,20 +106,28 @@ export function createPceAgent(config: PceAgentConfig = {}) {
 
     if (config.generateObject) {
       const budget = resolveBudget("pce_impact_analysis", 2500);
-      const result = await safeGenerateObject(
-        config.generateObject as GenerateObject,
-        {
-          prompt: buildPceNormalizePrompt({ requestText: input.requestText, evidenceSources }),
-          schema: PceNormalizationResultSchema,
-          maxTokens: budget.maxTokens,
-          taskKind: "pce_impact_analysis",
-          budgetDiagnostics: budget,
-          providerOptions: config.providerOptions,
-        },
-        { fallback, maxRetries: 1, log: config.log },
-      );
-      normalized = PceNormalizationResultSchema.parse(result.object);
-      trackUsage(result.usage);
+      try {
+        const result = await safeGenerateObject(
+          config.generateObject as GenerateObject,
+          {
+            prompt: buildPceNormalizePrompt({ requestText: input.requestText, evidenceSources }),
+            schema: PceNormalizationResultSchema,
+            maxTokens: budget.maxTokens,
+            taskKind: "pce_impact_analysis",
+            budgetDiagnostics: budget,
+            providerOptions: config.providerOptions,
+          },
+          { maxRetries: 1, log: config.log },
+        );
+        normalized = PceNormalizationResultSchema.parse(result.object);
+        trackUsage(result.usage);
+      } catch (error) {
+        if (!(error instanceof ModelGenerationFailure)) throw error;
+        await config.log?.(
+          `PCE normalization used deterministic fallback; execution_source=deterministic_fallback (${error.message})`,
+        );
+        normalized = fallback;
+      }
     }
 
     const createdAt = now();
@@ -171,25 +179,32 @@ export function createPceAgent(config: PceAgentConfig = {}) {
 
     if (config.generateObject && input.state.missingInfoQuestions.some((question) => !question.answer)) {
       const budget = resolveBudget("pce_reply_parse", 1000);
-      const result = await safeGenerateObject(
-        config.generateObject as GenerateObject<z.infer<typeof ReplyAnswersSchema>>,
-        {
-          prompt: buildPceReplyPrompt({
-            replyText: input.replyText,
-            openQuestions: input.state.missingInfoQuestions
-              .filter((question) => !question.answer)
-              .map(({ id, question, fieldPath }) => ({ id, question, fieldPath })),
-          }),
-          schema: ReplyAnswersSchema,
-          maxTokens: budget.maxTokens,
-          taskKind: "pce_reply_parse",
-          budgetDiagnostics: budget,
-          providerOptions: config.providerOptions,
-        },
-        { fallback: { answers }, maxRetries: 1, log: config.log },
-      );
-      answers = ReplyAnswersSchema.parse(result.object).answers;
-      trackUsage(result.usage);
+      try {
+        const result = await safeGenerateObject(
+          config.generateObject as GenerateObject<z.infer<typeof ReplyAnswersSchema>>,
+          {
+            prompt: buildPceReplyPrompt({
+              replyText: input.replyText,
+              openQuestions: input.state.missingInfoQuestions
+                .filter((question) => !question.answer)
+                .map(({ id, question, fieldPath }) => ({ id, question, fieldPath })),
+            }),
+            schema: ReplyAnswersSchema,
+            maxTokens: budget.maxTokens,
+            taskKind: "pce_reply_parse",
+            budgetDiagnostics: budget,
+            providerOptions: config.providerOptions,
+          },
+          { maxRetries: 1, log: config.log },
+        );
+        answers = ReplyAnswersSchema.parse(result.object).answers;
+        trackUsage(result.usage);
+      } catch (error) {
+        if (!(error instanceof ModelGenerationFailure)) throw error;
+        await config.log?.(
+          `PCE reply parsing used deterministic fallback; execution_source=deterministic_fallback (${error.message})`,
+        );
+      }
     }
 
     const merged = mergeQuestionAnswers(input.state.missingInfoQuestions, answers);

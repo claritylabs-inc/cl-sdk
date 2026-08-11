@@ -2,7 +2,7 @@ import type { GenerateObject, TokenUsage } from "../core/types";
 import type { ModelTaskKind } from "../core/model-budget";
 import { resolveModelBudget } from "../core/model-budget";
 import { pLimit } from "../core/concurrency";
-import { safeGenerateObject } from "../core/safe-generate";
+import { ModelGenerationFailure, safeGenerateObject } from "../core/safe-generate";
 import { createPipelineContext, type PipelineCheckpoint } from "../core/pipeline";
 import { buildQueryClassifyPrompt } from "../prompts/query/classify";
 import { buildRespondPrompt } from "../prompts/query/respond";
@@ -343,39 +343,46 @@ export function createQueryAgent(config: QueryConfig) {
 
     const prompt = buildQueryClassifyPrompt(question, conversationContext, attachmentContext);
 
-    const budget = resolveBudget("query_classify", 2048);
-    const { object, usage } = await safeGenerateObject(
-      generateObject as GenerateObject<QueryClassifyResult>,
-      {
-        prompt,
-        schema: QueryClassifyResultSchema,
-        maxTokens: budget.maxTokens,
-        taskKind: "query_classify",
-        budgetDiagnostics: budget,
-        providerOptions,
-      },
-      {
-        fallback: {
+    const fallback: QueryClassifyResult = {
+      intent: "general_knowledge",
+      subQuestions: [
+        {
+          question,
           intent: "general_knowledge",
-          subQuestions: [
-            {
-              question,
-              intent: "general_knowledge",
-            },
-          ],
-          requiresDocumentLookup: true,
-          requiresChunkSearch: true,
-          requiresConversationHistory: !!conversationId,
-          retrievalMode: sourceRetriever ? "hybrid" : "graph_only",
         },
-        log,
-        onError: (err, attempt) =>
-          log?.(`Query classify attempt ${attempt + 1} failed: ${err}`),
-      },
-    );
-    trackUsage(usage);
-
-    return object as QueryClassifyResult;
+      ],
+      requiresDocumentLookup: true,
+      requiresChunkSearch: true,
+      requiresConversationHistory: !!conversationId,
+      retrievalMode: sourceRetriever ? "hybrid" : "graph_only",
+    };
+    const budget = resolveBudget("query_classify", 2048);
+    try {
+      const { object, usage } = await safeGenerateObject(
+        generateObject as GenerateObject<QueryClassifyResult>,
+        {
+          prompt,
+          schema: QueryClassifyResultSchema,
+          maxTokens: budget.maxTokens,
+          taskKind: "query_classify",
+          budgetDiagnostics: budget,
+          providerOptions,
+        },
+        {
+          log,
+          onError: (err, attempt) =>
+            log?.(`Query classify attempt ${attempt + 1} failed: ${err}`),
+        },
+      );
+      trackUsage(usage);
+      return object as QueryClassifyResult;
+    } catch (error) {
+      if (!(error instanceof ModelGenerationFailure)) throw error;
+      await log?.(
+        `Query classification used deterministic fallback; execution_source=deterministic_fallback (${error.message})`,
+      );
+      return fallback;
+    }
   }
 
   /** Verify with fallback — if verification itself fails, approve and move on. */
@@ -413,32 +420,40 @@ export function createQueryAgent(config: QueryConfig) {
 
     const prompt = buildRespondPrompt(originalQuestion, subAnswersJson, platform);
 
+    const fallback: QueryResult = {
+      answer: subAnswers.map((sa) => `**${sa.subQuestion}**\n${sa.answer}`).join("\n\n"),
+      citations: subAnswers.flatMap((sa) => sa.citations),
+      intent: classification.intent,
+      confidence: Math.min(...subAnswers.map((sa) => sa.confidence), 1),
+    };
     const budget = resolveBudget("query_respond", 4096);
-    const { object, usage } = await safeGenerateObject(
-      generateObject as GenerateObject<QueryResult>,
-      {
-        prompt,
-        schema: QueryResultSchema,
-        maxTokens: budget.maxTokens,
-        taskKind: "query_respond",
-        budgetDiagnostics: budget,
-        providerOptions,
-      },
-      {
-        fallback: {
-          answer: subAnswers.map((sa) => `**${sa.subQuestion}**\n${sa.answer}`).join("\n\n"),
-          citations: subAnswers.flatMap((sa) => sa.citations),
-          intent: classification.intent,
-          confidence: Math.min(...subAnswers.map((sa) => sa.confidence), 1),
+    let result: QueryResult;
+    try {
+      const { object, usage } = await safeGenerateObject(
+        generateObject as GenerateObject<QueryResult>,
+        {
+          prompt,
+          schema: QueryResultSchema,
+          maxTokens: budget.maxTokens,
+          taskKind: "query_respond",
+          budgetDiagnostics: budget,
+          providerOptions,
         },
-        log,
-        onError: (err, attempt) =>
-          log?.(`Respond attempt ${attempt + 1} failed: ${err}`),
-      },
-    );
-    trackUsage(usage);
-
-    const result = object as QueryResult;
+        {
+          log,
+          onError: (err, attempt) =>
+            log?.(`Respond attempt ${attempt + 1} failed: ${err}`),
+        },
+      );
+      trackUsage(usage);
+      result = object as QueryResult;
+    } catch (error) {
+      if (!(error instanceof ModelGenerationFailure)) throw error;
+      await log?.(
+        `Query response used deterministic fallback; execution_source=deterministic_fallback (${error.message})`,
+      );
+      result = fallback;
+    }
     result.intent = classification.intent;
 
     return result;

@@ -81,6 +81,14 @@ CL SDK 4.0 replaces the old `PolicyType` enum and operational-profile `policyTyp
 
 Store `result.sourceTree` in a retrievable node index and embed node `description` values for search. Keep `result.sourceSpans` as the exact PDF highlighting layer. `result.document` and its `documentOutline` remain compatibility projections for existing host screens; do not treat broad structured policy JSON as canonical extraction truth.
 
+### Evidence and resumable extraction
+
+`buildExtractionEvidenceLedger()` and `buildExtractionSourceCoverageMap()` inspect only source spans and source-tree structure. Hosts can use their stable fingerprints and hashes to independently validate cited critical facts, coverage candidates, and complete source processing.
+
+`source-tree-v1` remains the extraction default. To shadow the resumable protocol, pass `protocolVersion: "source-tree-v2"`, a stable `extractorVersion`, and an `ExtractionSectionStore`. V2 checkpoints policy-core, coverage, and optional cleanup sections against the source fingerprint and returns a completion manifest. A degraded section keeps `completeSourceCoverage` false. Use `compareExtractionProtocolCorpus()` before activation to reject critical-fact or cited-coverage recall regressions.
+
+Structured model calls now throw `ModelGenerationFailure` after all attempts are exhausted. The `safeGenerateObject()` fallback option remains deprecated but available during the 4.x migration; new callers should catch the typed failure only where they have an explicit deterministic fallback.
+
 See the [full documentation](https://cl-sdk.claritylabs.inc/docs) for architecture, provider setup, API reference, and more.
 
 ## Multimodal Querying

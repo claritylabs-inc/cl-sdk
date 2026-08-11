@@ -8,8 +8,12 @@ export { withRetry } from "./core/retry";
 export { pLimit } from "./core/concurrency";
 export { stripFences } from "./core/strip-fences";
 export { sanitizeNulls } from "./core/sanitize";
-export { safeGenerateObject } from "./core/safe-generate";
-export type { SafeGenerateOptions, SafeGenerateParams } from "./core/safe-generate";
+export { ModelGenerationFailure, safeGenerateObject } from "./core/safe-generate";
+export type {
+  ModelGenerationFailureOptions,
+  SafeGenerateOptions,
+  SafeGenerateParams,
+} from "./core/safe-generate";
 export { toStrictSchema } from "./core/strict-schema";
 export { createPipelineContext } from "./core/pipeline";
 export type { PipelineCheckpoint, PipelineContext, PipelineContextOptions } from "./core/pipeline";
@@ -43,7 +47,23 @@ export * from "./case";
 export { createExtractor } from "./extraction/coordinator";
 export type { ExtractorConfig, ExtractionInput, ExtractionResult, ExtractOptions } from "./extraction/coordinator";
 export { runSourceTreeExtraction } from "./extraction/source-tree-extractor";
-export type { ExtractionV3Result } from "./extraction/source-tree-extractor";
+export {
+  compareExtractionProtocolCorpus,
+  compareExtractionProtocolFixture,
+} from "./extraction/protocol-comparison";
+export type {
+  ExtractionCompletionManifest,
+  ExtractionProtocolVersion,
+  ExtractionSectionId,
+  ExtractionSectionResult,
+  ExtractionSectionStore,
+  ExtractionV3Result,
+} from "./extraction/source-tree-extractor";
+export type {
+  ExtractionProtocolCorpusComparison,
+  ExtractionProtocolFixture,
+  ExtractionProtocolFixtureComparison,
+} from "./extraction/protocol-comparison";
 export { runCoverageRecovery } from "./extraction/coverage-recovery";
 export type {
   CoverageRecoveryDiagnostics,

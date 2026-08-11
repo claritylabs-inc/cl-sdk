@@ -17,9 +17,13 @@ import type {
 } from "../source";
 import {
   buildDocumentSourceTree,
+  buildExtractionEvidenceLedger,
+  buildExtractionSourceCoverageMap,
   chunkSourceSpans,
   normalizeDocumentSourceTreePaths,
   normalizeSourceSpans,
+  stableHash,
+  type ExtractionSourceCoverageMap,
 } from "../source";
 import { mergeOperationalProfile } from "../source/operational-profile";
 import {
@@ -151,6 +155,11 @@ const OperationalProfilePromptSchema = z.object({
 });
 
 export type ExtractionV3Result = {
+  protocolVersion: ExtractionProtocolVersion;
+  extractorVersion: string;
+  sourceCoverageMap?: ExtractionSourceCoverageMap;
+  sections?: ExtractionSectionResult[];
+  completionManifest?: ExtractionCompletionManifest;
   sourceTree: DocumentSourceNode[];
   sourceSpans: SourceSpan[];
   sourceChunks: SourceChunk[];
@@ -167,6 +176,52 @@ export type ExtractionV3Result = {
     callsMissingUsage: number;
   };
   performanceReport: PerformanceReport;
+};
+
+export type ExtractionProtocolVersion = "source-tree-v1" | "source-tree-v2";
+
+export type ExtractionSectionId =
+  | "extraction_policy_core"
+  | "extraction_policy_coverage"
+  | "extraction_coverage_cleanup";
+
+export type ExtractionSectionResult = {
+  version: "extraction-section-result-v1";
+  sectionId: ExtractionSectionId;
+  status: "complete" | "not_applicable" | "degraded";
+  sourceFingerprint: string;
+  extractorVersion: string;
+  sourceSpanIds: string[];
+  operationalProfile?: Partial<PolicyOperationalProfile>;
+  warnings: string[];
+  error?: string;
+  resultHash: string;
+};
+
+export type ExtractionCompletionManifest = {
+  version: "extraction-completion-manifest-v1";
+  protocolVersion: ExtractionProtocolVersion;
+  extractorVersion: string;
+  sourceFingerprint: string;
+  eligibleSourceSpanIds: string[];
+  sourceCoverageMap?: ExtractionSourceCoverageMap;
+  sections: Array<Pick<
+    ExtractionSectionResult,
+    "sectionId" | "status" | "sourceSpanIds" | "resultHash"
+  >>;
+  processedSourceSpanIds: string[];
+  completeSourceCoverage: boolean;
+  evidenceLedgerHash: string;
+  manifestHash: string;
+};
+
+export type ExtractionSectionStore = {
+  load: (key: {
+    sectionId: ExtractionSectionId;
+    sourceFingerprint: string;
+    extractorVersion: string;
+  }) => Promise<ExtractionSectionResult | undefined>;
+  save: (result: ExtractionSectionResult) => Promise<void>;
 };
 
 type TrackUsage = (
@@ -1460,6 +1515,149 @@ function emptyOperationalProfile(): PolicyOperationalProfile {
   };
 }
 
+function sectionSourceTree(
+  sourceTree: DocumentSourceNode[],
+  sourceSpanIds: ReadonlySet<string>,
+): DocumentSourceNode[] {
+  const included = new Set<string>();
+  for (const node of sourceTree) {
+    if (node.sourceSpanIds.some((id) => sourceSpanIds.has(id))) included.add(node.id);
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const node of sourceTree) {
+      if (!included.has(node.id) || !node.parentId || included.has(node.parentId)) continue;
+      included.add(node.parentId);
+      changed = true;
+    }
+  }
+  return normalizeDocumentSourceTreePaths(sourceTree
+    .filter((node) => included.has(node.id))
+    .map((node) => ({
+      ...node,
+      sourceSpanIds: node.sourceSpanIds.filter((id) => sourceSpanIds.has(id)),
+    })));
+}
+
+function sectionPrompt(
+  sectionId: Exclude<ExtractionSectionId, "extraction_coverage_cleanup">,
+  sourceTree: DocumentSourceNode[],
+  sourceSpans: SourceSpan[],
+) {
+  const scope = sectionId === "extraction_policy_core"
+    ? `SECTION CONTRACT — extraction_policy_core:
+- Extract policy identity, parties, dates, product identity, declarations, premium, and line-of-business facts.
+- Return coverages as an empty array. Coverage rows are owned by a separate section.
+- Party-changing endorsements are deliberately present here; extract their party effects when cited.`
+    : `SECTION CONTRACT — extraction_policy_coverage:
+- Extract only source-backed coverage units, limits, deductibles, retentions, schedules, form references, and coverage line-of-business facts.
+- Omit policy identity and party facts; those are owned by extraction_policy_core.
+- Return a genuinely empty coverages array only when this supplied section has no supported coverage row.`;
+  return `${buildOperationalProfilePrompt(sourceTree, sourceSpans)}\n\n${scope}`;
+}
+
+function sectionProfile(
+  sectionId: Exclude<ExtractionSectionId, "extraction_coverage_cleanup">,
+  output: Partial<PolicyOperationalProfile>,
+): Partial<PolicyOperationalProfile> {
+  if (sectionId === "extraction_policy_core") {
+    return { ...output, coverages: [] };
+  }
+  return {
+    documentType: output.documentType,
+    linesOfBusiness: output.linesOfBusiness,
+    coverages: output.coverages ?? [],
+    sourceNodeIds: output.sourceNodeIds,
+    sourceSpanIds: output.sourceSpanIds,
+    warnings: output.warnings,
+  };
+}
+
+function makeSectionResult(
+  value: Omit<ExtractionSectionResult, "version" | "resultHash">,
+): ExtractionSectionResult {
+  const withoutHash = {
+    version: "extraction-section-result-v1" as const,
+    ...value,
+  };
+  return { ...withoutHash, resultHash: stableHash(withoutHash) };
+}
+
+function validStoredSection(
+  result: ExtractionSectionResult | undefined,
+  expected: {
+    sectionId: ExtractionSectionId;
+    sourceFingerprint: string;
+    extractorVersion: string;
+    sourceSpanIds: string[];
+  },
+): result is ExtractionSectionResult {
+  if (
+    !result ||
+    result.version !== "extraction-section-result-v1" ||
+    result.sectionId !== expected.sectionId ||
+    result.sourceFingerprint !== expected.sourceFingerprint ||
+    result.extractorVersion !== expected.extractorVersion ||
+    stableHash(result.sourceSpanIds) !== stableHash(expected.sourceSpanIds) ||
+    result.status === "degraded"
+  ) {
+    return false;
+  }
+  const { resultHash, ...withoutHash } = result;
+  return resultHash === stableHash(withoutHash);
+}
+
+async function saveSectionResult(
+  store: ExtractionSectionStore | undefined,
+  result: ExtractionSectionResult,
+  log?: (message: string) => Promise<void>,
+) {
+  if (!store) return;
+  try {
+    await store.save(result);
+  } catch (error) {
+    await log?.(
+      `Could not persist ${result.sectionId} checkpoint (${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
+}
+
+function completionManifest(args: {
+  protocolVersion: ExtractionProtocolVersion;
+  extractorVersion: string;
+  sourceFingerprint: string;
+  eligibleSourceSpanIds: string[];
+  evidenceLedgerHash: string;
+  sourceCoverageMap?: ExtractionSourceCoverageMap;
+  sections: ExtractionSectionResult[];
+}): ExtractionCompletionManifest {
+  const sectionEntries = args.sections.map((section) => ({
+    sectionId: section.sectionId,
+    status: section.status,
+    sourceSpanIds: section.sourceSpanIds,
+    resultHash: section.resultHash,
+  }));
+  const processedSourceSpanIds = [...new Set(sectionEntries
+    .filter((section) => section.status !== "degraded")
+    .flatMap((section) => section.sourceSpanIds))].sort();
+  const withoutHash = {
+    version: "extraction-completion-manifest-v1" as const,
+    protocolVersion: args.protocolVersion,
+    extractorVersion: args.extractorVersion,
+    sourceFingerprint: args.sourceFingerprint,
+    eligibleSourceSpanIds: args.eligibleSourceSpanIds,
+    ...(args.sourceCoverageMap ? { sourceCoverageMap: args.sourceCoverageMap } : {}),
+    sections: sectionEntries,
+    processedSourceSpanIds,
+    completeSourceCoverage:
+      !sectionEntries.some((section) => section.status === "degraded")
+      && args.eligibleSourceSpanIds.every((id) => processedSourceSpanIds.includes(id)),
+    evidenceLedgerHash: args.evidenceLedgerHash,
+  };
+  return { ...withoutHash, manifestHash: stableHash(withoutHash) };
+}
+
 function buildOperationalProfilePrompt(sourceTree: DocumentSourceNode[], sourceSpans: SourceSpan[]): string {
   const evidence = operationalProfileEvidence(sourceTree, sourceSpans);
   const fallbackNodes = evidence.length
@@ -2041,7 +2239,6 @@ async function cleanupOperationalCoverageSchedules(params: {
         },
       },
       {
-        fallback: { coverageDecisions: [], warnings: [] },
         maxRetries: 0,
         log: params.log,
         retry: false,
@@ -2080,7 +2277,12 @@ export async function runSourceTreeExtraction(params: {
   trackUsage: TrackUsage;
   log?: (message: string) => Promise<void>;
   coverageRecovery?: { enabled: boolean };
+  protocolVersion?: ExtractionProtocolVersion;
+  extractorVersion?: string;
+  sectionStore?: ExtractionSectionStore;
 }): Promise<ExtractionV3Result> {
+  const protocolVersion = params.protocolVersion ?? "source-tree-v1";
+  const extractorVersion = params.extractorVersion ?? "4.x";
   const sourceSpans = normalizeSourceSpans(params.sourceSpans);
   const formHints: SourceTreeFormHint[] = [];
   let sourceTree = applySemanticPageGrouping(buildDocumentSourceTree(sourceSpans, params.id));
@@ -2110,9 +2312,267 @@ export async function runSourceTreeExtraction(params: {
   const emptyProfile = emptyOperationalProfile();
   let operationalProfile = emptyProfile;
   let coverageRecovery = disabledCoverageRecoveryDiagnostics();
-  try {
-    const validNodeIds = new Set(sourceTree.map((node) => node.id));
-    const validSpanIds = new Set(sourceSpans.map((span) => span.id));
+  const validNodeIds = new Set(sourceTree.map((node) => node.id));
+  const validSpanIds = new Set(sourceSpans.map((span) => span.id));
+  let sourceCoverageMap: ExtractionSourceCoverageMap | undefined;
+  let sections: ExtractionSectionResult[] | undefined;
+  let manifest: ExtractionCompletionManifest | undefined;
+
+  if (protocolVersion === "source-tree-v2") {
+    const coverageMap = buildExtractionSourceCoverageMap(sourceSpans, sourceTree);
+    sourceCoverageMap = coverageMap;
+    const evidenceLedger = buildExtractionEvidenceLedger(sourceSpans, sourceTree);
+    const coreSpanIds = coverageMap.entries
+      .filter((entry) => entry.assignment !== "coverage")
+      .map((entry) => entry.sourceSpanId);
+    const coverageSpanIds = coverageMap.entries
+      .filter((entry) => entry.assignment === "coverage" || entry.assignment === "both")
+      .map((entry) => entry.sourceSpanId);
+    const runSection = async (
+      sectionId: Exclude<ExtractionSectionId, "extraction_coverage_cleanup">,
+      sourceSpanIds: string[],
+    ): Promise<{ result: ExtractionSectionResult; reused: boolean }> => {
+      const expected = {
+        sectionId,
+        sourceFingerprint: coverageMap.sourceFingerprint,
+        extractorVersion,
+        sourceSpanIds,
+      };
+      const stored = await params.sectionStore?.load({
+        sectionId,
+        sourceFingerprint: expected.sourceFingerprint,
+        extractorVersion,
+      });
+      if (validStoredSection(stored, expected)) {
+        await params.log?.(`Resumed completed ${sectionId} section`);
+        return { result: stored, reused: true };
+      }
+
+      const selected = new Set(sourceSpanIds);
+      const scopedSpans = sourceSpans.filter((span) => selected.has(span.id));
+      const scopedTree = sectionSourceTree(sourceTree, selected);
+      if (
+        sectionId === "extraction_policy_coverage" &&
+        evidenceLedger.coverageRegions.status === "not_observed" &&
+        evidenceLedger.completeSourceCoverage
+      ) {
+        const result = makeSectionResult({
+          sectionId,
+          status: "not_applicable",
+          sourceFingerprint: expected.sourceFingerprint,
+          extractorVersion,
+          sourceSpanIds,
+          operationalProfile: { coverages: [] },
+          warnings: [],
+        });
+        await saveSectionResult(params.sectionStore, result, params.log);
+        return { result, reused: false };
+      }
+
+      const budget = params.resolveBudget(
+        "extraction_operational_profile",
+        sectionId === "extraction_policy_core" ? 6144 : 8192,
+      );
+      const startedAt = Date.now();
+      try {
+        const response = await safeGenerateObject(
+          params.generateObject,
+          {
+            prompt: sectionPrompt(sectionId, scopedTree, scopedSpans),
+            schema: OperationalProfilePromptSchema,
+            maxTokens: budget.maxTokens,
+            taskKind: "extraction_operational_profile",
+            budgetDiagnostics: budget,
+            providerOptions: params.providerOptions,
+          },
+          {
+            maxRetries: 0,
+            log: params.log,
+            retry: false,
+          },
+        );
+        localTrack(response.usage, {
+          taskKind: "extraction_operational_profile",
+          label: sectionId,
+          maxTokens: budget.maxTokens,
+          durationMs: Date.now() - startedAt,
+        });
+        const result = makeSectionResult({
+          sectionId,
+          status: "complete",
+          sourceFingerprint: expected.sourceFingerprint,
+          extractorVersion,
+          sourceSpanIds,
+          operationalProfile: sectionProfile(
+            sectionId,
+            response.object as Partial<PolicyOperationalProfile>,
+          ),
+          warnings: [],
+        });
+        await saveSectionResult(params.sectionStore, result, params.log);
+        return { result, reused: false };
+      } catch (error) {
+        const degraded = makeSectionResult({
+          sectionId,
+          status: "degraded",
+          sourceFingerprint: expected.sourceFingerprint,
+          extractorVersion,
+          sourceSpanIds,
+          warnings: [],
+          error: error instanceof Error ? error.message : String(error),
+        });
+        await saveSectionResult(params.sectionStore, degraded, params.log);
+        throw error;
+      }
+    };
+
+    const core = await runSection("extraction_policy_core", coreSpanIds);
+    operationalProfile = mergeOperationalProfile(
+      emptyProfile,
+      core.result.operationalProfile ?? {},
+      validNodeIds,
+      validSpanIds,
+    );
+    const coverage = await runSection("extraction_policy_coverage", coverageSpanIds);
+    operationalProfile = mergeOperationalProfile(
+      operationalProfile,
+      coverage.result.operationalProfile ?? {},
+      validNodeIds,
+      validSpanIds,
+    );
+
+    if (params.coverageRecovery?.enabled && !coverage.reused) {
+      const recovery = await recoverOperationalProfileCoverage({
+        sourceTree,
+        sourceSpans,
+        operationalProfile,
+        generateObject: params.generateObject,
+        providerOptions: params.providerOptions,
+        resolveBudget: params.resolveBudget,
+        trackUsage: localTrack,
+        log: params.log,
+      });
+      operationalProfile = recovery.operationalProfile;
+      coverageRecovery = recovery.diagnostics;
+      warnings.push(...coverageRecovery.warnings);
+      const recoveryError = coverageRecovery.status === "failed"
+        ? coverageRecovery.warnings[coverageRecovery.warnings.length - 1]
+          ?? "Coverage recovery failed"
+        : undefined;
+      coverage.result = makeSectionResult({
+        sectionId: coverage.result.sectionId,
+        status: recoveryError ? "degraded" : coverage.result.status,
+        sourceFingerprint: coverage.result.sourceFingerprint,
+        extractorVersion: coverage.result.extractorVersion,
+        sourceSpanIds: coverage.result.sourceSpanIds,
+        operationalProfile: sectionProfile(
+          "extraction_policy_coverage",
+          operationalProfile,
+        ),
+        warnings: coverage.result.warnings,
+        ...(recoveryError || coverage.result.error
+          ? { error: recoveryError ?? coverage.result.error }
+          : {}),
+      });
+      await saveSectionResult(params.sectionStore, coverage.result, params.log);
+    }
+
+    const cleanupSpanIds = coverageSpanIds;
+    const cleanupExpected = {
+      sectionId: "extraction_coverage_cleanup" as const,
+      sourceFingerprint: coverageMap.sourceFingerprint,
+      extractorVersion,
+      sourceSpanIds: cleanupSpanIds,
+    };
+    const storedCleanup = await params.sectionStore?.load({
+      sectionId: cleanupExpected.sectionId,
+      sourceFingerprint: cleanupExpected.sourceFingerprint,
+      extractorVersion,
+    });
+    let cleanupResult: ExtractionSectionResult;
+    if (coverage.result.status === "degraded") {
+      cleanupResult = makeSectionResult({
+        sectionId: cleanupExpected.sectionId,
+        status: "degraded",
+        sourceFingerprint: cleanupExpected.sourceFingerprint,
+        extractorVersion,
+        sourceSpanIds: cleanupSpanIds,
+        warnings: [],
+        error: "Coverage cleanup was skipped because the coverage section is degraded",
+      });
+      await saveSectionResult(params.sectionStore, cleanupResult, params.log);
+    } else if (validStoredSection(storedCleanup, cleanupExpected)) {
+      cleanupResult = storedCleanup;
+      if (cleanupResult.operationalProfile) {
+        operationalProfile = mergeOperationalProfile(
+          operationalProfile,
+          cleanupResult.operationalProfile,
+          validNodeIds,
+          validSpanIds,
+        );
+      }
+      await params.log?.("Resumed completed extraction_coverage_cleanup section");
+    } else if (operationalProfile.coverages.length === 0) {
+      cleanupResult = makeSectionResult({
+        sectionId: cleanupExpected.sectionId,
+        status: "not_applicable",
+        sourceFingerprint: cleanupExpected.sourceFingerprint,
+        extractorVersion,
+        sourceSpanIds: cleanupSpanIds,
+        operationalProfile: { coverages: [] },
+        warnings: [],
+      });
+      await saveSectionResult(params.sectionStore, cleanupResult, params.log);
+    } else {
+      try {
+        const cleanup = await cleanupOperationalCoverageSchedules({
+          sourceTree,
+          sourceSpans,
+          operationalProfile,
+          generateObject: params.generateObject,
+          providerOptions: params.providerOptions,
+          resolveBudget: params.resolveBudget,
+          trackUsage: localTrack,
+          log: params.log,
+        });
+        operationalProfile = cleanup.operationalProfile;
+        warnings.push(...cleanup.warnings);
+        cleanupResult = makeSectionResult({
+          sectionId: cleanupExpected.sectionId,
+          status: "complete",
+          sourceFingerprint: cleanupExpected.sourceFingerprint,
+          extractorVersion,
+          sourceSpanIds: cleanupSpanIds,
+          operationalProfile,
+          warnings: cleanup.warnings,
+        });
+        await saveSectionResult(params.sectionStore, cleanupResult, params.log);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        warnings.push(`Operational profile cleanup pass failed; uncleaned profile used (${message})`);
+        cleanupResult = makeSectionResult({
+          sectionId: cleanupExpected.sectionId,
+          status: "degraded",
+          sourceFingerprint: cleanupExpected.sourceFingerprint,
+          extractorVersion,
+          sourceSpanIds: cleanupSpanIds,
+          warnings: [],
+          error: message,
+        });
+        await saveSectionResult(params.sectionStore, cleanupResult, params.log);
+      }
+    }
+    sections = [core.result, coverage.result, cleanupResult];
+    manifest = completionManifest({
+      protocolVersion,
+      extractorVersion,
+      sourceFingerprint: coverageMap.sourceFingerprint,
+      eligibleSourceSpanIds: coverageMap.eligibleSourceSpanIds,
+      evidenceLedgerHash: evidenceLedger.ledgerHash,
+      sourceCoverageMap: coverageMap,
+      sections,
+    });
+  } else {
     const budget = params.resolveBudget("extraction_operational_profile", 8192);
     const startedAt = Date.now();
     const response = await safeGenerateObject(
@@ -2126,7 +2586,6 @@ export async function runSourceTreeExtraction(params: {
         providerOptions: params.providerOptions,
       },
       {
-        fallback: emptyProfile,
         maxRetries: 0,
         log: params.log,
         retry: false,
@@ -2144,29 +2603,9 @@ export async function runSourceTreeExtraction(params: {
       validNodeIds,
       validSpanIds,
     );
-  } catch (error) {
-    warnings.push(`Operational profile model pass failed; coverage rows omitted (${error instanceof Error ? error.message : String(error)})`);
-  }
 
-  if (params.coverageRecovery?.enabled) {
-    const recovery = await recoverOperationalProfileCoverage({
-      sourceTree,
-      sourceSpans,
-      operationalProfile,
-      generateObject: params.generateObject,
-      providerOptions: params.providerOptions,
-      resolveBudget: params.resolveBudget,
-      trackUsage: localTrack,
-      log: params.log,
-    });
-    operationalProfile = recovery.operationalProfile;
-    coverageRecovery = recovery.diagnostics;
-    warnings.push(...coverageRecovery.warnings);
-  }
-
-  if (operationalProfile.coverages.length > 0) {
-    try {
-      const cleanup = await cleanupOperationalCoverageSchedules({
+    if (params.coverageRecovery?.enabled) {
+      const recovery = await recoverOperationalProfileCoverage({
         sourceTree,
         sourceSpans,
         operationalProfile,
@@ -2176,13 +2615,31 @@ export async function runSourceTreeExtraction(params: {
         trackUsage: localTrack,
         log: params.log,
       });
-      operationalProfile = cleanup.operationalProfile;
-      warnings.push(...cleanup.warnings);
-    } catch (error) {
-      warnings.push(`Operational profile cleanup pass failed; uncleaned profile used (${error instanceof Error ? error.message : String(error)})`);
+      operationalProfile = recovery.operationalProfile;
+      coverageRecovery = recovery.diagnostics;
+      warnings.push(...coverageRecovery.warnings);
     }
-  } else {
-    await params.log?.("Operational profile has no coverage rows; skipped model cleanup");
+
+    if (operationalProfile.coverages.length > 0) {
+      try {
+        const cleanup = await cleanupOperationalCoverageSchedules({
+          sourceTree,
+          sourceSpans,
+          operationalProfile,
+          generateObject: params.generateObject,
+          providerOptions: params.providerOptions,
+          resolveBudget: params.resolveBudget,
+          trackUsage: localTrack,
+          log: params.log,
+        });
+        operationalProfile = cleanup.operationalProfile;
+        warnings.push(...cleanup.warnings);
+      } catch (error) {
+        warnings.push(`Operational profile cleanup pass failed; uncleaned profile used (${error instanceof Error ? error.message : String(error)})`);
+      }
+    } else {
+      await params.log?.("Operational profile has no coverage rows; skipped model cleanup");
+    }
   }
 
   const document = materializeDocument({
@@ -2193,6 +2650,11 @@ export async function runSourceTreeExtraction(params: {
   });
 
   return {
+    protocolVersion,
+    extractorVersion,
+    sourceCoverageMap,
+    sections,
+    completionManifest: manifest,
     sourceTree,
     sourceSpans,
     sourceChunks: chunkSourceSpans(sourceSpans),

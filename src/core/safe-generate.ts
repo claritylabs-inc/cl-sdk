@@ -5,7 +5,13 @@ import { withRetry, type RetryOptions } from "./retry";
 import { toStrictSchema } from "./strict-schema";
 
 export interface SafeGenerateOptions<T> {
-  /** Return this value instead of throwing when all retries are exhausted. */
+  /**
+   * Return this value instead of throwing when all retries are exhausted.
+   *
+   * @deprecated Catch `ModelGenerationFailure` at the workflow boundary and
+   * make any deterministic fallback explicit there. This option remains in
+   * the 4.x contract only for incremental consumer migration.
+   */
   fallback?: T;
   /** Number of retries for non-rate-limit errors (schema validation, malformed response). Default 1. */
   maxRetries?: number;
@@ -15,6 +21,31 @@ export interface SafeGenerateOptions<T> {
   log?: LogFn;
   /** Controls retryable provider-error backoff around the host callback. Use false when the host already owns fallback. */
   retry?: RetryOptions | false;
+}
+
+export type ModelGenerationFailureOptions = {
+  taskKind?: ModelTaskKind;
+  attempts: number;
+  cause: unknown;
+};
+
+/** A model-backed structured generation exhausted every configured attempt. */
+export class ModelGenerationFailure extends Error {
+  readonly taskKind?: ModelTaskKind;
+  readonly attempts: number;
+
+  constructor(options: ModelGenerationFailureOptions) {
+    const detail = options.cause instanceof Error
+      ? options.cause.message
+      : String(options.cause);
+    super(
+      `${options.taskKind ?? "structured_generation"} failed after ${options.attempts} attempt${options.attempts === 1 ? "" : "s"}: ${detail}`,
+    );
+    this.name = "ModelGenerationFailure";
+    (this as Error & { cause?: unknown }).cause = options.cause;
+    this.taskKind = options.taskKind;
+    this.attempts = options.attempts;
+  }
 }
 
 export interface SafeGenerateParams {
@@ -32,8 +63,8 @@ export interface SafeGenerateParams {
  *
  * 1. Inner: `withRetry` handles retryable provider errors with exponential backoff unless disabled.
  * 2. Outer: catches all other errors (schema validation, malformed JSON, transient API errors)
- *    and retries up to `maxRetries` times. If all retries fail, returns `fallback` (if provided)
- *    or re-throws.
+ *    and retries up to `maxRetries` times. If all retries fail, returns the deprecated 4.x
+ *    `fallback` when supplied or throws `ModelGenerationFailure`.
  *
  * This prevents a single malformed LLM response from crashing an entire pipeline.
  */
@@ -80,5 +111,9 @@ export async function safeGenerateObject<T>(
     return { object: options.fallback };
   }
 
-  throw lastError;
+  throw new ModelGenerationFailure({
+    taskKind: params.taskKind,
+    attempts: maxRetries + 1,
+    cause: lastError,
+  });
 }

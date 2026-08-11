@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { GenerateObject } from "../../core/types";
-import { safeGenerateObject } from "../../core/safe-generate";
+import { ModelGenerationFailure, safeGenerateObject } from "../../core/safe-generate";
 
 describe("safeGenerateObject", () => {
   it("returns objects normalized back to the caller schema after strict nullable generation", async () => {
@@ -120,5 +120,27 @@ describe("safeGenerateObject", () => {
     expect(result.object).toEqual({ value: "fallback" });
     expect(generateObject).toHaveBeenCalledTimes(1);
     expect(log).not.toHaveBeenCalledWith(expect.stringContaining("Retryable error"));
+  });
+
+  it("throws a typed failure after every model attempt is exhausted", async () => {
+    const schema = z.object({ value: z.string() });
+    const generateObject: GenerateObject<z.infer<typeof schema>> = vi.fn(async () => {
+      throw new Error("provider unavailable");
+    });
+
+    await expect(safeGenerateObject(
+      generateObject,
+      {
+        prompt: "test",
+        schema,
+        maxTokens: 128,
+        taskKind: "extraction_operational_profile",
+      },
+      { maxRetries: 0, retry: false },
+    )).rejects.toMatchObject({
+      name: "ModelGenerationFailure",
+      taskKind: "extraction_operational_profile",
+      attempts: 1,
+    } satisfies Partial<ModelGenerationFailure>);
   });
 });

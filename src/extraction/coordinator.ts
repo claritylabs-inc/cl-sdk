@@ -14,7 +14,13 @@ import {
 } from "./docling";
 import type { ExtractionReviewReport } from "./quality";
 import { shouldFailQualityGate } from "../core/quality";
-import { runSourceTreeExtraction } from "./source-tree-extractor";
+import {
+  runSourceTreeExtraction,
+  type ExtractionCompletionManifest,
+  type ExtractionProtocolVersion,
+  type ExtractionSectionResult,
+  type ExtractionSectionStore,
+} from "./source-tree-extractor";
 import type { CoverageRecoveryDiagnostics } from "./coverage-recovery";
 
 export interface ExtractorConfig {
@@ -31,6 +37,10 @@ export interface ExtractorConfig {
 }
 
 export interface ExtractionResult {
+  protocolVersion?: ExtractionProtocolVersion;
+  extractorVersion?: string;
+  sections?: ExtractionSectionResult[];
+  completionManifest?: ExtractionCompletionManifest;
   document: InsuranceDocument;
   chunks: DocumentChunk[];
   sourceSpans: SourceSpan[];
@@ -54,6 +64,10 @@ export interface ExtractOptions {
   sourceSpans?: SourceSpan[];
   /** Opt in to document-wide semantic coverage, schedule, and financial recovery. */
   coverageRecovery?: { enabled: boolean };
+  /** Opt into resumable section extraction. Omitted requests retain the v1 monolith. */
+  protocolVersion?: ExtractionProtocolVersion;
+  extractorVersion?: string;
+  sectionStore?: ExtractionSectionStore;
 }
 
 export type ExtractionInput = PdfInput | DoclingExtractionInput;
@@ -162,6 +176,9 @@ export function createExtractor(config: ExtractorConfig) {
         trackUsage,
         log,
         coverageRecovery: options?.coverageRecovery,
+        protocolVersion: options?.protocolVersion,
+        extractorVersion: options?.extractorVersion,
+        sectionStore: options?.sectionStore,
       });
       const sourceTreeFormInventory = v3.formInventory.flatMap((form) => {
         const formNumber = typeof form.formNumber === "string" ? form.formNumber.trim() : "";
@@ -195,6 +212,10 @@ export function createExtractor(config: ExtractorConfig) {
       }
       onProgress?.("Source-tree extraction complete.");
       return {
+        protocolVersion: v3.protocolVersion,
+        extractorVersion: v3.extractorVersion,
+        sections: v3.sections,
+        completionManifest: v3.completionManifest,
         document: v3.document,
         chunks: [],
         sourceSpans: v3.sourceSpans,

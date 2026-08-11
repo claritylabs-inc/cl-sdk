@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GenerateObject } from "../../core/types";
+import { ModelGenerationFailure } from "../../core/safe-generate";
 import type { ModelTaskKind } from "../../core/model-budget";
 import type { DocumentSourceNode, PolicyOperationalProfile } from "../../source";
 import { buildPageSourceSpans, buildSourceSpan } from "../../source";
@@ -854,6 +855,29 @@ describe("source-tree extraction", () => {
     expect(operationalCall?.[0].prompt).not.toContain("Supplemental source span 409");
   });
 
+  it("throws a typed failure instead of returning an empty operational profile", async () => {
+    const evidence = buildSourceSpan({
+      documentId: "doc-model-failure",
+      sourceKind: "policy_pdf",
+      text: "Policy Number GL-100 Named Insured Example Corp.",
+      pageStart: 1,
+      pageEnd: 1,
+      sourceUnit: "text",
+    });
+
+    const extraction = runSourceTreeExtraction({
+      id: "doc-model-failure",
+      sourceSpans: [evidence],
+      generateObject: vi.fn(async () => {
+        throw new Error("model route exhausted");
+      }) as GenerateObject,
+      resolveBudget,
+      trackUsage: vi.fn(),
+    });
+
+    await expect(extraction).rejects.toBeInstanceOf(ModelGenerationFailure);
+  });
+
   it("uses declaration schedule rows instead of page blobs for operational profile evidence", async () => {
     const page = buildPageSourceSpans([{
       documentId: "doc-1",
@@ -1218,5 +1242,188 @@ describe("source-tree extraction", () => {
     expect(endorsementPrompt).toContain("Network Security and Privacy Liability");
     expect(endorsementPrompt).not.toContain('"coverageIndex": 0');
     expect(endorsementPrompt).not.toContain("coverage-row-a");
+  });
+
+  it("persists a degraded failed section and resumes without rerunning completed core work", async () => {
+    const sourceSpans = [
+      buildSourceSpan({
+        documentId: "doc-sectioned",
+        sourceKind: "policy_pdf",
+        text: "Policy Number: GL-100 Named Insured: Cove Technologies Inc.",
+        pageStart: 1,
+        pageEnd: 1,
+        sourceUnit: "text",
+      }, 0),
+      buildSourceSpan({
+        documentId: "doc-sectioned",
+        sourceKind: "policy_pdf",
+        text: "Commercial General Liability Coverage Each Occurrence Limit $1,000,000",
+        pageStart: 2,
+        pageEnd: 2,
+        sourceUnit: "text",
+      }, 1),
+    ];
+    const stored = new Map<string, any>();
+    const sectionStore = {
+      load: vi.fn(async ({ sectionId }: { sectionId: string }) => stored.get(sectionId)),
+      save: vi.fn(async (result: { sectionId: string }) => {
+        stored.set(result.sectionId, result);
+      }),
+    };
+    const firstGenerate = vi.fn(async (params) => {
+      if (params.prompt.includes("SECTION CONTRACT — extraction_policy_core:")) {
+        return {
+          object: {
+            documentType: "policy",
+            policyNumber: {
+              value: "GL-100",
+              sourceNodeIds: [],
+              sourceSpanIds: [sourceSpans[0]!.id],
+            },
+          },
+        };
+      }
+      if (params.prompt.includes("SECTION CONTRACT — extraction_policy_coverage:")) {
+        throw new Error("coverage provider unavailable");
+      }
+      return { object: { coverageDecisions: [], warnings: [] } };
+    }) as GenerateObject;
+
+    await expect(runSourceTreeExtraction({
+      id: "doc-sectioned",
+      sourceSpans,
+      generateObject: firstGenerate,
+      resolveBudget,
+      trackUsage: vi.fn(),
+      protocolVersion: "source-tree-v2",
+      extractorVersion: "test-v2",
+      sectionStore,
+    })).rejects.toBeInstanceOf(ModelGenerationFailure);
+    expect(stored.get("extraction_policy_core")).toEqual(expect.objectContaining({
+      status: "complete",
+    }));
+    expect(stored.get("extraction_policy_coverage")).toEqual(expect.objectContaining({
+      status: "degraded",
+    }));
+
+    const resumedGenerateMock = vi.fn(async (params) => {
+      if (params.prompt.includes("SECTION CONTRACT — extraction_policy_core:")) {
+        throw new Error("completed core must not rerun");
+      }
+      if (params.prompt.includes("SECTION CONTRACT — extraction_policy_coverage:")) {
+        return {
+          object: {
+            documentType: "policy",
+            linesOfBusiness: ["CGL"],
+            coverages: [{
+              name: "Commercial General Liability",
+              limit: "$1,000,000",
+              sourceNodeIds: [],
+              sourceSpanIds: [sourceSpans[1]!.id],
+            }],
+          },
+        };
+      }
+      return { object: { coverageDecisions: [], warnings: [] } };
+    });
+    const resumedGenerate = resumedGenerateMock as GenerateObject;
+    const resumed = await runSourceTreeExtraction({
+      id: "doc-sectioned",
+      sourceSpans,
+      generateObject: resumedGenerate,
+      resolveBudget,
+      trackUsage: vi.fn(),
+      protocolVersion: "source-tree-v2",
+      extractorVersion: "test-v2",
+      sectionStore,
+    });
+
+    expect(resumed.protocolVersion).toBe("source-tree-v2");
+    expect(resumed.completionManifest).toEqual(expect.objectContaining({
+      completeSourceCoverage: true,
+      sourceCoverageMap: expect.objectContaining({
+        complete: true,
+        eligibleSourceSpanIds: expect.arrayContaining(sourceSpans.map((span) => span.id)),
+      }),
+    }));
+    expect(resumed.sourceCoverageMap?.entries).toHaveLength(sourceSpans.length);
+    expect(resumedGenerateMock.mock.calls.some(([params]) =>
+      params.prompt.includes("SECTION CONTRACT — extraction_policy_core:"))).toBe(false);
+    expect(resumed.operationalProfile.policyNumber?.value).toBe("GL-100");
+    expect(resumed.operationalProfile.coverages).toHaveLength(1);
+  });
+
+  it("marks v2 coverage and cleanup degraded when coverage recovery fails", async () => {
+    const sourceSpans = [
+      buildSourceSpan({
+        documentId: "doc-recovery-failure",
+        sourceKind: "policy_pdf",
+        text: "Policy Number: GL-200",
+        pageStart: 1,
+        pageEnd: 1,
+        sourceUnit: "text",
+      }, 0),
+      buildSourceSpan({
+        documentId: "doc-recovery-failure",
+        sourceKind: "policy_pdf",
+        text: "Property Coverage Limit $500,000",
+        pageStart: 2,
+        pageEnd: 2,
+        sourceUnit: "text",
+      }, 1),
+    ];
+    const generateObject = vi.fn(async (params) => {
+      if (params.prompt.includes("SECTION CONTRACT — extraction_policy_core:")) {
+        return {
+          object: {
+            documentType: "policy",
+            policyNumber: {
+              value: "GL-200",
+              sourceNodeIds: [],
+              sourceSpanIds: [sourceSpans[0]!.id],
+            },
+          },
+        };
+      }
+      if (params.prompt.includes("SECTION CONTRACT — extraction_policy_coverage:")) {
+        return {
+          object: {
+            documentType: "policy",
+            coverages: [{
+              name: "Property",
+              sourceNodeIds: [],
+              sourceSpanIds: [sourceSpans[1]!.id],
+            }],
+          },
+        };
+      }
+      if (params.taskKind === "extraction_coverage_recovery") {
+        throw new Error("coverage recovery provider unavailable");
+      }
+      throw new Error("cleanup must not run after degraded coverage recovery");
+    }) as GenerateObject;
+
+    const result = await runSourceTreeExtraction({
+      id: "doc-recovery-failure",
+      sourceSpans,
+      generateObject,
+      resolveBudget,
+      trackUsage: vi.fn(),
+      coverageRecovery: { enabled: true },
+      protocolVersion: "source-tree-v2",
+      extractorVersion: "test-v2",
+    });
+
+    expect(result.sections).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sectionId: "extraction_policy_coverage",
+        status: "degraded",
+      }),
+      expect.objectContaining({
+        sectionId: "extraction_coverage_cleanup",
+        status: "degraded",
+      }),
+    ]));
+    expect(result.completionManifest?.completeSourceCoverage).toBe(false);
   });
 });

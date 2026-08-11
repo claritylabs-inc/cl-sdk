@@ -1,4 +1,4 @@
-import { safeGenerateObject } from "../core/safe-generate";
+import { ModelGenerationFailure, safeGenerateObject } from "../core/safe-generate";
 import type { GenerateObject, LogFn, TokenUsage } from "../core/types";
 import type { ModelBudgetConstraint, ModelCapabilities, ModelTaskKind } from "../core/model-budget";
 import { resolveModelBudget } from "../core/model-budget";
@@ -124,38 +124,46 @@ export async function interpretAttachments(params: {
       constraint: modelBudgetConstraints?.query_attachment,
     });
 
-    const { object, usage } = await safeGenerateObject<AttachmentInterpretation>(
-      generateObject as GenerateObject<AttachmentInterpretation>,
-      {
-        prompt,
-        schema: AttachmentInterpretationSchema,
-        maxTokens: budget.maxTokens,
-        taskKind: "query_attachment",
-        budgetDiagnostics: budget,
-        providerOptions: buildAttachmentProviderOptions(attachment, providerOptions),
-      },
-      {
-        fallback: {
-          summary: attachment.description ?? `User supplied ${attachment.kind} attachment.`,
-          extractedFacts: [],
-          recommendedFocus: [],
-          confidence: 0.2,
+    let interpretation: AttachmentInterpretation;
+    try {
+      const { object, usage } = await safeGenerateObject<AttachmentInterpretation>(
+        generateObject as GenerateObject<AttachmentInterpretation>,
+        {
+          prompt,
+          schema: AttachmentInterpretationSchema,
+          maxTokens: budget.maxTokens,
+          taskKind: "query_attachment",
+          budgetDiagnostics: budget,
+          providerOptions: buildAttachmentProviderOptions(attachment, providerOptions),
         },
-        log,
-        onError: (error, attempt) =>
-          log?.(`Attachment interpretation attempt ${attempt + 1} failed for "${attachment.name ?? id}": ${error}`),
-      },
-    );
-
-    onUsage?.(usage);
+        {
+          log,
+          onError: (error, attempt) =>
+            log?.(`Attachment interpretation attempt ${attempt + 1} failed for "${attachment.name ?? id}": ${error}`),
+        },
+      );
+      onUsage?.(usage);
+      interpretation = object as AttachmentInterpretation;
+    } catch (error) {
+      if (!(error instanceof ModelGenerationFailure)) throw error;
+      await log?.(
+        `Attachment interpretation used deterministic fallback; execution_source=deterministic_fallback (${error.message})`,
+      );
+      interpretation = {
+        summary: attachment.description ?? `User supplied ${attachment.kind} attachment.`,
+        extractedFacts: [],
+        recommendedFocus: [],
+        confidence: 0.2,
+      };
+    }
 
     evidence.push({
       source: "attachment",
       attachmentId: id,
       chunkId: id,
       documentId: id,
-      text: buildAttachmentEvidenceText(attachment, object as AttachmentInterpretation),
-      relevance: Math.max(0.7, (object as AttachmentInterpretation).confidence),
+      text: buildAttachmentEvidenceText(attachment, interpretation),
+      relevance: Math.max(0.7, interpretation.confidence),
       metadata: [
         { key: "kind", value: attachment.kind },
         ...(attachment.name ? [{ key: "name", value: attachment.name }] : []),
