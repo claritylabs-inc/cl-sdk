@@ -1,3 +1,10 @@
+# [4.6.0](https://github.com/claritylabs-inc/cl-sdk/compare/v4.5.0...v4.6.0) (2026-08-11)
+
+
+### Features
+
+* add evidence-gated resumable extraction ([e61898d](https://github.com/claritylabs-inc/cl-sdk/commit/e61898d97a7602bc94a66fbad1ba6cded13a67e3))
+
 # [4.5.0](https://github.com/claritylabs-inc/cl-sdk/compare/v4.4.2...v4.5.0) (2026-07-30)
 
 
