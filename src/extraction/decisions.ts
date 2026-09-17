@@ -203,9 +203,16 @@ export async function cleanupCoverageDecision(params: {
           cleanup.coverageDecisions.push(decision);
           continue;
         }
+        let changed = false;
         const lob = answers[`c${i}_lob`];
-        if (lob.type !== "choice" || lob.choice === ABSTAIN) return;
+        if (
+          lob.type !== "choice" ||
+          lob.choice === ABSTAIN ||
+          lob.choice === "UN"
+        )
+          return;
         if (lob.choice !== coverage.lineOfBusiness) {
+          changed = true;
           decision.lineOfBusiness = lob.choice;
           decision.action = "update";
         }
@@ -215,6 +222,7 @@ export async function cleanupCoverageDecision(params: {
           if (a.choice === "unchanged") continue;
           const candidate = values.find((_, j) => a.choice === `v${j}`);
           if (!candidate) return;
+          changed ||= candidate.value !== coverage[field];
           decision[field] = candidate.value;
           decision.sourceSpanIds = [
             ...new Set([
@@ -249,9 +257,12 @@ export async function cleanupCoverageDecision(params: {
                   : "keep",
             kind: parsedKind,
           });
-          if (parsedKind !== term.kind)
+          if (parsedKind !== term.kind || termAction.choice === "drop") {
+            changed = true;
             decision.action = "update";
+          }
         }
+        if (action.choice === "update" && !changed) return;
         cleanup.coverageDecisions.push(decision);
       }
       return {

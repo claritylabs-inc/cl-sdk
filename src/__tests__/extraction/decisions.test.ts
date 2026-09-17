@@ -1,3 +1,4 @@
+import { createExtractor } from "../../extraction/coordinator";
 import { describe, expect, it, vi } from "vitest";
 import {
   cleanupCoverageDecision,
@@ -172,5 +173,115 @@ describe("source-backed extraction decisions", () => {
     expect(generate).toHaveBeenCalledOnce();
     expect(onDecision.mock.calls[0][0].outcome).toBe("accepted");
     expect(result.operationalProfile.coverages).toHaveLength(1);
+  });
+});
+
+describe("extractor decision plumbing", () => {
+  it.each(["source-tree-v1", "source-tree-v2"] as const)(
+    "preserves final source coverage through %s",
+    async (protocolVersion) => {
+      const generate = vi.fn(async () => ({
+        object: profile,
+        usage: { inputTokens: 1, outputTokens: 1 },
+      })) as unknown as GenerateObject;
+      const onDecision = vi.fn();
+      const extractor = createExtractor({
+        generateObject: generate,
+        ...decisionTestConfig("extraction.cleanup", keep),
+        onDecision,
+      });
+      const result = await extractor.extract("unused", "d", {
+        sourceSpans: spans,
+        protocolVersion,
+      });
+      expect(
+        onDecision.mock.calls.some(
+          ([event]) =>
+            event.family === "extraction.cleanup" &&
+            event.outcome === "accepted",
+        ),
+      ).toBe(true);
+      expect(result.sourceSpans.map((span) => span.id)).toEqual(
+        spans.map((span) => span.id),
+      );
+      expect(result.operationalProfile?.coverages).toHaveLength(1);
+      expect(
+        vi
+          .mocked(generate)
+          .mock.calls.every(
+            ([request]) => request.taskKind !== "extraction_coverage_cleanup",
+          ),
+      ).toBe(true);
+      if (protocolVersion === "source-tree-v2") {
+        expect(
+          result.completionManifest?.sourceCoverageMap?.eligibleSourceSpanIds,
+        ).toEqual(spans.map((span) => span.id));
+      }
+    },
+  );
+});
+
+describe("cleanup bounded update integrity", () => {
+  it("escalates a requested correction absent from the candidate set", async () => {
+    const fallback = vi.fn(async () => ({
+      operationalProfile: profile,
+      warnings: [],
+    }));
+    await cleanupCoverageDecision({
+      sourceTree: tree,
+      sourceSpans: spans,
+      operationalProfile: profile,
+      decisions: decisionTestConfig("extraction.cleanup", (id) =>
+        id.endsWith("action") ? "update" : keep(id),
+      ),
+      fallback,
+    });
+    expect(fallback).toHaveBeenCalledOnce();
+  });
+  it("applies a selected term drop through an update of the owning coverage", async () => {
+    const withTerms = PolicyOperationalProfileSchema.parse({
+      ...profile,
+      coverages: [
+        {
+          ...profile.coverages[0],
+          limits: [
+            {
+              kind: "each_occurrence_limit",
+              label: "Each occurrence",
+              value: "$1,000,000",
+              sourceSpanIds: [spans[0].id],
+              sourceNodeIds: [],
+            },
+            {
+              kind: "each_occurrence_limit",
+              label: "Duplicate occurrence",
+              value: "$1,000,000",
+              sourceSpanIds: [spans[0].id],
+              sourceNodeIds: [],
+            },
+          ],
+        },
+      ],
+    });
+    const fallback = vi.fn(async () => ({
+      operationalProfile: withTerms,
+      warnings: [],
+    }));
+    const config = decisionTestConfig("extraction.cleanup", (id) =>
+      id.includes("_t") && id.endsWith("kind")
+        ? "each_occurrence_limit"
+        : id === "c0_t1_action"
+          ? "drop"
+          : keep(id),
+    );
+    const result = await cleanupCoverageDecision({
+      sourceTree: tree,
+      sourceSpans: spans,
+      operationalProfile: withTerms,
+      decisions: config,
+      fallback,
+    });
+    expect(result.operationalProfile.coverages[0].limits).toHaveLength(1);
+    expect(fallback).not.toHaveBeenCalled();
   });
 });
