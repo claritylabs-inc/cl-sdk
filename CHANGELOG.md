@@ -1,3 +1,17 @@
+# [4.7.0](https://github.com/claritylabs-inc/cl-sdk/compare/v4.6.0...v4.7.0) (2026-09-17)
+
+
+### Bug Fixes
+
+* isolate shadow decisions and propagate synchronous aborts ([2588b58](https://github.com/claritylabs-inc/cl-sdk/commit/2588b58ab4169d962b7c2fa05b6d2ea57e76071e))
+* preserve bounded cleanup and source coverage invariants ([e826ce4](https://github.com/claritylabs-inc/cl-sdk/commit/e826ce46d5a3a2d3288c64b32a07b7c8ea1ae777))
+
+
+### Features
+
+* add provider-agnostic structured decision cascade ([cfe6970](https://github.com/claritylabs-inc/cl-sdk/commit/cfe69701608d35c181b2a5e4000ce04db7c64f00))
+* integrate evidence-gated decisions across SDK workflows ([7d7801f](https://github.com/claritylabs-inc/cl-sdk/commit/7d7801f5b65af7404d516f1bb074620dcdee5cb0))
+
 # [4.6.0](https://github.com/claritylabs-inc/cl-sdk/compare/v4.5.0...v4.6.0) (2026-08-11)
 
 
