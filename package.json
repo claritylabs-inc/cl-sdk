@@ -16,6 +16,11 @@
       "import": "./dist/application.mjs",
       "require": "./dist/application.js"
     },
+    "./decisions": {
+      "types": "./dist/decisions.d.ts",
+      "import": "./dist/decisions.mjs",
+      "require": "./dist/decisions.js"
+    },
     "./policy-taxonomy": {
       "types": "./dist/policy-taxonomy.d.ts",
       "import": "./dist/policy-taxonomy.mjs",
@@ -37,6 +42,7 @@
     "check:acord-taxonomy": "node scripts/generate-acord-taxonomy.mjs --check",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:decisions-bundle": "npm run build && node scripts/check-decisions-bundle.mjs",
     "test:watch": "vitest"
   },
   "peerDependencies": {
@@ -52,6 +58,7 @@
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^25.5.0",
     "better-sqlite3": "^11.7.0",
+    "esbuild": "^0.27.4",
     "pdf-lib": "^1.17.1",
     "tsup": "^8.4.0",
     "typescript": "^5.8.0",
