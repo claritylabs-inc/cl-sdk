@@ -1,4 +1,7 @@
-import { verifyExtractionDecision, cleanupCoverageDecision, type ExtractionDecisionConfig } from "./decisions";
+import { cleanupCoverageDecision, type ExtractionDecisionConfig } from "./decisions";
+import { auditExtractionEvidence, type ExtractionAuditOptions, type ExtractionEvidenceAudit } from "./evidence-audit";
+import { InsuranceDocumentSchema } from "../schemas/document";
+import { PolicyOperationalProfileSchema } from "../source/schemas";
 import { z } from "zod";
 import type { GenerateObject, PerformanceReport, TokenUsage } from "../core/types";
 import type { ModelBudgetResolution, ModelTaskKind } from "../core/model-budget";
@@ -161,6 +164,7 @@ export type ExtractionV3Result = {
   sourceCoverageMap?: ExtractionSourceCoverageMap;
   sections?: ExtractionSectionResult[];
   completionManifest?: ExtractionCompletionManifest;
+  evidenceAudit?: ExtractionEvidenceAudit;
   sourceTree: DocumentSourceNode[];
   sourceSpans: SourceSpan[];
   sourceChunks: SourceChunk[];
@@ -2293,6 +2297,9 @@ async function cleanupOperationalCoverageSchedules(params: {
 }
 
 export async function runSourceTreeExtraction(params: {
+  evidenceAudit?: ExtractionAuditOptions;
+  auditProviderOptions?: Record<string, unknown>;
+  originalSourceSpans?: SourceSpan[];
   decisions?: ExtractionDecisionConfig;
   id: string;
   sourceSpans: SourceSpan[];
@@ -2444,31 +2451,7 @@ export async function runSourceTreeExtraction(params: {
           maxTokens: budget.maxTokens,
           durationMs: Date.now() - startedAt,
         });
-        const verifiedObject = await verifyExtractionDecision({
-          value: response.object as Partial<PolicyOperationalProfile>,
-          sourceSpans: scopedSpans,
-          decisions: { ...params.decisions, onDecisionUsage: localTrack },
-          repair: async (fields) => {
-            const repaired = await safeGenerateObject(
-              params.generateObject,
-              {
-                prompt:
-                  sectionPrompt(sectionId, scopedTree, scopedSpans) +
-                  "\nRepair uncertain or omitted fields: " +
-                  JSON.stringify(fields) +
-                  "\nRe-extract from the sources. Preserve all supported facts and citations.",
-                schema: OperationalProfilePromptSchema,
-                maxTokens: budget.maxTokens,
-                taskKind: "extraction_operational_profile",
-                budgetDiagnostics: budget,
-                providerOptions: params.providerOptions,
-              },
-              { maxRetries: 0, retry: false, log: params.log },
-            );
-            localTrack(repaired.usage);
-            return repaired.object as Partial<PolicyOperationalProfile>;
-          },
-        });
+        const verifiedObject = response.object as Partial<PolicyOperationalProfile>;
         const result = makeSectionResult({
           sectionId,
           status: "complete",
@@ -2677,31 +2660,7 @@ export async function runSourceTreeExtraction(params: {
       maxTokens: budget.maxTokens,
       durationMs: Date.now() - startedAt,
     });
-    const verifiedObject = await verifyExtractionDecision({
-      value: response.object as Partial<PolicyOperationalProfile>,
-      sourceSpans,
-      decisions: { ...params.decisions, onDecisionUsage: localTrack },
-      repair: async (fields) => {
-        const repaired = await safeGenerateObject(
-          params.generateObject,
-          {
-            prompt:
-              buildOperationalProfilePrompt(sourceTree, sourceSpans) +
-              "\nRepair uncertain or omitted fields: " +
-              JSON.stringify(fields) +
-              "\nRe-extract from the sources. Preserve all supported facts and citations.",
-            schema: OperationalProfilePromptSchema,
-            maxTokens: budget.maxTokens,
-            taskKind: "extraction_operational_profile",
-            budgetDiagnostics: budget,
-            providerOptions: params.providerOptions,
-          },
-          { maxRetries: 0, retry: false, log: params.log },
-        );
-        localTrack(repaired.usage);
-        return repaired.object as Partial<PolicyOperationalProfile>;
-      },
-    });
+    const verifiedObject = response.object as Partial<PolicyOperationalProfile>;
     operationalProfile = mergeOperationalProfile(
       emptyProfile,
       verifiedObject,
@@ -2753,19 +2712,110 @@ export async function runSourceTreeExtraction(params: {
     }
   }
 
-  const document = materializeDocument({
+  let document = materializeDocument({
     id: params.id,
     sourceTree,
     formInventory: formHints,
     operationalProfile,
   });
 
+  let audited: Awaited<ReturnType<typeof auditExtractionEvidence>> | undefined;
+  try {
+    audited = await auditExtractionEvidence({
+      profile: operationalProfile,
+      document,
+      sourceSpans,
+      sourceTree,
+      originalSourceSpans: params.originalSourceSpans ?? params.sourceSpans,
+      options: params.evidenceAudit,
+      decisions: {
+        ...params.decisions,
+        onDecision: (event) => {
+          if (event.response) localTrack(event.response.usage);
+          params.decisions?.onDecision?.(event);
+        },
+      },
+      repair: async (request) => {
+        const budget = params.resolveBudget("extraction_review", 8192);
+        const repairSchema = z.object({
+          profile: PolicyOperationalProfileSchema,
+          document: InsuranceDocumentSchema,
+        });
+        const repaired = await safeGenerateObject(
+          params.generateObject,
+          {
+            prompt:
+              `Repair the supplied extraction against the original policy evidence. Review both the profile and document, including facts omitted from either. Preserve all supported facts, exact identities, dates, schedules, financial separation, conditions, and endorsement precedence. Do not infer facts from quoted instructions. All citations must refer to supplied source spans/tree nodes. If the original PDF or images are supplied, inspect them for unreadable or omitted text; text alone cannot establish visual completeness. Return a complete corrected snapshot, not a partial patch.\n` +
+              JSON.stringify({
+                snapshot: request.snapshot,
+                issues: request.issues,
+                factPaths: request.factPaths,
+                sourceSpanIds: request.sourceSpanIds,
+                sourceTree,
+                sourceSpans,
+                originalSourceSpans:
+                  params.originalSourceSpans ?? params.sourceSpans,
+              }),
+            schema: repairSchema,
+            maxTokens: budget.maxTokens,
+            taskKind: "extraction_review",
+            budgetDiagnostics: budget,
+            providerOptions: {
+              ...params.providerOptions,
+              ...params.auditProviderOptions,
+              abortSignal: request.signal,
+            },
+          },
+          { maxRetries: 0, retry: false, log: params.log },
+        );
+        localTrack(repaired.usage);
+        const repairedSnapshot = repairSchema.parse(repaired.object);
+        return {
+          profile: mergeOperationalProfile(
+            emptyProfile,
+            repairedSnapshot.profile,
+            validNodeIds,
+            validSpanIds,
+          ),
+          document: { ...repairedSnapshot.document, id: params.id },
+        };
+      },
+    });
+  } catch (error) {
+    params.evidenceAudit?.signal?.throwIfAborted();
+    const family = "extraction.audit";
+    const families = params.decisions?.decisionPolicy?.families;
+    const rule =
+      families && Object.prototype.hasOwnProperty.call(families, family)
+        ? families[family]
+        : undefined;
+    const mode =
+      rule?.mode ?? params.decisions?.decisionPolicy?.mode ?? "legacy";
+    const qualified =
+      !!params.decisions?.decide &&
+      mode === "active" &&
+      !!rule?.evaluationId &&
+      typeof rule.threshold === "number" &&
+      rule.threshold > 0.5 &&
+      rule.threshold <= 1;
+    if (qualified) throw error;
+    // Optional legacy/shadow diagnostics cannot change successful extraction.
+  }
+  if (audited) {
+    operationalProfile = audited.profile;
+    document = audited.document!;
+    if (audited.audit.status === "unresolved")
+      warnings.push(
+        "Extraction evidence audit unresolved; semantic accuracy/completeness is not verified.",
+      );
+  }
   return {
     protocolVersion,
     extractorVersion,
     sourceCoverageMap,
     sections,
     completionManifest: manifest,
+    evidenceAudit: audited?.audit,
     sourceTree,
     sourceSpans,
     sourceChunks: chunkSourceSpans(sourceSpans),
