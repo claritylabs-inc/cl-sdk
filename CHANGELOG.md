@@ -1,3 +1,22 @@
+# [4.8.0](https://github.com/claritylabs-inc/cl-sdk/compare/v4.7.1...v4.8.0) (2026-09-17)
+
+
+### Bug Fixes
+
+* **extraction:** bind complete-context audit receipts and support Zod peers ([9904f0a](https://github.com/claritylabs-inc/cl-sdk/commit/9904f0ac32a70450e47a4470653980d531b65230))
+* **extraction:** partition audit questions before source context ([9049b51](https://github.com/claritylabs-inc/cl-sdk/commit/9049b51f0670841993614d1e548edbb2a5e0f728))
+
+
+### Features
+
+* audit extraction evidence in both directions ([a058a15](https://github.com/claritylabs-inc/cl-sdk/commit/a058a15963213fcc140ed3af84c46fca8f002468))
+
+
+### Performance Improvements
+
+* **extraction:** index complete source identities once per audit ([5b2959f](https://github.com/claritylabs-inc/cl-sdk/commit/5b2959f3055e4cda43d617406a9140a0115a6a3c))
+* **extraction:** measure invariant audit state once per round ([67386d1](https://github.com/claritylabs-inc/cl-sdk/commit/67386d142a5131c27be96986cb9d3e32bf3c1b58))
+
 ## [4.7.1](https://github.com/claritylabs-inc/cl-sdk/compare/v4.7.0...v4.7.1) (2026-09-17)
 
 
