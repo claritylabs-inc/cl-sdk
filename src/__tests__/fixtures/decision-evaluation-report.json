@@ -1,0 +1,233 @@
+{
+  "model": "jev-1.13.0",
+  "dataset": "synthetic-contract-smoke-v1",
+  "productionQualified": false,
+  "reason": "Synthetic fixtures; no paired reasoning workflow baseline, representative insurance corpus or workflow cost measurement",
+  "thresholdSelectedOnCalibration": 0.9,
+  "calibrationCount": 8,
+  "heldOutCount": 8,
+  "heldOutCorrect": 8,
+  "heldOutAccepted": 8,
+  "heldOutAcceptedCorrect": 8,
+  "results": [
+    {
+      "id": "cal-supported-limit",
+      "split": "calibration",
+      "expected": true,
+      "probability": 0.98,
+      "correct": true,
+      "durationMs": 414,
+      "model": "jev-1.13.0",
+      "usage": {
+        "input_tokens": 399,
+        "output_tokens": 20
+      }
+    },
+    {
+      "id": "cal-wrong-amount",
+      "split": "calibration",
+      "expected": false,
+      "probability": 0.02,
+      "correct": true,
+      "durationMs": 348,
+      "model": "jev-1.13.0",
+      "usage": {
+        "input_tokens": 399,
+        "output_tokens": 20
+      }
+    },
+    {
+      "id": "cal-exact-policy",
+      "split": "calibration",
+      "expected": true,
+      "probability": 0.96,
+      "correct": true,
+      "durationMs": 148,
+      "model": "jev-1.13.0",
+      "usage": {
+        "input_tokens": 370,
+        "output_tokens": 20
+      }
+    },
+    {
+      "id": "cal-namesake",
+      "split": "calibration",
+      "expected": false,
+      "probability": 0.07,
+      "correct": true,
+      "durationMs": 145,
+      "model": "jev-1.13.0",
+      "usage": {
+        "input_tokens": 360,
+        "output_tokens": 20
+      }
+    },
+    {
+      "id": "cal-deductible",
+      "split": "calibration",
+      "expected": true,
+      "probability": 0.96,
+      "correct": true,
+      "durationMs": 161,
+      "model": "jev-1.13.0",
+      "usage": {
+        "input_tokens": 363,
+        "output_tokens": 20
+      }
+    },
+    {
+      "id": "cal-quoted-instruction",
+      "split": "calibration",
+      "expected": false,
+      "probability": 0.02,
+      "correct": true,
+      "durationMs": 166,
+      "model": "jev-1.13.0",
+      "usage": {
+        "input_tokens": 355,
+        "output_tokens": 20
+      }
+    },
+    {
+      "id": "cal-missing",
+      "split": "calibration",
+      "expected": false,
+      "probability": 0.02,
+      "correct": true,
+      "durationMs": 176,
+      "model": "jev-1.13.0",
+      "usage": {
+        "input_tokens": 340,
+        "output_tokens": 20
+      }
+    },
+    {
+      "id": "cal-stale",
+      "split": "calibration",
+      "expected": false,
+      "probability": 0.03,
+      "correct": true,
+      "durationMs": 135,
+      "model": "jev-1.13.0",
+      "usage": {
+        "input_tokens": 369,
+        "output_tokens": 20
+      }
+    },
+    {
+      "id": "held-aggregate",
+      "split": "held_out",
+      "expected": true,
+      "probability": 0.98,
+      "correct": true,
+      "durationMs": 114,
+      "model": "jev-1.13.0",
+      "usage": {
+        "input_tokens": 396,
+        "output_tokens": 20
+      }
+    },
+    {
+      "id": "held-wrong-scope",
+      "split": "held_out",
+      "expected": false,
+      "probability": 0.02,
+      "correct": true,
+      "durationMs": 238,
+      "model": "jev-1.13.0",
+      "usage": {
+        "input_tokens": 379,
+        "output_tokens": 20
+      }
+    },
+    {
+      "id": "held-endorsement",
+      "split": "held_out",
+      "expected": false,
+      "probability": 0.04,
+      "correct": true,
+      "durationMs": 125,
+      "model": "jev-1.13.0",
+      "usage": {
+        "input_tokens": 351,
+        "output_tokens": 20
+      }
+    },
+    {
+      "id": "held-premium",
+      "split": "held_out",
+      "expected": true,
+      "probability": 0.97,
+      "correct": true,
+      "durationMs": 221,
+      "model": "jev-1.13.0",
+      "usage": {
+        "input_tokens": 364,
+        "output_tokens": 20
+      }
+    },
+    {
+      "id": "held-financial-separation",
+      "split": "held_out",
+      "expected": false,
+      "probability": 0.03,
+      "correct": true,
+      "durationMs": 134,
+      "model": "jev-1.13.0",
+      "usage": {
+        "input_tokens": 364,
+        "output_tokens": 20
+      }
+    },
+    {
+      "id": "held-missing-candidate",
+      "split": "held_out",
+      "expected": false,
+      "probability": 0.03,
+      "correct": true,
+      "durationMs": 120,
+      "model": "jev-1.13.0",
+      "usage": {
+        "input_tokens": 360,
+        "output_tokens": 20
+      }
+    },
+    {
+      "id": "held-identity",
+      "split": "held_out",
+      "expected": false,
+      "probability": 0.02,
+      "correct": true,
+      "durationMs": 134,
+      "model": "jev-1.13.0",
+      "usage": {
+        "input_tokens": 362,
+        "output_tokens": 20
+      }
+    },
+    {
+      "id": "held-quoted-stale",
+      "split": "held_out",
+      "expected": false,
+      "probability": 0.02,
+      "correct": true,
+      "durationMs": 208,
+      "model": "jev-1.13.0",
+      "usage": {
+        "input_tokens": 377,
+        "output_tokens": 20
+      }
+    }
+  ],
+  "runDateUtc": "2026-09-17",
+  "jevOnlyMetrics": {
+    "calls": 16,
+    "inputTokens": 5908,
+    "outputTokens": 320,
+    "p50Ms": 148,
+    "p95Ms": 414
+  },
+  "pairedReasoningBaseline": null,
+  "totalWorkflowCostNanoUsd": null,
+  "thresholdIsProductionRecommendation": false
+}

@@ -169,6 +169,7 @@ export function createExtractor(config: ExtractorConfig) {
     if (sourceSpans.length > 0) {
       onProgress?.("Building source-native document tree...");
       const v3 = await runSourceTreeExtraction({
+        decisions: config,
         id,
         sourceSpans,
         generateObject,

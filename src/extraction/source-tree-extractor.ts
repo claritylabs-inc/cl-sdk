@@ -1,3 +1,4 @@
+import { verifyExtractionDecision, cleanupCoverageDecision, type ExtractionDecisionConfig } from "./decisions";
 import { z } from "zod";
 import type { GenerateObject, PerformanceReport, TokenUsage } from "../core/types";
 import type { ModelBudgetResolution, ModelTaskKind } from "../core/model-budget";
@@ -2200,6 +2201,7 @@ function coverageCleanupGroups(profile: PolicyOperationalProfile): CoverageClean
 }
 
 async function cleanupOperationalCoverageSchedules(params: {
+  decisions?: ExtractionDecisionConfig;
   sourceTree: DocumentSourceNode[];
   sourceSpans: SourceSpan[];
   operationalProfile: PolicyOperationalProfile;
@@ -2209,6 +2211,7 @@ async function cleanupOperationalCoverageSchedules(params: {
   trackUsage: TrackUsage;
   log?: (message: string) => Promise<void>;
 }): Promise<{ operationalProfile: PolicyOperationalProfile; warnings: string[] }> {
+  return cleanupCoverageDecision({ ...params, decisions: { ...params.decisions, onDecisionUsage: params.trackUsage }, fallback: async () => {
   const groups = coverageCleanupGroups(params.operationalProfile);
   const validNodeIds = new Set(params.sourceTree.map((node) => node.id));
   const validSpanIds = new Set(params.sourceSpans.map((span) => span.id));
@@ -2266,9 +2269,11 @@ async function cleanupOperationalCoverageSchedules(params: {
     ),
     warnings: cleanup.warnings,
   };
+  }});
 }
 
 export async function runSourceTreeExtraction(params: {
+  decisions?: ExtractionDecisionConfig;
   id: string;
   sourceSpans: SourceSpan[];
   generateObject: GenerateObject;
@@ -2397,6 +2402,18 @@ export async function runSourceTreeExtraction(params: {
           maxTokens: budget.maxTokens,
           durationMs: Date.now() - startedAt,
         });
+        const verifiedObject = await verifyExtractionDecision({
+          value: response.object as Partial<PolicyOperationalProfile>, sourceSpans: scopedSpans,
+          decisions: { ...params.decisions, onDecisionUsage: localTrack },
+          repair: async fields => {
+            const repaired = await safeGenerateObject(params.generateObject, {
+              prompt: sectionPrompt(sectionId, scopedTree, scopedSpans) + "\nRepair uncertain or omitted fields: " + JSON.stringify(fields) + "\nRe-extract from the sources. Preserve all supported facts and citations.",
+              schema: OperationalProfilePromptSchema, maxTokens: budget.maxTokens, taskKind: "extraction_operational_profile", budgetDiagnostics: budget, providerOptions: params.providerOptions,
+            }, { maxRetries: 0, retry: false, log: params.log });
+            localTrack(repaired.usage);
+            return repaired.object as Partial<PolicyOperationalProfile>;
+          },
+        });
         const result = makeSectionResult({
           sectionId,
           status: "complete",
@@ -2405,7 +2422,7 @@ export async function runSourceTreeExtraction(params: {
           sourceSpanIds,
           operationalProfile: sectionProfile(
             sectionId,
-            response.object as Partial<PolicyOperationalProfile>,
+            verifiedObject,
           ),
           warnings: [],
         });
@@ -2443,6 +2460,7 @@ export async function runSourceTreeExtraction(params: {
 
     if (params.coverageRecovery?.enabled && !coverage.reused) {
       const recovery = await recoverOperationalProfileCoverage({
+        decisions: params.decisions,
         sourceTree,
         sourceSpans,
         operationalProfile,
@@ -2526,6 +2544,7 @@ export async function runSourceTreeExtraction(params: {
     } else {
       try {
         const cleanup = await cleanupOperationalCoverageSchedules({
+          decisions: params.decisions,
           sourceTree,
           sourceSpans,
           operationalProfile,
@@ -2597,15 +2616,28 @@ export async function runSourceTreeExtraction(params: {
       maxTokens: budget.maxTokens,
       durationMs: Date.now() - startedAt,
     });
+    const verifiedObject = await verifyExtractionDecision({
+      value: response.object as Partial<PolicyOperationalProfile>, sourceSpans,
+      decisions: { ...params.decisions, onDecisionUsage: localTrack },
+      repair: async fields => {
+        const repaired = await safeGenerateObject(params.generateObject, {
+          prompt: buildOperationalProfilePrompt(sourceTree, sourceSpans) + "\nRepair uncertain or omitted fields: " + JSON.stringify(fields) + "\nRe-extract from the sources. Preserve all supported facts and citations.",
+          schema: OperationalProfilePromptSchema, maxTokens: budget.maxTokens, taskKind: "extraction_operational_profile", budgetDiagnostics: budget, providerOptions: params.providerOptions,
+        }, { maxRetries: 0, retry: false, log: params.log });
+        localTrack(repaired.usage);
+        return repaired.object as Partial<PolicyOperationalProfile>;
+      },
+    });
     operationalProfile = mergeOperationalProfile(
       emptyProfile,
-      response.object as Partial<PolicyOperationalProfile>,
+      verifiedObject,
       validNodeIds,
       validSpanIds,
     );
 
     if (params.coverageRecovery?.enabled) {
       const recovery = await recoverOperationalProfileCoverage({
+        decisions: params.decisions,
         sourceTree,
         sourceSpans,
         operationalProfile,
@@ -2623,6 +2655,7 @@ export async function runSourceTreeExtraction(params: {
     if (operationalProfile.coverages.length > 0) {
       try {
         const cleanup = await cleanupOperationalCoverageSchedules({
+          decisions: params.decisions,
           sourceTree,
           sourceSpans,
           operationalProfile,

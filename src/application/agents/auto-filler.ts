@@ -1,7 +1,15 @@
+import {
+  contextMatchesDecision,
+  type ApplicationDecisionConfig,
+} from "../decisions";
 import type { GenerateObject, TokenUsage } from "../../core/types";
 import { withRetry } from "../../core/retry";
 import { buildAutoFillPrompt } from "../../prompts/application/auto-fill";
-import { AutoFillResultSchema, type AutoFillResult, type ApplicationField } from "../../schemas/application";
+import {
+  AutoFillResultSchema,
+  type AutoFillResult,
+  type ApplicationField,
+} from "../../schemas/application";
 import type { BackfillProvider, PriorAnswer } from "../store";
 
 /**
@@ -14,27 +22,30 @@ export async function autoFillFromContext(
   generateObject: GenerateObject,
   providerOptions?: Record<string, unknown>,
   maxTokens = 4096,
+  decisions: ApplicationDecisionConfig = {},
 ): Promise<{ result: AutoFillResult; usage?: TokenUsage }> {
-  const fieldSummaries = fields.map((f) => ({
-    id: f.id,
-    label: f.label,
-    fieldType: f.fieldType,
-    section: f.section,
-  }));
+  return contextMatchesDecision(fields, orgContext, decisions, async () => {
+    const fieldSummaries = fields.map((f) => ({
+      id: f.id,
+      label: f.label,
+      fieldType: f.fieldType,
+      section: f.section,
+    }));
 
-  const prompt = buildAutoFillPrompt(fieldSummaries, orgContext);
+    const prompt = buildAutoFillPrompt(fieldSummaries, orgContext);
 
-  const { object, usage } = await withRetry(() =>
-    generateObject({
-      prompt,
-      schema: AutoFillResultSchema,
-      maxTokens,
-      taskKind: "application_auto_fill",
-      providerOptions,
-    }),
-  );
+    const { object, usage } = await withRetry(() =>
+      generateObject({
+        prompt,
+        schema: AutoFillResultSchema,
+        maxTokens,
+        taskKind: "application_auto_fill",
+        providerOptions,
+      }),
+    );
 
-  return { result: object as AutoFillResult, usage };
+    return { result: object as AutoFillResult, usage };
+  });
 }
 
 /**

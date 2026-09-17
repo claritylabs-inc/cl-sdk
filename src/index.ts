@@ -218,3 +218,4 @@ export * from "./core/decisions";
 export * from "./core/decision-questions";
 
 export * from "./core/decision-validation";
+export * from "./core/decision-evaluation";

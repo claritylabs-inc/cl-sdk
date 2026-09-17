@@ -90,3 +90,13 @@ Important extraction contract:
 Versioning and publishing are automated via `semantic-release` and the GitHub Actions release workflow. Do not run `npm publish` locally and do not manually bump `package.json` for a normal SDK release. Commit the SDK change and push the configured release branch; today that branch is `master` because `.releaserc.json` and `.github/workflows/release.yml` both target `master`. If the release branch is renamed later, follow the configured release branch rather than assuming `main`.
 
 When Glass needs a new SDK behavior, push the SDK release branch first and let the workflow publish the package. After npm shows the new version, update both Glass dependency specs that consume `@claritylabs/cl-sdk` together and rerun Glass's SDK alignment check.
+
+### Optional structured decisions
+
+- `core/decisions.ts` owns provider-agnostic `Decide`, `DecisionPolicy`, `parseDecisionPolicy`, and `runDecision<T>`. No router dependency, credentials, or fixed Jev model belongs in the SDK.
+- `DecideRequest` is the canonical wire shape with required tenant ID. Local `DecisionInput` omits tenancy for a host closure and adds a nonserialized AbortSignal. Responses preserve model version, usage, priced/unpriced cost, and lineage.
+- Structured instructions/criteria are JSON entries, never flattened prompt strings. Choice/Score distributions and Noul probabilities remain distinct. `accept` is a pure projection; side effects belong after the cascade returns.
+- Legacy is default. Shadow always returns the existing result. Active families require an evaluation ID and calibrated threshold; synthetic tests cannot qualify activation. Family overrides take precedence over global mode.
+- Extraction decisions integrate at cleanup, recovery-region discovery, and per-field verification/repair. Source trees, evidence ledgers, shard coverage, and finalization invariants remain code-owned. Novel extraction, missing candidates, conflicting endorsements, and unsupported values retain reasoning.
+- Query decisions preserve exact citation identity and quotes. Application decisions select bounded values; free-form parsing, PDF extraction, email writing, and authorization remain their existing paths.
+- Review `DECISIONS.md` for the complete applicability inventory and release gates. Tests validate control flow; measured quality needs held-out representative evidence.

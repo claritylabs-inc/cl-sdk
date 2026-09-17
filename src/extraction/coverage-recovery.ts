@@ -1,3 +1,6 @@
+import { decisionJson, decisionOptions, runDecision, type DecisionConfig } from "../core/decisions";
+import { noulQuestion } from "../core/decision-questions";
+import type { ExtractionDecisionConfig } from "./decisions";
 import { z } from "zod";
 import type { GenerateObject, LogFn, PerformanceReport, TokenUsage } from "../core/types";
 import { resolveModelBudget } from "../core/model-budget";
@@ -736,6 +739,7 @@ export function disabledCoverageRecoveryDiagnostics(): CoverageRecoveryDiagnosti
 }
 
 export async function recoverOperationalProfileCoverage(params: {
+  decisions?: ExtractionDecisionConfig;
   sourceTree: DocumentSourceNode[];
   sourceSpans: SourceSpan[];
   operationalProfile: PolicyOperationalProfile;
@@ -753,6 +757,18 @@ export async function recoverOperationalProfileCoverage(params: {
       const sketches = pageBatch.map((page) => pageSketch(page, params.sourceTree, params.sourceSpans));
       const budget = params.resolveBudget("extraction_coverage_recovery", 8_192);
       const startedAt = Date.now();
+      const discovery = await runDecision<z.infer<typeof RecoveryRegionDiscoverySchema>>({
+        ...decisionOptions(params.decisions ?? {}), family: "extraction.recovery_regions",
+        state: decisionJson({ sketches, sourceSpans: params.sourceSpans.filter(span => overlapsPageRange({ pageStart: spanPageStart(span), pageEnd: spanPageEnd(span) }, pageBatch[0] - 1, pageBatch[pageBatch.length - 1] + 1)) }),
+        questions: Object.fromEntries(pageBatch.map(page => [`p${page}`, noulQuestion({ question: "Does this page contain or continue any coverage, coverage schedule, limits, deductibles, premiums, taxes, fees or other financial policy facts requiring extraction? Include modifying endorsements and continuation rows.", page })])),
+        accept: answers => ({
+          regions: pageBatch.flatMap(page => {
+            const a = answers[`p${page}`];
+            return a.type === "noul" && a.noul > 0.5 ? [{ pageStart: Math.max(pages[0], page - 1), pageEnd: Math.min(pages[pages.length - 1], page + 1), reason: "Source-backed decision selected coverage/financial region", sourceNodeIds: [], sourceSpanIds: [] }] : [];
+          }), warnings: [],
+        }),
+        onUsage: usage => { diagnostics.modelCallCount += 1; params.trackUsage(usage); },
+        fallback: async () => {
       diagnostics.modelCallCount += 1;
       const response = await safeGenerateObject(
         params.generateObject,
@@ -781,7 +797,9 @@ export async function recoverOperationalProfileCoverage(params: {
         maxTokens: budget.maxTokens,
         durationMs: Date.now() - startedAt,
       });
-      const discovery = response.object as z.infer<typeof RecoveryRegionDiscoverySchema>;
+      return response.object as z.infer<typeof RecoveryRegionDiscoverySchema>;
+        },
+      });
       discoveredRegions.push(...discovery.regions);
       diagnostics.warnings.push(...discovery.warnings);
     }
@@ -858,7 +876,7 @@ export async function recoverOperationalProfileCoverage(params: {
   }
 }
 
-export async function runCoverageRecovery(params: {
+export async function runCoverageRecovery(params: DecisionConfig & {
   sourceTree: DocumentSourceNode[];
   sourceSpans: SourceSpan[];
   operationalProfile: PolicyOperationalProfile;
@@ -875,6 +893,7 @@ export async function runCoverageRecovery(params: {
     totalModelCallDurationMs: 0,
   };
   const recovery = await recoverOperationalProfileCoverage({
+    decisions: params,
     sourceTree: params.sourceTree,
     sourceSpans: params.sourceSpans,
     operationalProfile: params.operationalProfile,
