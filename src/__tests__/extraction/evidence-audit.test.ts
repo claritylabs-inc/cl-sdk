@@ -1024,3 +1024,83 @@ describe("original source identity indexing", () => {
     }
   });
 });
+
+describe("invariant state byte accounting", () => {
+  it("encodes oversized invariant source state only once even when no units fit", async () => {
+    const binding = fixture("保険証券 🛡️ " + "source ".repeat(12_000));
+    const config = active();
+    const decide = vi.fn(config.decide!);
+    const encode = vi.spyOn(TextEncoder.prototype, "encode");
+    try {
+      const result = await auditExtractionEvidence({
+        ...binding,
+        decisions: { ...config, decide },
+        options: { maxRepairRounds: 0 },
+      });
+      expect(result.audit.status).toBe("unresolved");
+      expect(result.audit.forward.total).toBeGreaterThan(1);
+      expect(decide).not.toHaveBeenCalled();
+      const fullStateEncodes = encode.mock.calls.filter(([text]) =>
+        String(text).includes('"factIndexComplete":true'),
+      );
+      expect(fullStateEncodes).toHaveLength(1);
+    } finally {
+      encode.mockRestore();
+    }
+  });
+
+  it("matches Unicode request bytes exactly at the single-unit acceptance boundary", async () => {
+    const binding = fixture('保険証券 ABC. Café 🛡️. "Quoted"\nsource.');
+    binding.profile.policyNumber!.value = "証券-🛡️-ABC";
+    const config = active();
+    const decide = vi.fn(config.decide!);
+    const options = {
+      maxQuestionsPerCall: 4,
+      maxRepairRounds: 0,
+      executionBudgetMs: 30_000,
+    };
+    const probe = await auditExtractionEvidence({
+      ...binding,
+      decisions: { ...config, decide },
+      options,
+    });
+    expect(probe.audit.status).toBe("verified_text");
+    const encoder = new TextEncoder();
+    const requestSizes = decide.mock.calls.map(([request]) => {
+      const { signal: _signal, ...wire } = request;
+      return {
+        actual: encoder.encode(JSON.stringify(wire)).length + 1024,
+        planned:
+          encoder.encode(
+            JSON.stringify({
+              ...wire,
+              executionBudgetMs: options.executionBudgetMs,
+            }),
+          ).length + 1024,
+      };
+    });
+    expect(
+      probe.audit.metrics.batches.map((batch) => batch.requestBytes),
+    ).toEqual(requestSizes.map((size) => size.actual));
+    const maxRequestBytes = Math.max(
+      ...requestSizes.map((size) => size.planned),
+    );
+    const atBoundary = await auditExtractionEvidence({
+      ...binding,
+      decisions: active(),
+      options: { ...options, maxRequestBytes },
+    });
+    expect(atBoundary.audit.status).toBe("verified_text");
+    const belowBoundary = await auditExtractionEvidence({
+      ...binding,
+      decisions: active(),
+      options: { ...options, maxRequestBytes: maxRequestBytes - 1 },
+    });
+    expect(belowBoundary.audit.status).toBe("unresolved");
+    expect(
+      belowBoundary.audit.issues.some(
+        (issue) => issue.code === "oversized_context",
+      ),
+    ).toBe(true);
+  });
+});

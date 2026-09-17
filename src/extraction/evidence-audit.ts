@@ -266,21 +266,26 @@ export async function auditExtractionEvidence(
         sourceUnitCount: inventory.units.length,
       });
       const sourceContextFingerprint = stableHash(allReadable);
+      const stateBytes = encoder.encode(JSON.stringify(state)).length;
       function makeBatch(selected: Unit[]): Batch {
         const questions = Object.assign(
           {},
           ...selected.map((unit) => unit.questions),
         ) as Record<string, DecisionQuestion>;
-        // Reserve the host tenancy/lineage envelope as well as SDK request fields.
+        // Replace the four-byte null with the premeasured invariant state.
+        // Include the host tenancy/lineage reserve as well as SDK request fields.
         const bytes =
           encoder.encode(
             JSON.stringify({
               task: FAMILY,
-              state,
+              state: null,
               questions,
               executionBudgetMs: budget,
             }),
-          ).length + 1024;
+          ).length -
+          4 +
+          stateBytes +
+          1024;
         return {
           units: selected,
           questions,
