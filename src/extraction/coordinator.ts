@@ -1,3 +1,4 @@
+import type { DecisionConfig } from "../core/decisions";
 import type { GenerateObject, TokenUsage, LogFn, PdfInput, PerformanceReport, ModelCallReport } from "../core/types";
 import type { QualityGateMode } from "../core/quality";
 import type { ModelBudgetConstraint, ModelCapabilities, ModelTaskKind } from "../core/model-budget";
@@ -23,7 +24,7 @@ import {
 } from "./source-tree-extractor";
 import type { CoverageRecoveryDiagnostics } from "./coverage-recovery";
 
-export interface ExtractorConfig {
+export interface ExtractorConfig extends DecisionConfig {
   generateObject: GenerateObject;
   onTokenUsage?: (usage: TokenUsage) => void;
   onProgress?: (message: string) => void;

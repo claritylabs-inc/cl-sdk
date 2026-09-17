@@ -1,3 +1,4 @@
+import type { DecisionConfig } from "../core/decisions";
 import type { GenerateText, GenerateObject, TokenUsage, LogFn } from "../core/types";
 import type { QualityGateMode } from "../core/quality";
 import type { ModelBudgetConstraint, ModelCapabilities, ModelTaskKind } from "../core/model-budget";
@@ -7,7 +8,7 @@ import type { QueryResult, Citation, QueryIntent, QueryAttachment, QueryRetrieva
 import type { QueryReviewReport } from "./quality";
 import type { SourceRetriever } from "../source";
 
-export interface QueryConfig {
+export interface QueryConfig extends DecisionConfig {
   generateText: GenerateText;
   generateObject: GenerateObject;
   documentStore: DocumentStore;
