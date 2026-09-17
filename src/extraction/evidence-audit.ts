@@ -36,7 +36,6 @@ type Unit = {
   id: string;
   direction: "forward" | "reverse";
   questions: Record<string, DecisionQuestion>;
-  contextIds: string[];
   fact?: AuditFact;
 };
 type Batch = {
@@ -157,33 +156,6 @@ export async function auditExtractionEvidence(
       if (!enabled) break;
       const catalog = auditSchemaCatalog(!!snapshot.document);
       const allReadable = inventory.units.filter(readableAuditSpan);
-      const bySpan = new Map(inventory.units.map((span) => [span.id, span]));
-      // Explicit page/tree relationships supply context; code never infers policy facts.
-      const contextIds = (ids: string[]) => {
-        const selected = new Set(ids);
-        for (const id of ids) {
-          const span = bySpan.get(id);
-          if (!span) continue;
-          for (const candidate of inventory.units) {
-            if (
-              (span.pageStart !== undefined &&
-                candidate.pageStart === span.pageStart) ||
-              (span.parentSpanId &&
-                candidate.parentSpanId === span.parentSpanId)
-            )
-              selected.add(candidate.id);
-          }
-          for (const node of params.sourceTree) {
-            if (
-              !["document", "page_group"].includes(node.kind) &&
-              node.sourceSpanIds.includes(id)
-            ) {
-              node.sourceSpanIds.forEach((sourceId) => selected.add(sourceId));
-            }
-          }
-        }
-        return [...selected].sort();
-      };
       const units: Unit[] = [];
       inventory.facts.forEach((fact, index) => {
         const id = `f${index}`;
@@ -196,7 +168,6 @@ export async function auditExtractionEvidence(
           id,
           direction: "forward",
           fact,
-          contextIds: contextIds(fact.sourceSpanIds),
           questions: {
             [`${id}_supported`]: noulQuestion({
               ...instructions,
@@ -227,7 +198,6 @@ export async function auditExtractionEvidence(
         const unit: Unit = {
           id,
           direction: "reverse",
-          contextIds: contextIds([span.id]),
           questions: {
             [`${id}_category`]: choiceQuestion(
               {
@@ -283,47 +253,42 @@ export async function auditExtractionEvidence(
       const factIndex = inventory.facts.map(
         ({ citationValid: _valid, ...fact }) => fact,
       );
+      const fullContext = allReadable.length === inventory.units.length;
+      const state = decisionJson({
+        scope: "Provided text only; visual completeness is never assessed.",
+        sourceFingerprint: inventory.sourceFingerprint,
+        resultFingerprint: inventory.resultFingerprint,
+        factIndex,
+        factIndexComplete: true,
+        schemaCatalog: catalog,
+        sourceUnits: allReadable,
+        sourceContextComplete: fullContext,
+        sourceUnitCount: inventory.units.length,
+      });
+      const sourceContextFingerprint = stableHash(allReadable);
       function makeBatch(selected: Unit[]): Batch {
-        const ids = new Set(selected.flatMap((unit) => unit.contextIds));
         const questions = Object.assign(
           {},
           ...selected.map((unit) => unit.questions),
         ) as Record<string, DecisionQuestion>;
-        function withContext(sourceUnits: typeof allReadable): Batch {
-          const fullContext = sourceUnits.length === allReadable.length;
-          const state = decisionJson({
-            scope: "Provided text only; visual completeness is never assessed.",
-            sourceFingerprint: inventory.sourceFingerprint,
-            resultFingerprint: inventory.resultFingerprint,
-            factIndex,
-            factIndexComplete: true,
-            schemaCatalog: catalog,
-            sourceUnits,
-            sourceContextComplete: fullContext,
-            sourceUnitCount: inventory.units.length,
-          });
-          // Reserve the host tenancy/lineage envelope as well as SDK request fields.
-          const bytes =
-            encoder.encode(
-              JSON.stringify({
-                task: FAMILY,
-                state,
-                questions,
-                executionBudgetMs: budget,
-              }),
-            ).length + 1024;
-          return {
-            units: selected,
-            questions,
-            state,
-            bytes,
-            fullContext,
-            sourceContextFingerprint: stableHash(sourceUnits),
-          };
-        }
-        const complete = withContext(allReadable);
-        if (complete.bytes <= maxBytes) return complete;
-        return withContext(allReadable.filter((span) => ids.has(span.id)));
+        // Reserve the host tenancy/lineage envelope as well as SDK request fields.
+        const bytes =
+          encoder.encode(
+            JSON.stringify({
+              task: FAMILY,
+              state,
+              questions,
+              executionBudgetMs: budget,
+            }),
+          ).length + 1024;
+        return {
+          units: selected,
+          questions,
+          state,
+          bytes,
+          fullContext,
+          sourceContextFingerprint,
+        };
       }
 
       const planned: Batch[] = [];
@@ -382,12 +347,14 @@ export async function auditExtractionEvidence(
             sourceContextFingerprint: batch.sourceContextFingerprint,
             outcome: "aborted",
           };
-          inflight++;
-          maxInflight = Math.max(maxInflight, inflight);
+          let sent = false;
           const batchStart = Date.now();
           try {
             const outcome = await runDecision({
               decide: async (request) => {
+                sent = true;
+                inflight++;
+                maxInflight = Math.max(maxInflight, inflight);
                 batch.units.forEach((unit) => attempts.add(unit.id));
                 const { signal: _signal, ...serialized } = request;
                 entry.requestBytes =
@@ -472,7 +439,7 @@ export async function auditExtractionEvidence(
               ),
             );
           } finally {
-            inflight--;
+            if (sent) inflight--;
             entry.durationMs = Date.now() - batchStart;
           }
         }

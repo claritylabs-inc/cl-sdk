@@ -354,7 +354,7 @@ describe("audit adversarial boundaries", () => {
     ]);
   });
 
-  it("cannot certify cross-unit endorsement precedence from disjoint local contexts", async () => {
+  it("does not spend on local support when complete cross-unit context cannot fit", async () => {
     const binding = fixture("Policy ABC. " + "context ".repeat(4500));
     const endorsement = buildSourceSpan(
       {
@@ -377,9 +377,9 @@ describe("audit adversarial boundaries", () => {
     });
     expect(result.audit.status).toBe("unresolved");
     expect(
-      result.audit.issues.some((issue) => issue.code === "cross_unit_context"),
+      result.audit.issues.some((issue) => issue.code === "oversized_context"),
     ).toBe(true);
-    expect(result.audit.reverse.attempted).toBe(2);
+    expect(result.audit.reverse.attempted).toBe(0);
     expect(result.audit.reverse.verified).toBe(0);
   });
 
@@ -882,5 +882,106 @@ describe("bound parser eligibility", () => {
     expect(() => parseExtractionEvidenceAudit(alias, binding)).toThrow();
     audit.metrics.maxConcurrency = 0;
     expect(() => parseExtractionEvidenceAudit(audit, binding)).toThrow();
+  });
+});
+
+describe("complete context and actual transport accounting", () => {
+  it("cannot call readable-only context complete when another supplied unit is an image", async () => {
+    const binding = fixture();
+    binding.sourceSpans.push({
+      ...binding.sourceSpans[0],
+      id: "image",
+      kind: "pdf_image",
+      pageStart: 2,
+    });
+    binding.sourceTree = buildDocumentSourceTree(binding.sourceSpans, "d");
+    const config = active();
+    const decide = vi.fn(config.decide!);
+    const result = await auditExtractionEvidence({
+      ...binding,
+      decisions: { ...config, decide },
+      options: { maxRepairRounds: 0 },
+    });
+    expect(result.audit.status).toBe("unresolved");
+    expect(result.audit.forward.verified).toBe(0);
+    for (const [request] of decide.mock.calls)
+      expect(
+        (request.state as { sourceContextComplete: boolean })
+          .sourceContextComplete,
+      ).toBe(false);
+  });
+
+  it("reports zero actual concurrency when policy validation bypasses transport", async () => {
+    const config = active();
+    const decide = vi.fn(config.decide!);
+    const result = await auditExtractionEvidence({
+      ...fixture(),
+      decisions: {
+        ...config,
+        decide,
+        decisionPolicy: { ...config.decisionPolicy!, timeoutMs: 50 },
+      },
+      options: { maxRepairRounds: 0 },
+    });
+    expect(result.audit.status).toBe("unresolved");
+    expect(result.audit.metrics.requestCount).toBe(0);
+    expect(result.audit.metrics.maxConcurrency).toBe(0);
+    expect(decide).not.toHaveBeenCalled();
+  });
+});
+
+describe("byte-budget partitioning", () => {
+  it("splits questions before dropping complete context when only smaller full-context calls fit", async () => {
+    const binding = fixture("Policy ABC. " + "source context ".repeat(400));
+    binding.sourceSpans.push(
+      buildSourceSpan(
+        {
+          documentId: "d",
+          sourceKind: "policy_pdf",
+          pageStart: 2,
+          text: "Endorsement: other terms unchanged. " + "context ".repeat(400),
+        },
+        1,
+      ),
+    );
+    binding.sourceTree = buildDocumentSourceTree(binding.sourceSpans, "d");
+    const probe = await auditExtractionEvidence({
+      ...binding,
+      decisions: active(),
+      options: { maxQuestionsPerCall: 4, maxRepairRounds: 0 },
+    });
+    expect(probe.audit.status).toBe("verified_text");
+    // Establish an actual transport-sized bound that fits each unit, but not all questions.
+    const maxRequestBytes =
+      Math.max(
+        ...probe.audit.metrics.batches.map((batch) => batch.requestBytes),
+      ) + 16;
+    const config = active();
+    const decide = vi.fn(config.decide!);
+    const result = await auditExtractionEvidence({
+      ...binding,
+      decisions: { ...config, decide },
+      options: {
+        maxQuestionsPerCall: 128,
+        maxRequestBytes,
+        maxRepairRounds: 0,
+      },
+    });
+    expect(result.audit.status).toBe("verified_text");
+    expect(decide.mock.calls.length).toBeGreaterThan(1);
+    for (const [request] of decide.mock.calls) {
+      const state = request.state as {
+        sourceContextComplete: boolean;
+        sourceUnits: unknown[];
+      };
+      expect(state.sourceContextComplete).toBe(true);
+      expect(state.sourceUnits).toHaveLength(2);
+    }
+    expect(
+      result.audit.metrics.batches.every(
+        (batch) => batch.requestBytes <= maxRequestBytes,
+      ),
+    ).toBe(true);
+    validateExtractionAuditBinding(result.audit, binding);
   });
 });
