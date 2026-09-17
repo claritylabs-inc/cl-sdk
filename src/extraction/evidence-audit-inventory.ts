@@ -50,11 +50,11 @@ export function inventoryExtractionEvidence(binding: ExtractionAuditBinding) {
   const issues: ExtractionAuditIssue[] = [];
   const issue = (code: ExtractionAuditIssue["code"], targetId: string) =>
     issues.push({ code, direction: "context", targetId });
+  const normalizedIdentities = new Set(
+    binding.sourceSpans.map((span) => stableHash(span)),
+  );
   const unrepresented = (binding.originalSourceSpans ?? []).filter(
-    (span) =>
-      !binding.sourceSpans.some(
-        (candidate) => stableHash(candidate) === stableHash(span),
-      ),
+    (span) => !normalizedIdentities.has(stableHash(span)),
   );
   const units = [...binding.sourceSpans, ...unrepresented];
   if (unrepresented.length)

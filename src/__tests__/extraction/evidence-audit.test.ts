@@ -12,6 +12,7 @@ import {
 import { decisionTestConfig } from "../fixtures/decision-test-helpers";
 import { inventoryExtractionEvidence } from "../../extraction/evidence-audit-inventory";
 import { stableHash } from "../../source/ids";
+import * as sourceIds from "../../source/ids";
 import type { DecisionInput } from "../../core/decisions";
 
 function fixture(
@@ -983,5 +984,43 @@ describe("byte-budget partitioning", () => {
       ),
     ).toBe(true);
     validateExtractionAuditBinding(result.audit, binding);
+  });
+});
+
+describe("original source identity indexing", () => {
+  it("bounds full-span hash work linearly while preserving exact original identity", () => {
+    const binding = fixture();
+    binding.sourceSpans = Array.from({ length: 200 }, (_, index) =>
+      buildSourceSpan(
+        {
+          documentId: "d",
+          sourceKind: "policy_pdf",
+          text: "Policy ABC. " + "source ".repeat(250) + index,
+          pageStart: 1,
+        },
+        index,
+      ),
+    );
+    binding.sourceTree = buildDocumentSourceTree(binding.sourceSpans, "d");
+    const originals = [...binding.sourceSpans];
+    originals[originals.length - 1] = {
+      ...originals[originals.length - 1],
+      pageStart: 2,
+    };
+    const spanObjects = new Set([...binding.sourceSpans, ...originals]);
+    const hash = vi.spyOn(sourceIds, "stableHash");
+    try {
+      const inventory = inventoryExtractionEvidence({
+        ...binding,
+        originalSourceSpans: originals,
+      });
+      expect(inventory.unrepresentedInputUnits).toBe(1);
+      const fullSpanHashes = hash.mock.calls.filter(([value]) =>
+        spanObjects.has(value as (typeof originals)[number]),
+      ).length;
+      expect(fullSpanHashes).toBeLessThanOrEqual(4 * originals.length);
+    } finally {
+      hash.mockRestore();
+    }
   });
 });
