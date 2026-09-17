@@ -119,7 +119,7 @@ jobs:
           echo "::error::npm publish failed for v$VERSION. Leaving the GitHub release and tag in place so a tombstoned npm version is not retried indefinitely. Push a follow-up fix release after resolving the npm state."
 
       - name: Verify release consistency
-        if: (steps.semantic.outputs.released == 'true' && steps.npm_publish.outputs.published == 'true') || steps.npm_publish_repair.outputs.published == 'true'
+        if: (steps.semantic.outputs.released == 'true' && steps.npm_publish.outputs.published == 'true') || (steps.semantic.outputs.released != 'true' && steps.npm_publish_repair.outputs.version != '')
         run: |
           VERSION="${{ steps.semantic.outputs.version || steps.npm_publish_repair.outputs.version }}"
           echo "Verifying release consistency for version $VERSION..."
@@ -127,13 +127,13 @@ jobs:
           gh release view "v$VERSION" --json tagName || exit 1
 
           NPM_VERIFIED=false
-          for i in 1 2 3 4 5 6; do
+          for i in $(seq 1 60); do
             if npm view "@claritylabs/cl-sdk@$VERSION" version 2>/dev/null; then
               echo "✓ npm package verified"
               NPM_VERIFIED=true
               break
             fi
-            echo "Waiting for npm to propagate... (attempt $i/6)"
+            echo "Waiting for npm to finish processing... (attempt $i/60)"
             sleep 10
           done
 
