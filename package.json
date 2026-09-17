@@ -21,6 +21,11 @@
       "import": "./dist/decisions.mjs",
       "require": "./dist/decisions.js"
     },
+    "./extraction-audit": {
+      "types": "./dist/extraction-audit.d.ts",
+      "import": "./dist/extraction-audit.mjs",
+      "require": "./dist/extraction-audit.js"
+    },
     "./policy-taxonomy": {
       "types": "./dist/policy-taxonomy.d.ts",
       "import": "./dist/policy-taxonomy.mjs",

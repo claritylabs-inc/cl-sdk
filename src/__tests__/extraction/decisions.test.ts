@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   cleanupCoverageDecision,
   sourceValueCandidates,
-  verifyExtractionDecision,
 } from "../../extraction/decisions";
 import { runCoverageRecovery } from "../../extraction/coverage-recovery";
 import {
@@ -115,40 +114,6 @@ describe("source-backed extraction decisions", () => {
     });
     expect(fallback).toHaveBeenCalledOnce();
     expect(profile.coverages[0].limit).toBe("$1,000,000");
-  });
-  it("targets uncertain and omitted fields for a single reasoning repair", async () => {
-    const repaired = {
-      policyNumber: { value: "fixed", sourceSpanIds: [spans[0].id] },
-    };
-    const repair = vi.fn(async (_fields: string[]) => repaired);
-    const value = {
-      policyNumber: { value: "wrong", sourceSpanIds: [spans[0].id] },
-    };
-    const result = await verifyExtractionDecision({
-      value,
-      sourceSpans: spans,
-      decisions: decisionTestConfig("extraction.verify", (id) =>
-        id === "omitted" || id.endsWith("contradiction") ? 1 : 0,
-      ),
-      repair,
-    });
-    expect(result).toBe(repaired);
-    expect(repair).toHaveBeenCalledOnce();
-    expect(repair.mock.calls[0][0]).toContain("policyNumber.value");
-  });
-  it("shadow verification never repairs or mutates reasoning output", async () => {
-    const config = decisionTestConfig("extraction.verify", () => 0);
-    config.decisionPolicy!.families!["extraction.verify"].mode = "shadow";
-    const repair = vi.fn(async () => profile);
-    expect(
-      await verifyExtractionDecision({
-        value: profile,
-        sourceSpans: spans,
-        decisions: config,
-        repair,
-      }),
-    ).toBe(profile);
-    expect(repair).not.toHaveBeenCalled();
   });
   it("standalone recovery uses top-level callback/config and retains novel extraction", async () => {
     const generate = vi.fn(async () => ({

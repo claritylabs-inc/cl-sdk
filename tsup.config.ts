@@ -6,6 +6,7 @@ export default defineConfig([
       index: "src/index.ts",
       application: "src/application/index.ts",
       decisions: "src/decisions.ts",
+      "extraction-audit": "src/extraction-audit.ts",
       "policy-taxonomy": "src/policy-taxonomy.ts",
     },
     format: ["cjs", "esm"],

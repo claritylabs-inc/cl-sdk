@@ -23,6 +23,7 @@ import {
   type ExtractionSectionStore,
 } from "./source-tree-extractor";
 import type { CoverageRecoveryDiagnostics } from "./coverage-recovery";
+import type { ExtractionAuditOptions, ExtractionEvidenceAudit } from "./evidence-audit";
 
 export interface ExtractorConfig extends DecisionConfig {
   generateObject: GenerateObject;
@@ -38,6 +39,7 @@ export interface ExtractorConfig extends DecisionConfig {
 }
 
 export interface ExtractionResult {
+  evidenceAudit?: ExtractionEvidenceAudit;
   protocolVersion?: ExtractionProtocolVersion;
   extractorVersion?: string;
   sections?: ExtractionSectionResult[];
@@ -61,6 +63,7 @@ export interface ExtractionResult {
 }
 
 export interface ExtractOptions {
+  evidenceAudit?: ExtractionAuditOptions;
   /** Caller-provided raw source spans for this document, reused for evidence grounding and optional persistence. */
   sourceSpans?: SourceSpan[];
   /** Opt in to document-wide semantic coverage, schedule, and financial recovery. */
@@ -169,6 +172,15 @@ export function createExtractor(config: ExtractorConfig) {
     if (sourceSpans.length > 0) {
       onProgress?.("Building source-native document tree...");
       const v3 = await runSourceTreeExtraction({
+        evidenceAudit: options?.evidenceAudit,
+        originalSourceSpans: [...(doclingDocument?.sourceSpans ?? []), ...(options?.sourceSpans ?? [])],
+        auditProviderOptions: isDoclingInput ? providerOptions : {
+          ...providerOptions,
+          ...(typeof input === "string" ? { pdfBase64: input }
+            : input instanceof URL ? { pdfUrl: input }
+            : input instanceof Uint8Array ? { pdfBytes: input }
+            : { fileId: (input as { fileId: string }).fileId }),
+        },
         decisions: config,
         id,
         sourceSpans,
@@ -196,7 +208,7 @@ export function createExtractor(config: ExtractorConfig) {
       const reviewReport: ExtractionReviewReport = {
         issues: v3.warnings.map((warning) => ({
           code: "source_tree_warning",
-          severity: "warning" as const,
+          severity: v3.evidenceAudit?.status === "unresolved" && warning.startsWith("Extraction evidence audit") ? "blocking" as const : "warning" as const,
           message: warning,
         })),
         rounds: [],
@@ -207,13 +219,14 @@ export function createExtractor(config: ExtractorConfig) {
         ],
         reviewRoundRecords: [],
         formInventory: sourceTreeFormInventory,
-        qualityGateStatus: v3.warnings.length > 0 ? "warning" : "passed",
+        qualityGateStatus: v3.evidenceAudit?.status === "unresolved" ? "failed" : v3.warnings.length > 0 ? "warning" : "passed",
       };
       if (shouldFailQualityGate(qualityGate, reviewReport.qualityGateStatus)) {
         throw new Error("Extraction quality gate failed. See reviewReport for blocking issues.");
       }
       onProgress?.("Source-tree extraction complete.");
       return {
+        evidenceAudit: v3.evidenceAudit,
         protocolVersion: v3.protocolVersion,
         extractorVersion: v3.extractorVersion,
         sections: v3.sections,

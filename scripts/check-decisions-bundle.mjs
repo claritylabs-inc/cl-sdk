@@ -69,3 +69,39 @@ assert.equal(await browser.runDecision({
   fallback: async () => { throw new Error("Valid active decision must be accepted"); },
 }), accepted);
 console.log("Decision subpath: browser bundle has no external imports; browser execution and ESM/CJS exports passed.");
+
+// The audit entry may bundle Zod, but it must not import Node/PDF/provider code.
+const auditBundle = await build({
+  stdin: {
+    contents: 'export * from "@claritylabs/cl-sdk/extraction-audit";',
+    resolveDir: process.cwd(),
+  },
+  bundle: true,
+  platform: "browser",
+  format: "iife",
+  globalName: "audit",
+  write: false,
+  metafile: true,
+});
+for (const output of Object.values(auditBundle.metafile.outputs)) {
+  assert.deepEqual(output.imports, [], "Audit browser bundle must have no external imports");
+}
+const auditContext = { AbortController, setTimeout, clearTimeout, TextEncoder };
+runInNewContext(auditBundle.outputFiles[0].text, auditContext);
+const auditEsm = await import("@claritylabs/cl-sdk/extraction-audit");
+const auditCjs = createRequire(import.meta.url)("@claritylabs/cl-sdk/extraction-audit");
+for (const name of Object.keys(auditEsm)) {
+  assert.equal(typeof auditContext.audit[name], typeof auditEsm[name]);
+  assert.equal(typeof auditCjs[name], typeof auditEsm[name]);
+}
+for (const name of ["auditExtractionEvidence", "parseExtractionEvidenceAudit", "validateExtractionAuditBinding"]) {
+  assert.equal(typeof auditContext.audit[name], "function");
+}
+const auditSmoke = await auditContext.audit.auditExtractionEvidence({
+  profile: { documentType: "policy", linesOfBusiness: [], sourceSpanIds: [], sourceNodeIds: [],
+    declarationFacts: [], coverages: [], parties: [], endorsementSupport: [], warnings: [] },
+  sourceSpans: [], sourceTree: [],
+});
+assert.equal(auditSmoke.audit.status, "not_run");
+assert.equal(auditSmoke.audit.visualCompleteness, "not_assessed");
+console.log("Extraction audit subpath: browser bundle, execution, and ESM/CJS exports passed.");
