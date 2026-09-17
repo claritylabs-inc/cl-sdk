@@ -1,3 +1,10 @@
+## [4.7.1](https://github.com/claritylabs-inc/cl-sdk/compare/v4.7.0...v4.7.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* expose dependency-free decision subpath ([4e48041](https://github.com/claritylabs-inc/cl-sdk/commit/4e4804139e8ca1b4e1b27105dab763389d730b8e))
+
 # [4.7.0](https://github.com/claritylabs-inc/cl-sdk/compare/v4.6.0...v4.7.0) (2026-09-17)
 
 
