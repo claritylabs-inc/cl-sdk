@@ -1,7 +1,16 @@
+import {
+  lookupMatchesDecision,
+  type ApplicationDecisionConfig,
+} from "../decisions";
 import type { GenerateObject, TokenUsage } from "../../core/types";
 import { withRetry } from "../../core/retry";
 import { buildLookupFillPrompt } from "../../prompts/application/pdf-mapping";
-import { LookupFillResultSchema, type LookupFillResult, type LookupRequest, type ApplicationField } from "../../schemas/application";
+import {
+  LookupFillResultSchema,
+  type LookupFillResult,
+  type LookupRequest,
+  type ApplicationField,
+} from "../../schemas/application";
 
 /**
  * Fill fields from company records / policy data based on lookup requests.
@@ -14,30 +23,42 @@ export async function fillFromLookup(
   generateObject: GenerateObject,
   providerOptions?: Record<string, unknown>,
   maxTokens = 4096,
+  decisions: ApplicationDecisionConfig = {},
 ): Promise<{ result: LookupFillResult; usage?: TokenUsage }> {
-  const requestSummaries = requests.map((r) => ({
-    type: r.type,
-    description: r.description,
-    targetFieldIds: r.targetFieldIds,
-  }));
+  return lookupMatchesDecision(
+    targetFields,
+    availableData,
+    decisions,
+    async () => {
+      const requestSummaries = requests.map((r) => ({
+        type: r.type,
+        description: r.description,
+        targetFieldIds: r.targetFieldIds,
+      }));
 
-  const fieldSummaries = targetFields.map((f) => ({
-    id: f.id,
-    label: f.label,
-    fieldType: f.fieldType,
-  }));
+      const fieldSummaries = targetFields.map((f) => ({
+        id: f.id,
+        label: f.label,
+        fieldType: f.fieldType,
+      }));
 
-  const prompt = buildLookupFillPrompt(requestSummaries, fieldSummaries, availableData);
+      const prompt = buildLookupFillPrompt(
+        requestSummaries,
+        fieldSummaries,
+        availableData,
+      );
 
-  const { object, usage } = await withRetry(() =>
-    generateObject({
-      prompt,
-      schema: LookupFillResultSchema,
-      maxTokens,
-      taskKind: "application_lookup",
-      providerOptions,
-    }),
+      const { object, usage } = await withRetry(() =>
+        generateObject({
+          prompt,
+          schema: LookupFillResultSchema,
+          maxTokens,
+          taskKind: "application_lookup",
+          providerOptions,
+        }),
+      );
+
+      return { result: object as LookupFillResult, usage };
+    },
   );
-
-  return { result: object as LookupFillResult, usage };
 }

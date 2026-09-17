@@ -213,3 +213,9 @@ export { getExtractor } from "./prompts/extractors/index";
 export type { ExtractorDef } from "./prompts/extractors/index";
 export { getTemplate } from "./prompts/templates/index";
 export type { DocumentTemplate } from "./prompts/templates/index";
+
+export * from "./core/decisions";
+export * from "./core/decision-questions";
+
+export * from "./core/decision-validation";
+export * from "./core/decision-evaluation";

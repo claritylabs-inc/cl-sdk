@@ -1,3 +1,4 @@
+import type { DecisionConfig } from "../core/decisions";
 import type { GenerateText, GenerateObject, TokenUsage, LogFn } from "../core/types";
 import type { QualityGateMode } from "../core/quality";
 import type { ModelBudgetConstraint, ModelCapabilities, ModelTaskKind } from "../core/model-budget";
@@ -15,7 +16,7 @@ import type { ApplicationStore, ApplicationTemplateStore, BackfillProvider } fro
 import type { ApplicationQualityReport } from "./quality";
 import type { SourceSpan } from "../source";
 
-export interface ApplicationPipelineConfig {
+export interface ApplicationPipelineConfig extends DecisionConfig {
   generateText: GenerateText;
   generateObject: GenerateObject;
 

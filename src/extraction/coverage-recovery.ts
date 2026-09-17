@@ -1,3 +1,6 @@
+import { decisionJson, decisionOptions, runDecision, type DecisionConfig } from "../core/decisions";
+import { noulQuestion } from "../core/decision-questions";
+import type { ExtractionDecisionConfig } from "./decisions";
 import { z } from "zod";
 import type { GenerateObject, LogFn, PerformanceReport, TokenUsage } from "../core/types";
 import { resolveModelBudget } from "../core/model-budget";
@@ -736,52 +739,119 @@ export function disabledCoverageRecoveryDiagnostics(): CoverageRecoveryDiagnosti
 }
 
 export async function recoverOperationalProfileCoverage(params: {
+  decisions?: ExtractionDecisionConfig;
   sourceTree: DocumentSourceNode[];
   sourceSpans: SourceSpan[];
   operationalProfile: PolicyOperationalProfile;
   generateObject: GenerateObject;
   providerOptions?: Record<string, unknown>;
-  resolveBudget: (taskKind: ModelTaskKind, hintTokens: number) => ModelBudgetResolution;
+  resolveBudget: (
+    taskKind: ModelTaskKind,
+    hintTokens: number,
+  ) => ModelBudgetResolution;
   trackUsage: TrackUsage;
   log?: (message: string) => Promise<void>;
-}): Promise<{ operationalProfile: PolicyOperationalProfile; diagnostics: CoverageRecoveryDiagnostics }> {
+}): Promise<{
+  operationalProfile: PolicyOperationalProfile;
+  diagnostics: CoverageRecoveryDiagnostics;
+}> {
   const diagnostics = emptyDiagnostics("succeeded");
   try {
     const pages = documentPages(params.sourceTree, params.sourceSpans);
     const discoveredRegions: RecoveryRegion[] = [];
-    for (const [batchIndex, pageBatch] of chunkValues(pages, DISCOVERY_PAGE_BATCH_SIZE).entries()) {
-      const sketches = pageBatch.map((page) => pageSketch(page, params.sourceTree, params.sourceSpans));
-      const budget = params.resolveBudget("extraction_coverage_recovery", 8_192);
-      const startedAt = Date.now();
-      diagnostics.modelCallCount += 1;
-      const response = await safeGenerateObject(
-        params.generateObject,
-        {
-          prompt: discoveryPrompt(sketches),
-          schema: RecoveryRegionDiscoverySchema,
-          maxTokens: budget.maxTokens,
-          taskKind: "extraction_coverage_recovery",
-          budgetDiagnostics: budget,
-          providerOptions: params.providerOptions,
-          trace: {
-            phase: "coverage_recovery_discovery",
-            label: "coverage_recovery_discovery",
-            startPage: pageBatch[0],
-            endPage: pageBatch[pageBatch.length - 1],
-            batchIndex: batchIndex + 1,
-            batchCount: Math.ceil(pages.length / DISCOVERY_PAGE_BATCH_SIZE),
-            sourceBacked: true,
-          },
-        },
-        { maxRetries: 0, log: params.log, retry: false },
+    for (const [batchIndex, pageBatch] of chunkValues(
+      pages,
+      DISCOVERY_PAGE_BATCH_SIZE,
+    ).entries()) {
+      const sketches = pageBatch.map((page) =>
+        pageSketch(page, params.sourceTree, params.sourceSpans),
       );
-      params.trackUsage(response.usage, {
-        taskKind: "extraction_coverage_recovery",
-        label: "coverage_recovery_discovery",
-        maxTokens: budget.maxTokens,
-        durationMs: Date.now() - startedAt,
+      const budget = params.resolveBudget(
+        "extraction_coverage_recovery",
+        8_192,
+      );
+      const startedAt = Date.now();
+      const discovery = await runDecision<
+        z.infer<typeof RecoveryRegionDiscoverySchema>
+      >({
+        ...decisionOptions(params.decisions ?? {}),
+        family: "extraction.recovery_regions",
+        state: decisionJson({
+          sketches,
+          sourceSpans: params.sourceSpans.filter((span) =>
+            overlapsPageRange(
+              { pageStart: spanPageStart(span), pageEnd: spanPageEnd(span) },
+              pageBatch[0] - 1,
+              pageBatch[pageBatch.length - 1] + 1,
+            ),
+          ),
+        }),
+        questions: Object.fromEntries(
+          pageBatch.map((page) => [
+            `p${page}`,
+            noulQuestion({
+              question:
+                "Does this page contain or continue any coverage, coverage schedule, limits, deductibles, premiums, taxes, fees or other financial policy facts requiring extraction? Include modifying endorsements and continuation rows.",
+              page,
+            }),
+          ]),
+        ),
+        accept: (answers) => ({
+          regions: pageBatch.flatMap((page) => {
+            const a = answers[`p${page}`];
+            return a.type === "noul" && a.noul > 0.5
+              ? [
+                  {
+                    pageStart: Math.max(pages[0], page - 1),
+                    pageEnd: Math.min(pages[pages.length - 1], page + 1),
+                    reason:
+                      "Source-backed decision selected coverage/financial region",
+                    sourceNodeIds: [],
+                    sourceSpanIds: [],
+                  },
+                ]
+              : [];
+          }),
+          warnings: [],
+        }),
+        onUsage: (usage) => {
+          diagnostics.modelCallCount += 1;
+          params.trackUsage(usage);
+        },
+        fallback: async () => {
+          diagnostics.modelCallCount += 1;
+          const response = await safeGenerateObject(
+            params.generateObject,
+            {
+              prompt: discoveryPrompt(sketches),
+              schema: RecoveryRegionDiscoverySchema,
+              maxTokens: budget.maxTokens,
+              taskKind: "extraction_coverage_recovery",
+              budgetDiagnostics: budget,
+              providerOptions: params.providerOptions,
+              trace: {
+                phase: "coverage_recovery_discovery",
+                label: "coverage_recovery_discovery",
+                startPage: pageBatch[0],
+                endPage: pageBatch[pageBatch.length - 1],
+                batchIndex: batchIndex + 1,
+                batchCount: Math.ceil(pages.length / DISCOVERY_PAGE_BATCH_SIZE),
+                sourceBacked: true,
+              },
+            },
+            { maxRetries: 0, log: params.log, retry: false },
+          );
+          params.trackUsage(response.usage, {
+            taskKind: "extraction_coverage_recovery",
+            label: "coverage_recovery_discovery",
+            maxTokens: budget.maxTokens,
+            durationMs: Date.now() - startedAt,
+          });
+          return response.object as z.infer<
+            typeof RecoveryRegionDiscoverySchema
+          >;
+        },
       });
-      const discovery = response.object as z.infer<typeof RecoveryRegionDiscoverySchema>;
       discoveredRegions.push(...discovery.regions);
       diagnostics.warnings.push(...discovery.warnings);
     }
@@ -790,11 +860,22 @@ export async function recoverOperationalProfileCoverage(params: {
     diagnostics.regionCount = regions.length;
     let operationalProfile = params.operationalProfile;
     for (const [regionIndex, region] of regions.entries()) {
-      const evidence = regionEvidence(region, params.sourceTree, params.sourceSpans);
+      const evidence = regionEvidence(
+        region,
+        params.sourceTree,
+        params.sourceSpans,
+      );
       const batches = evidenceBatches(evidence);
-      const context = priorStructuralContext(region, params.sourceTree, params.sourceSpans);
+      const context = priorStructuralContext(
+        region,
+        params.sourceTree,
+        params.sourceSpans,
+      );
       for (const [batchIndex, batch] of batches.entries()) {
-        const budget = params.resolveBudget("extraction_coverage_recovery", 12_288);
+        const budget = params.resolveBudget(
+          "extraction_coverage_recovery",
+          12_288,
+        );
         const startedAt = Date.now();
         diagnostics.modelCallCount += 1;
         const response = await safeGenerateObject(
@@ -836,12 +917,17 @@ export async function recoverOperationalProfileCoverage(params: {
           params.sourceSpans,
         );
         diagnostics.citationRejectionCount += validated.citationRejectionCount;
-        const merged = mergeRecoveryCandidate(operationalProfile, validated.candidate, params.sourceSpans);
+        const merged = mergeRecoveryCandidate(
+          operationalProfile,
+          validated.candidate,
+          params.sourceSpans,
+        );
         operationalProfile = merged.operationalProfile;
         diagnostics.recoveredCoverageCount += merged.recoveredCoverageCount;
         diagnostics.recoveredTermCount += merged.recoveredTermCount;
         diagnostics.recoveredScheduleCount += merged.recoveredScheduleCount;
-        diagnostics.recoveredFinancialFactCount += merged.recoveredFinancialFactCount;
+        diagnostics.recoveredFinancialFactCount +=
+          merged.recoveredFinancialFactCount;
         diagnostics.warnings.push(...merged.warnings);
       }
     }
@@ -858,34 +944,38 @@ export async function recoverOperationalProfileCoverage(params: {
   }
 }
 
-export async function runCoverageRecovery(params: {
-  sourceTree: DocumentSourceNode[];
-  sourceSpans: SourceSpan[];
-  operationalProfile: PolicyOperationalProfile;
-  generateObject: GenerateObject;
-  providerOptions?: Record<string, unknown>;
-  modelCapabilities?: ModelCapabilities;
-  modelBudgetConstraint?: ModelBudgetConstraint;
-  onTokenUsage?: (usage: TokenUsage) => void;
-  log?: LogFn;
-}): Promise<CoverageRecoveryResult> {
+export async function runCoverageRecovery(
+  params: DecisionConfig & {
+    sourceTree: DocumentSourceNode[];
+    sourceSpans: SourceSpan[];
+    operationalProfile: PolicyOperationalProfile;
+    generateObject: GenerateObject;
+    providerOptions?: Record<string, unknown>;
+    modelCapabilities?: ModelCapabilities;
+    modelBudgetConstraint?: ModelBudgetConstraint;
+    onTokenUsage?: (usage: TokenUsage) => void;
+    log?: LogFn;
+  },
+): Promise<CoverageRecoveryResult> {
   const tokenUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
   const performanceReport: PerformanceReport = {
     modelCalls: [],
     totalModelCallDurationMs: 0,
   };
   const recovery = await recoverOperationalProfileCoverage({
+    decisions: params,
     sourceTree: params.sourceTree,
     sourceSpans: params.sourceSpans,
     operationalProfile: params.operationalProfile,
     generateObject: params.generateObject,
     providerOptions: params.providerOptions,
-    resolveBudget: (taskKind, hintTokens) => resolveModelBudget({
-      taskKind,
-      hintTokens,
-      modelCapabilities: params.modelCapabilities,
-      constraint: params.modelBudgetConstraint,
-    }),
+    resolveBudget: (taskKind, hintTokens) =>
+      resolveModelBudget({
+        taskKind,
+        hintTokens,
+        modelCapabilities: params.modelCapabilities,
+        constraint: params.modelBudgetConstraint,
+      }),
     trackUsage: (usage, report) => {
       if (usage) {
         tokenUsage.inputTokens += usage.inputTokens;

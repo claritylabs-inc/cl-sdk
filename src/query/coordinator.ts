@@ -1,3 +1,4 @@
+import { classifyQueryDecision } from "./decisions";
 import type { GenerateObject, TokenUsage } from "../core/types";
 import type { ModelTaskKind } from "../core/model-budget";
 import { resolveModelBudget } from "../core/model-budget";
@@ -110,6 +111,7 @@ export function createQueryAgent(config: QueryConfig) {
     });
 
     const retrieverConfig: RetrieverConfig = {
+      decide: config.decide, decisionPolicy: config.decisionPolicy, onDecision: config.onDecision, onDecisionUsage: trackUsage,
       documentStore,
       memoryStore,
       sourceRetriever,
@@ -186,7 +188,8 @@ export function createQueryAgent(config: QueryConfig) {
 
     // -- Phase 4: Verify (with retry loop) --
     onProgress?.("Verifying answer grounding...");
-    const verifierConfig: VerifierConfig = { generateObject, providerOptions, modelCapabilities, modelBudgetConstraints };
+    const verifierConfig: VerifierConfig = {
+      decide: config.decide, decisionPolicy: config.decisionPolicy, onDecision: config.onDecision, onDecisionUsage: trackUsage, generateObject, providerOptions, modelCapabilities, modelBudgetConstraints };
 
     const verifyRounds: QueryVerifyRoundRecord[] = [];
     for (let round = 0; round < maxVerifyRounds; round++) {
@@ -356,6 +359,7 @@ export function createQueryAgent(config: QueryConfig) {
       requiresConversationHistory: !!conversationId,
       retrievalMode: sourceRetriever ? "hybrid" : "graph_only",
     };
+    return classifyQueryDecision({ question, conversationContext, attachmentContext, hasSourceRetriever: !!sourceRetriever, config, onUsage: trackUsage, fallback: async () => {
     const budget = resolveBudget("query_classify", 2048);
     try {
       const { object, usage } = await safeGenerateObject(
@@ -383,9 +387,10 @@ export function createQueryAgent(config: QueryConfig) {
       );
       return fallback;
     }
+    }});
   }
 
-  /** Verify with fallback — if verification itself fails, approve and move on. */
+  /** Verification failure remains explicit and requests targeted reasoning. */
   async function safeVerify(
     originalQuestion: string,
     subAnswers: SubAnswer[],
@@ -395,8 +400,8 @@ export function createQueryAgent(config: QueryConfig) {
     try {
       return await verify(originalQuestion, subAnswers, allEvidence, verifierConfig);
     } catch (error) {
-      await log?.(`Verification failed, approving by default: ${error instanceof Error ? error.message : String(error)}`);
-      return { result: { approved: true, issues: [] } };
+      await log?.(`Verification failed; grounding remains unverified: ${error instanceof Error ? error.message : String(error)}`);
+      return { result: { approved: false, issues: ["Verification unavailable; grounding remains unverified"], retrySubQuestions: subAnswers.map(answer => answer.subQuestion) } };
     }
   }
 

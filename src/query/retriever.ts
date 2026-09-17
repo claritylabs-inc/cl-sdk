@@ -1,3 +1,6 @@
+import type { DecisionConfig } from "../core/decisions";
+import type { TokenUsage } from "../core/types";
+import { rankEvidenceDecision } from "./decisions";
 import type { DocumentStore, MemoryStore } from "../storage/interfaces";
 import type { SubQuestion, EvidenceItem, RetrievalResult } from "../schemas/query";
 import type { QueryRetrievalMode } from "../schemas/query";
@@ -10,7 +13,8 @@ function recordToKVArray(record: Record<string, string>): Array<{ key: string; v
   return Object.entries(record).map(([key, value]) => ({ key, value }));
 }
 
-export interface RetrieverConfig {
+export interface RetrieverConfig extends DecisionConfig {
+  onDecisionUsage?: (usage?: TokenUsage) => void;
   documentStore: DocumentStore;
   memoryStore: MemoryStore;
   sourceRetriever?: SourceRetriever;
@@ -224,7 +228,7 @@ export async function retrieve(
 
   return {
     subQuestion: subQuestion.question,
-    evidence: orderedEvidence.slice(0, retrievalLimit),
+    evidence: await rankEvidenceDecision(subQuestion.question, orderedEvidence.slice(0, retrievalLimit), config, config.onDecisionUsage),
   };
 }
 
