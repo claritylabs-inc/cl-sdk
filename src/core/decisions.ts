@@ -4,7 +4,6 @@ import {
   parseDecideResponse,
   validateDecisionAnswers,
 } from "./decision-validation";
-import type { TokenUsage } from "./types";
 
 export type DecisionJson =
   | string
@@ -63,7 +62,7 @@ export interface DecideResponse {
   parentRequestId?: string;
   model: string;
   answers: Record<string, DecisionAnswer>;
-  usage: TokenUsage;
+  usage: { inputTokens: number; outputTokens: number };
   cost: { status: "priced" | "unpriced"; costNanoUsd: number | null };
   durationMs: number;
 }
@@ -115,7 +114,7 @@ export interface RunDecisionOptions<T> {
   ) => readonly string[];
   fallback: () => Promise<T>;
   onDecision?: (event: DecisionEvent) => void;
-  onUsage?: (usage?: TokenUsage) => void;
+  onUsage?: (usage?: DecideResponse["usage"]) => void;
   signal?: AbortSignal;
 }
 const probability = (v: number) => Number.isFinite(v) && v >= 0 && v <= 1;

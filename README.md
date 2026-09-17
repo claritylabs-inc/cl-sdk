@@ -178,4 +178,4 @@ Apache-2.0
 
 Extraction, query, application, and standalone coverage recovery accept a provider-agnostic `decide` callback with `decisionPolicy` and `onDecision`. The default preserves existing reasoning. Shadow mode records proposals; active families require calibrated thresholds and evaluation identifiers. Structured questions preserve nested JSON, and uncertain decisions return to reasoning without weakening source coverage or citation checks.
 
-The root exports `runDecision<T>` for host workflows, canonical decision types and validators, structured question builders, and `evaluateDecisionGate`. See [structured decisions](DECISIONS.md) for adapters, policy controls, eligible callsites, and acceptance requirements.
+Import `runDecision<T>`, canonical decision types and validators, structured question builders, and `evaluateDecisionGate` from `@claritylabs/cl-sdk/decisions` in browsers and non-Node Convex modules. These primitives also remain exported from the root. See [structured decisions](DECISIONS.md) for adapters, policy controls, eligible callsites, and acceptance requirements.

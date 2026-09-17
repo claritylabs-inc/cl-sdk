@@ -94,6 +94,7 @@ When Glass needs a new SDK behavior, push the SDK release branch first and let t
 ### Optional structured decisions
 
 - `core/decisions.ts` owns provider-agnostic `Decide`, `DecisionPolicy`, `parseDecisionPolicy`, and `runDecision<T>`. No router dependency, credentials, or fixed Jev model belongs in the SDK.
+- `@claritylabs/cl-sdk/decisions` is the dedicated browser/Convex-safe entry for decision primitives. Keep its runtime graph limited to the core decision modules; root imports can include Node PDF helpers. Run `npm run test:decisions-bundle` to verify the public package boundary.
 - `DecideRequest` is the canonical wire shape with required tenant ID. Local `DecisionInput` omits tenancy for a host closure and adds a nonserialized AbortSignal. Responses preserve model version, usage, priced/unpriced cost, and lineage.
 - Structured instructions/criteria are JSON entries, never flattened prompt strings. Choice/Score distributions and Noul probabilities remain distinct. `accept` runs only in active mode and is a pure projection; shadow validates eligibility and executes fallback. Side effects belong after the cascade returns.
 - Legacy is default. Shadow always returns the existing result. Active families require an evaluation ID and calibrated threshold; synthetic tests cannot qualify activation. Family overrides take precedence over global mode.

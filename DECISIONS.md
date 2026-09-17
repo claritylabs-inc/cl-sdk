@@ -2,8 +2,11 @@
 
 CL-SDK accepts an optional `decide` callback on `createExtractor`, `createQueryAgent`, `createApplicationPipeline`, and standalone `runCoverageRecovery`. Hosts supply transport, tenant context, and reasoning callbacks. The SDK has no router dependency, provider credential, or fixed model dependency.
 
+Import decision primitives from `@claritylabs/cl-sdk/decisions` in browsers and non-Node Convex modules. This dedicated entry exports the cascade, policy parser, wire types and validators, question builders, and evaluation gate without Node or provider dependencies. Root exports remain available for existing consumers.
+
 ```ts
-import { createExtractor, parseDecisionPolicy, type Decide } from "@claritylabs/cl-sdk";
+import { createExtractor } from "@claritylabs/cl-sdk";
+import { parseDecisionPolicy, type Decide } from "@claritylabs/cl-sdk/decisions";
 
 const decide: Decide = async ({ signal, ...request }) => {
   return decisionClient.decide({ ...request, tenantId }, { signal });
