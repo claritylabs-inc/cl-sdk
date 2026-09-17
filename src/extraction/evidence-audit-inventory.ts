@@ -1,4 +1,4 @@
-import { z } from "zod";
+import type { z } from "zod";
 import { InsuranceDocumentSchema } from "../schemas/document";
 import {
   PolicyOperationalProfileSchema,
@@ -25,7 +25,6 @@ const metadataKeys = new Set([
   "warnings",
   "sourceTreeVersion",
   "sourceTreeCanonical",
-  "agentGuidance",
   "extractorNames",
 ]);
 export interface AuditFact {
@@ -39,6 +38,13 @@ export interface AuditFact {
 const pointer = (key: string) => key.replace(/~/g, "~0").replace(/\//g, "~1");
 
 export function inventoryExtractionEvidence(binding: ExtractionAuditBinding) {
+  assertAuditJson({
+    profile: binding.profile,
+    document: binding.document,
+    sourceSpans: binding.sourceSpans,
+    sourceTree: binding.sourceTree,
+    originalSourceSpans: binding.originalSourceSpans,
+  });
   const spans = new Map(binding.sourceSpans.map((span) => [span.id, span]));
   const nodes = new Map(binding.sourceTree.map((node) => [node.id, node]));
   const issues: ExtractionAuditIssue[] = [];
@@ -47,7 +53,7 @@ export function inventoryExtractionEvidence(binding: ExtractionAuditBinding) {
   const unrepresented = (binding.originalSourceSpans ?? []).filter(
     (span) =>
       !binding.sourceSpans.some(
-        (candidate) => candidate.id === span.id && candidate.text === span.text,
+        (candidate) => stableHash(candidate) === stableHash(span),
       ),
   );
   const units = [...binding.sourceSpans, ...unrepresented];
@@ -64,6 +70,8 @@ export function inventoryExtractionEvidence(binding: ExtractionAuditBinding) {
     binding.sourceSpans.map((span) => span.documentId),
   );
   if (documentIds.size !== 1) issue("invalid_source_identity", "source");
+  if (binding.document && !documentIds.has(binding.document.id))
+    issue("invalid_source_identity", "document");
   for (const span of binding.sourceSpans) {
     if (
       span.hash !== sourceSpanTextHash(span.text) ||
@@ -107,16 +115,26 @@ export function inventoryExtractionEvidence(binding: ExtractionAuditBinding) {
       );
     } else if (value && typeof value === "object") {
       const record = value as Record<string, unknown>;
-      const spanIds = Array.isArray(record.sourceSpanIds)
-        ? record.sourceSpanIds
-        : [];
+      const own = (key: string) =>
+        Object.prototype.hasOwnProperty.call(record, key);
+      const spanIds =
+        own("sourceSpanIds") && Array.isArray(record.sourceSpanIds)
+          ? record.sourceSpanIds
+          : [];
       const nodeIds = [
-        ...(Array.isArray(record.sourceNodeIds) ? record.sourceNodeIds : []),
-        ...(typeof record.documentNodeId === "string"
+        ...(own("sourceNodeIds") && Array.isArray(record.sourceNodeIds)
+          ? record.sourceNodeIds
+          : []),
+        ...(own("documentNodeId") && typeof record.documentNodeId === "string"
           ? [record.documentNodeId]
           : []),
       ];
       const ownValid =
+        (!own("sourceSpanIds") || Array.isArray(record.sourceSpanIds)) &&
+        (!own("sourceNodeIds") || Array.isArray(record.sourceNodeIds)) &&
+        (!own("documentNodeId") ||
+          record.documentNodeId === undefined ||
+          typeof record.documentNodeId === "string") &&
         spanIds.every((id) => typeof id === "string" && spans.has(id)) &&
         nodeIds.every((id) => typeof id === "string" && nodes.has(id));
       const refs = [
@@ -207,24 +225,33 @@ export function auditSchemaCatalog(includeDocument: boolean): string[] {
       return;
     }
     const next = new Set(ancestors).add(schema);
-    if (schema instanceof z.ZodEffects)
-      return visit(schema.innerType(), path, next);
-    if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable)
-      return visit(schema.unwrap(), path, next);
-    if (schema instanceof z.ZodDefault)
-      return visit(schema.removeDefault(), path, next);
-    if (schema instanceof z.ZodLazy) return visit(schema.schema, path, next);
-    if (schema instanceof z.ZodObject) {
-      for (const [key, child] of Object.entries(schema.shape))
-        if (!metadataKeys.has(key))
-          visit(child as z.ZodTypeAny, `${path}/${key}`, next);
-    } else if (schema instanceof z.ZodArray)
-      visit(schema.element, `${path}/*`, next);
+    // Zod 3 uses typeName/schema; Zod 4 uses type/pipe. Avoid constructors
+    // removed by a supported peer version.
+    const def = schema._def as unknown as Record<string, unknown>;
+    const kind =
+      typeof def.typeName === "string"
+        ? def.typeName.slice(3).toLowerCase()
+        : def.type;
+    const child = (value: unknown, childPath = path) =>
+      visit(value as z.ZodTypeAny, childPath, next);
+    if (kind === "effects") child(def.schema);
+    else if (kind === "pipe") child(def.out);
     else if (
-      schema instanceof z.ZodUnion ||
-      schema instanceof z.ZodDiscriminatedUnion
-    ) {
-      for (const option of schema.options) visit(option, path, next);
+      ["optional", "nullable", "default", "readonly", "catch"].includes(
+        String(kind),
+      )
+    )
+      child(def.innerType);
+    else if (kind === "lazy") child((def.getter as () => unknown)());
+    else if (kind === "object") {
+      const shape = typeof def.shape === "function" ? def.shape() : def.shape;
+      for (const [key, value] of Object.entries(
+        shape as Record<string, unknown>,
+      ))
+        if (!metadataKeys.has(key)) child(value, `${path}/${key}`);
+    } else if (kind === "array") child(def.element ?? def.type, `${path}/*`);
+    else if (kind === "union" || kind === "discriminatedunion") {
+      for (const option of def.options as unknown[]) child(option);
     } else paths.add(path);
   }
   visit(PolicyOperationalProfileSchema, "/profile", new Set());
@@ -234,4 +261,27 @@ export function auditSchemaCatalog(includeDocument: boolean): string[] {
 
 export function readableAuditSpan(span: SourceSpan): boolean {
   return span.kind !== "pdf_image" && span.text.trim().length > 0;
+}
+
+function assertAuditJson(value: unknown): void {
+  const ancestors = new Set<object>();
+  let visited = 0;
+  function visit(item: unknown, depth: number) {
+    if (++visited > 1_000_000 || depth > 64)
+      throw new Error("Extraction audit input exceeds structural bounds");
+    if (
+      item === undefined ||
+      item === null ||
+      typeof item === "string" ||
+      typeof item === "boolean"
+    )
+      return;
+    if (typeof item === "number" && Number.isFinite(item)) return;
+    if (typeof item !== "object" || ancestors.has(item))
+      throw new Error("Extraction audit requires acyclic JSON input");
+    ancestors.add(item);
+    for (const child of Object.values(item)) visit(child, depth + 1);
+    ancestors.delete(item);
+  }
+  visit(value, 0);
 }

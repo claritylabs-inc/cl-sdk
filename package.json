@@ -48,7 +48,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:decisions-bundle": "npm run build && node scripts/check-decisions-bundle.mjs",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:audit-peers": "npm run build && node scripts/check-audit-peers.mjs"
   },
   "peerDependencies": {
     "pdf-lib": ">=1.17.0",
