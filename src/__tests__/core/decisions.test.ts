@@ -396,3 +396,47 @@ describe("speculative branch acceptance", () => {
     expect(o.fallback).toHaveBeenCalledOnce();
   });
 });
+
+describe("shadow isolation and synchronous cancellation", () => {
+  it("never invokes domain accept in shadow while retaining usage and eligibility", async () => {
+    const o = options();
+    const accept = vi.fn(o.accept);
+    const onUsage = vi.fn();
+    const onDecision = vi.fn();
+    await runDecision({
+      ...o,
+      accept,
+      onUsage,
+      onDecision,
+      policy: { mode: "shadow" },
+    });
+    expect(accept).not.toHaveBeenCalled();
+    expect(o.fallback).toHaveBeenCalledOnce();
+    expect(onUsage).toHaveBeenCalledOnce();
+    expect(onDecision.mock.calls[0][0]).toMatchObject({
+      outcome: "shadow",
+      reason: "eligible",
+    });
+  });
+  it("rejects promptly when decide synchronously aborts then never settles", async () => {
+    const o = options();
+    const controller = new AbortController();
+    const pending = runDecision({
+      ...o,
+      signal: controller.signal,
+      decide: () => {
+        controller.abort();
+        return new Promise(() => {});
+      },
+    });
+    const outcome = await Promise.race([
+      pending.then(
+        () => "resolved",
+        () => "aborted",
+      ),
+      new Promise((resolve) => setTimeout(() => resolve("hung"), 30)),
+    ]);
+    expect(outcome).toBe("aborted");
+    expect(o.fallback).not.toHaveBeenCalled();
+  });
+});

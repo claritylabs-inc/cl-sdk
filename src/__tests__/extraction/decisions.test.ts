@@ -274,6 +274,13 @@ describe("cleanup bounded update integrity", () => {
           ? "drop"
           : keep(id),
     );
+    const decide = config.decide!;
+    config.decide = async (request) => {
+      const response = await decide(request);
+      const unusedKind = response.answers.c0_t1_kind;
+      if (unusedKind.type === "choice") unusedKind.confidence = 0.5;
+      return response;
+    };
     const result = await cleanupCoverageDecision({
       sourceTree: tree,
       sourceSpans: spans,

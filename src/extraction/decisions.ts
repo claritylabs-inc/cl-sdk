@@ -163,6 +163,11 @@ export async function cleanupCoverageDecision(params: {
       Object.keys(questions).filter((id) => {
         const prefix = id.split("_")[0];
         const action = answers[`${prefix}_action`];
+        if (/_t\d+_kind$/.test(id)) {
+          const termAction = answers[id.replace(/_kind$/, "_action")];
+          if (termAction.type === "choice" && termAction.choice === "drop")
+            return false;
+        }
         return (
           action.type !== "choice" ||
           action.choice !== "drop" ||
@@ -234,30 +239,30 @@ export async function cleanupCoverageDecision(params: {
         }
         decision.termDecisions = [];
         for (const [j, term] of coverage.limits.entries()) {
-          const kind = answers[`c${i}_t${j}_kind`];
           const termAction = answers[`c${i}_t${j}_action`];
           if (
-            kind.type !== "choice" ||
-            kind.choice === ABSTAIN ||
             termAction.type !== "choice" ||
             !["keep", "drop"].includes(termAction.choice)
           )
             return;
+          if (termAction.choice === "drop") {
+            decision.termDecisions.push({ termIndex: j, action: "drop" });
+            changed = true;
+            decision.action = "update";
+            continue;
+          }
+          const kind = answers[`c${i}_t${j}_kind`];
+          if (kind.type !== "choice" || kind.choice === ABSTAIN) return;
           const parsedKind = OPERATIONAL_COVERAGE_TERM_KINDS.find(
             (k) => k === kind.choice,
           );
           if (!parsedKind) return;
           decision.termDecisions.push({
             termIndex: j,
-            action:
-              termAction.choice === "drop"
-                ? "drop"
-                : parsedKind !== term.kind
-                  ? "update"
-                  : "keep",
+            action: parsedKind !== term.kind ? "update" : "keep",
             kind: parsedKind,
           });
-          if (parsedKind !== term.kind || termAction.choice === "drop") {
+          if (parsedKind !== term.kind) {
             changed = true;
             decision.action = "update";
           }

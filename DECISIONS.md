@@ -42,7 +42,7 @@ type DecisionPolicy = {
 
 Legacy is default. Shadow records a proposal and returns the existing result. Each active family needs an explicit calibrated threshold and evaluation ID. A global active mode does not qualify unlisted families. Family modes override global mode; rollback must clear active overrides or set those families to legacy. `parseDecisionPolicy(unknown)` rejects unknown fields, invalid modes/budgets, and incomplete active-family rules.
 
-`runDecision<T>({ decide, policy, family, state, questions, accept, fallback, onDecision, onUsage, signal, requiredQuestionIds })` exposes the same cascade for host workflows. `accept(answers)` returns `T` or `undefined`; `fallback()` returns `Promise<T>`. `accept` must be pure: shadow mode computes the proposal but never executes its action. It must enforce domain constraints such as citation integrity, source completeness, identity, freshness, eligibility and authorization.
+`runDecision<T>({ decide, policy, family, state, questions, accept, fallback, onDecision, onUsage, signal, requiredQuestionIds })` exposes the same cascade for host workflows. `accept(answers)` returns `T` or `undefined`; `fallback()` returns `Promise<T>`. `accept` runs only in active mode and must be a pure projection. Shadow validates the response and records threshold eligibility without invoking `accept`; it always executes fallback. It must enforce domain constraints such as citation integrity, source completeness, identity, freshness, eligibility and authorization.
 
 Optional `requiredQuestionIds(answers)` selects the nonempty set of consumed question IDs for confidence checks; by default all questions are required. Unused speculative answers may be uncertain, but their contract must still be valid.
 

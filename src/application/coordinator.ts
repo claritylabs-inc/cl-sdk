@@ -241,7 +241,12 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
               generateObject,
               providerOptions,
               resolveBudget("application_auto_fill", 4096).maxTokens,
-              { decide: config.decide, decisionPolicy: config.decisionPolicy, onDecision: config.onDecision, onDecisionUsage: trackUsage },
+              {
+                decide: config.decide,
+                decisionPolicy: config.decisionPolicy,
+                onDecision: config.onDecision,
+                onDecisionUsage: trackUsage,
+              },
             );
             trackUsage(afUsage);
 
@@ -387,7 +392,12 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
         generateObject,
         providerOptions,
         resolveBudget("application_classify", 1024).maxTokens,
-              { decide: config.decide, decisionPolicy: config.decisionPolicy, onDecision: config.onDecision, onDecisionUsage: trackUsage },
+        {
+          decide: config.decide,
+          decisionPolicy: config.decisionPolicy,
+          onDecision: config.onDecision,
+          onDecisionUsage: trackUsage,
+        },
       );
       trackUsage(intentUsage);
       intent = classifiedIntent;
@@ -421,7 +431,12 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
           generateObject,
           providerOptions,
           resolveBudget("application_parse_answers", 4096).maxTokens,
-              { decide: config.decide, decisionPolicy: config.decisionPolicy, onDecision: config.onDecision, onDecisionUsage: trackUsage },
+          {
+            decide: config.decide,
+            decisionPolicy: config.decisionPolicy,
+            onDecision: config.onDecision,
+            onDecisionUsage: trackUsage,
+          },
         );
         trackUsage(parseUsage);
 
@@ -472,7 +487,12 @@ export function createApplicationPipeline(config: ApplicationPipelineConfig) {
             generateObject,
             providerOptions,
             resolveBudget("application_lookup", 4096).maxTokens,
-              { decide: config.decide, decisionPolicy: config.decisionPolicy, onDecision: config.onDecision, onDecisionUsage: trackUsage },
+            {
+              decide: config.decide,
+              decisionPolicy: config.decisionPolicy,
+              onDecision: config.onDecision,
+              onDecisionUsage: trackUsage,
+            },
           );
           trackUsage(lookupUsage);
 

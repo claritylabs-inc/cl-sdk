@@ -215,26 +215,28 @@ export async function runDecision<T>(
     parseDecisionEntry(state);
     if (Object.keys(questions).length > 128) throw new Error("question_budget");
     Object.values(questions).forEach(parseDecisionQuestion);
+    const abortedOrTimedOut = new Promise<never>((_, reject) => {
+      controller.signal.addEventListener(
+        "abort",
+        () => reject(new Error("aborted_or_timeout")),
+        { once: true },
+      );
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeout);
+    });
     const rawResponse = await Promise.race([
-      decide({
-        state,
-        questions,
-        task: family,
-        executionBudgetMs: timeout,
-        signal: controller.signal,
-      }),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          timedOut = true;
-          controller.abort();
-          reject(new Error("timeout"));
-        }, timeout);
-        controller.signal.addEventListener(
-          "abort",
-          () => reject(new Error("aborted_or_timeout")),
-          { once: true },
-        );
-      }),
+      abortedOrTimedOut,
+      Promise.resolve().then(() =>
+        decide({
+          state,
+          questions,
+          task: family,
+          executionBudgetMs: timeout,
+          signal: controller.signal,
+        }),
+      ),
     ]);
     response = parseDecideResponse(rawResponse);
     try {
@@ -246,8 +248,7 @@ export async function runDecision<T>(
       reason = "malformed";
     else {
       const answers = response.answers;
-      const required =
-        requiredQuestionIds?.(answers) ?? Object.keys(questions);
+      const required = requiredQuestionIds?.(answers) ?? Object.keys(questions);
       if (
         !Array.isArray(required) ||
         !required.length ||
@@ -267,6 +268,7 @@ export async function runDecision<T>(
         })
       )
         reason = "low_confidence";
+      else if (mode === "shadow") reason = "eligible";
       else {
         selected = accept(response.answers);
         reason = selected === undefined ? "abstain_or_unsupported" : "accepted";
